@@ -49,6 +49,8 @@ Bestätigt durch `tests/security/test_container_runner.py` und `tests/integratio
 - **Ohne Docker oder Images** bleiben diese Werkzeuge aus der Allowlist und die Rezeptschritte mit `requires_tools` werden nicht geplant.
 - **Nicht Teil dieses ADR, weiter offen:** `apktool_decode`, `list_native_libs`, `extract_embedded`, `emulate_function`, radare2, binwalk, REA.
 
+**Nach dem Security-Review ergänzt:** Der Parser für Binär-XML, `pe_resources` und der tar-Leser von jadx haben Obergrenzen für Rechenzeit und Speicher (`tests/unit/test_review_fixes.py`). Container starten mit `--pull never` und `--log-driver none`, jedes Werkzeug im Container endet nach 590 s. Ein Ergebnis über Zeit-, Speicher- oder Ausgabelimit wird bis zum Neustart nicht wiederholt. JSON-Ausgaben sind auf 128 MiB begrenzt, die tar-Ausgabe von jadx auf 256 MiB.
+
 **Abweichungen von den Vorgaben, bitte zur Kenntnis nehmen:**
 1. **Probe nicht als `ro,noexec`-Mount:** Docker bietet `noexec` für Bind-Mounts nicht an. Die Probe kommt stattdessen über stdin in ein `noexec`-tmpfs und ist dort nur per Dateimodus 0444 schreibgeschützt. Dafür wird kein Hostpfad in den Container gemountet.
 2. **`/tmp` im Triage-Image ist ausführbar:** capa und FLOSS sind PyInstaller-Binaries und laden ihre Bibliotheken von dort. Ein Angreifer, der einen Parser in diesem Container übernimmt, könnte also dort Code ablegen und starten, bleibt aber ohne Netz, ohne Capabilities, ohne Root und ohne Hostmount. In den Images für Ghidra und jadx ist `/tmp` `noexec`.
