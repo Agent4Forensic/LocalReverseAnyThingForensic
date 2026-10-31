@@ -50,8 +50,10 @@ T = {
 
 
 def _cell(s) -> str:
-    text = defang_text(redact_payloads(str(s if s is not None else ""))).replace("|", "\\|").replace("\n", " ")
-    # The space stops "<x" from opening raw HTML in foreign Markdown viewers; "&lt;" would show literally in the dashboard.
+    text = re.sub(r"[\r\n]", " ", defang_text(redact_payloads(str(s if s is not None else ""))))
+    text = re.sub(r"(\\*)\|", lambda m: m.group(1) * 2 + "\\|", text)   # backslashes before a pipe must not cancel its escape
+    # shortcut: "<x" reads "< x" in the report (exact text stays in the evidence), until reports get a real Markdown sanitizer.
+    # The space stops raw HTML in foreign viewers; "&lt;" would show literally in the dashboard.
     return re.sub(r"<(?=[A-Za-z/!?])", "< ", text)
 
 

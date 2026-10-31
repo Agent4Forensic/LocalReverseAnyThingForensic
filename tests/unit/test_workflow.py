@@ -4,11 +4,15 @@ from __future__ import annotations
 import base64
 import json
 import re
+import shutil
 import struct
+import subprocess
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
+import sw_analyst
 from sw_analyst.common.hostguard import HostGuard, HostLimits
 from sw_analyst.common.models import JobSpec, TargetQuestion
 from sw_analyst.common.store import Store
@@ -23,7 +27,7 @@ from sw_analyst.orchestrator.worker import Worker
 from sw_analyst.webui.app import create_app
 from sw_analyst.orchestrator.runner import check_answer_grounding, guard_task_text
 from sw_analyst.orchestrator.verifier import verify_finding
-from sw_analyst.report.builder import build_report
+from sw_analyst.report.builder import _cell, build_report
 
 EVAL = json.dumps({"goal_reached": True, "assessment": "ok", "gaps": [], "followups": []})
 NOTHING = json.dumps({"action": "finish", "summary": "nothing", "findings": []})
@@ -716,6 +720,24 @@ def test_report_text_cannot_open_html_in_foreign_viewers(tmp_path):
     store.add_finding(jid, task["id"], "see `<img src=x onerror=alert(1)> and </div> and a < b", "open", [], [], "")
     report = build_report(store, jid, "en")
     assert "<img" not in report and "</div" not in report and "a < b" in report
+
+
+def test_model_text_cannot_break_a_report_table_row(tmp_path):
+    store, gw, llm, engine, jid = _setup(tmp_path, lambda m: NOTHING)
+    store.add_task(jid, title="t", goal="g", kind="analyze", origin="planner", priority=1,
+                   params={"done_when": "a | b \\| c\rd\ne"})
+    assert "| a \\| b \\\\\\| c d e |" in build_report(store, jid, "en")
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="needs node")
+def test_dashboard_table_reads_cells_as_the_report_writes_them():
+    cells = ["a | b", "ends with \\", "c \\| d", "C:\\x\\y", ""]
+    row = "| " + " | ".join(_cell(c) for c in cells) + " |"
+    js = (Path(sw_analyst.__file__).parent / "webui/static/markdown.js").read_text(encoding="utf-8")
+    script = ("globalThis.window={SW:{dom:{h(){}}}};" + js +
+              ";console.log(JSON.stringify(window.SW.markdown.splitRow(process.argv[1])))")
+    out = subprocess.run(["node", "-e", script, row], capture_output=True, text=True, check=True, timeout=30).stdout
+    assert json.loads(out) == cells
 
 
 def test_guard_block_note_is_no_work_order(tmp_path):
