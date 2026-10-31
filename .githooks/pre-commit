@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Pre-commit guard for sw-analyst.
+# Blocks (1) binary samples / images / models, (2) obvious secrets, (3) oversized files.
+# Rule source: CLAUDE.md "Absolute Verbote" 2 (no samples in the repository).
+set -u
+
+fail=0
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$staged" ] && exit 0
+
+blocked_ext='\.(exe|dll|sys|apk|dex|so|elf|msi|jar|class|gguf|safetensors|vhdx|vhd|iso|img|pem|key|pfx)$'
+while IFS= read -r f; do
+    if printf '%s' "$f" | grep -Eiq "$blocked_ext"; then
+        echo "BLOCKED: '$f' has a forbidden extension (sample/model/image/key)." >&2
+        fail=1
+    fi
+    case "$f" in
+        tests/corpus/README.md|tests/corpus/manifest.json|tests/corpus/*.expected.json|tests/corpus/*/*.expected.json) ;;
+        tests/corpus/*)
+            echo "BLOCKED: '$f' lies in tests/corpus. Only manifest, README and *.expected.json may be committed." >&2
+            fail=1 ;;
+    esac
+    size=$(git cat-file -s ":$f" 2>/dev/null || echo 0)
+    if [ "$size" -gt 2000000 ]; then
+        echo "BLOCKED: '$f' is larger than 2 MB." >&2
+        fail=1
+    fi
+done <<< "$staged"
+
+secret_re='(AKIA[0-9A-Z]{16}|-----BEGIN (RSA |EC |OPENSSH |)PRIVATE KEY-----|ghp_[A-Za-z0-9]{36}|sk-[A-Za-z0-9]{32,}|xox[baprs]-[A-Za-z0-9-]{10,})'
+if git diff --cached -U0 | grep -E '^\+' | grep -Eq "$secret_re"; then
+    echo "BLOCKED: staged diff contains something that looks like a secret." >&2
+    fail=1
+fi
+
+exit $fail

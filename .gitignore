@@ -1,0 +1,47 @@
+# --- Samples und Beweismittel: niemals ins Repository ---
+*.exe
+*.dll
+*.sys
+*.apk
+*.dex
+*.so
+*.bin
+*.elf
+*.msi
+*.jar
+*.class
+*.ps1.sample
+tests/corpus/**/*
+!tests/corpus/README.md
+!tests/corpus/manifest.json
+!tests/corpus/**/*.expected.json
+
+# --- Modelle, VM-Images, Bundles ---
+*.gguf
+*.safetensors
+*.vhdx
+*.vhd
+*.iso
+*.img
+bundle/
+models/
+
+# --- Secrets ---
+.env
+.env.*
+*.pem
+*.key
+*.pfx
+
+# --- Laufzeit ---
+__pycache__/
+*.pyc
+.venv/
+node_modules/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+data/
+jobs/
+graphify-out/cache/
+.claude/settings.local.json
