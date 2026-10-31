@@ -29,8 +29,8 @@ class LLMError(Exception):
 class LLMClient(Protocol):
     model: str
 
-    def chat(self, messages: list[ChatMessage], *, json_mode: bool = False,
+    def chat(self, messages: list[ChatMessage], *, json_mode: bool | dict = False,
              think: bool = True, max_tokens: int = 2048, temperature: float = 0.1) -> LLMResponse:
-        """One chat turn. json_mode=True asks the model for a single JSON object.
+        """One chat turn. json_mode=True asks the model for a single JSON object, a dict binds it to that JSON schema.
         Must raise LLMError on transport problems."""
         ...

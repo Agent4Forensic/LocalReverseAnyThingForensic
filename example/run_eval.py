@@ -1,10 +1,10 @@
-"""Run example challenges end to end with the real local model and check the final report for the flag.
+"""Run example challenges end to end with the real local model and check that a target question was answered with the flag.
 
     python example/run_eval.py --challenge all|<id>[,<id>...] [--model qwen3:8b] [--out <dir>]
 
-Per challenge: build the harmless sample -> create job -> run the full chain -> write report.md -> grep report.md for the
-challenge flag. The expected value is deliberately NOT passed to the job: the report prints it in its "expected" line,
-which would make the grep pass without any analysis. Exit code 0 only if every selected challenge passed.
+Per challenge: build the harmless sample -> create job -> run the full chain -> write report.md -> look for the challenge
+flag in the accepted answers. The expected value is deliberately NOT passed to the job, so the model never sees it.
+Exit code 0 only if every selected challenge passed.
 Everything lands in the output directory (default data/eval/<timestamp>, git-ignored); the application DB is never touched.
 """
 from __future__ import annotations
@@ -57,7 +57,9 @@ def run_one(c: dict, out: Path, model: str, url: str, num_ctx: int, minutes: int
     status = JobEngine(store, OllamaClient(model, url, num_ctx=num_ctx), gw).run_job(job["id"])
     report = build_report(store, job["id"], "en", model)
     (d / "report.md").write_text(report, encoding="utf-8")
-    found = c["flag"] in report
+    # A flag quoted somewhere in the report is not a result: the target question must have been answered with it.
+    # shortcut: substring match also accepts an answer that negates the flag, upgrade when such an answer shows up.
+    found = any(a["status"] == "answered" and c["flag"] in (a["answer_en"] or "") for a in store.list_answers(job["id"]))
     return {"id": c["id"], "flag": c["flag"], "passed": found, "job_status": status,
             "minutes": round((time.monotonic() - t0) / 60, 1),
             "audit_valid": verify_file(store.audit_path(job["id"])).valid, "report": str(d / "report.md")}

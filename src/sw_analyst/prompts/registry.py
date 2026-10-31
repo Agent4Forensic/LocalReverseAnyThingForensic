@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 from sw_analyst.common.util import sha256_hex
 
-PROMPT_PACK_VERSION = "1.2.0"
+PROMPT_PACK_VERSION = "1.2.1"
 
 SYSTEM_BASE = """You are a static malware and software reverse-engineering analyst inside an offline forensic platform.
 You never execute the sample. You only read results of allowlisted read-only tools.
@@ -33,7 +33,7 @@ f. If only running the sample could answer something, do not speculate and do no
 ACTION_SCHEMA = """Allowed replies (one JSON object):
 {"action":"tool","tool":"<tool name from the list>","args":{...},"why":"<one sentence: what you expect to learn>"}
 {"action":"finish","summary":"<2-4 sentences>","findings":[{"statement":"...","status":"confirmed|hypothesis","evidence":[{"id":"EV-000001","quote":"<verbatim text from that evidence>"}]}],"annotations":[{"file":"sample","line_start":1,"line_end":2,"text":"...","evidence_id":"EV-000001","kind":"finding|note|ioc|warning"}],"subtasks":[{"title":"...","goal":"...","reason":"...","done_when":"<observable result that ends the subtask>"}],"answer":{"text":"..."}}
-Only "action" and "summary" are mandatory for finish; leave out what you do not need.
+Only "action", "summary" and "findings" (may be []) are mandatory for finish; leave out what you do not need.
 Quotes: 8 to 120 characters from ONE line, copied character by character from the tool output (without the line-number column). The checker compares them mechanically.
 
 Example of a correct sequence:

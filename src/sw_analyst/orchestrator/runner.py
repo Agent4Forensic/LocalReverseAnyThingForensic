@@ -13,7 +13,7 @@ from sw_analyst.common.models import StepKind, ToolSpec
 from sw_analyst.common.store import Store
 from sw_analyst.common.util import preview
 from sw_analyst.gateway.base import ToolGateway
-from sw_analyst.guard import (SYSTEM_RULES_EN, TaskGuard, sanitize_untrusted, validate_action)
+from sw_analyst.guard import (SYSTEM_RULES_EN, TaskGuard, action_json_schema, sanitize_untrusted, validate_action)
 from sw_analyst.llm.base import ChatMessage, LLMClient, LLMError
 from sw_analyst.orchestrator.agents import MODEL_ORIGINS, task_text
 from sw_analyst.orchestrator.verifier import MIN_QUOTE, answer_values_grounded, norm, verify_finding
@@ -43,9 +43,20 @@ class TaskOutcome:
 
 def _tools_block(tools: list[ToolSpec]) -> str:
     lines = []
+    described: set[str] = set()   # a parameter text shared by many tools (path) is printed once
     for t in tools:
-        params = ", ".join(f"{k}:{v.get('type', 'str')}{'*' if v.get('required') else ''}" for k, v in t.params.items())
-        lines.append(f"- {t.name}({params}): {t.description}")
+        lines.append(f"- {t.name}: {t.description}")
+        for k, v in t.params.items():
+            line = f"    {k}:{v.get('type', 'str')}{' required' if v.get('required') else ''}"
+            if v.get("default") is not None:
+                line += f" default={v['default']}"
+            if "min" in v or "max" in v:
+                line += f" range={v.get('min', '')}..{v.get('max', '')}"
+            text = v.get("description", "")
+            if text and text not in described:
+                described.add(text)
+                line += f" - {text}"
+            lines.append(line)
     return "\n".join(lines)
 
 
@@ -151,7 +162,7 @@ class TaskRunner:
                                         input_preview=messages[-1].content)
             t0 = time.monotonic()
             try:
-                resp = self.llm.chat(messages, json_mode=True, think=True, max_tokens=reply_tokens)
+                resp = self.llm.chat(messages, json_mode=action_json_schema(tools), think=True, max_tokens=reply_tokens)
             except LLMError as e:
                 self.store.finish_step(sid, status="error", duration_ms=int((time.monotonic() - t0) * 1000),
                                        output_preview=str(e))
