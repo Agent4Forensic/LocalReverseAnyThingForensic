@@ -5,11 +5,13 @@ steps:
   - id: structure
     title: Describe file structure and content class
     goal: Establish what kind of data the file contains (text, binary, container) using hexdump, entropy_map and strings_extract, and summarise notable regions with offsets.
+    guide: For text use read_lines first; for binary use hexdump of the start and entropy_map. Long base64 or hex runs are encoded data - decode them with decode_layer (offset and length of the run only, or method auto) and read the result, it may hold the real content.
     priority: 100
-    tools_hint: [hexdump, entropy_map, strings_extract]
+    tools_hint: [read_lines, hexdump, entropy_map, strings_extract, decode_layer]
   - id: indicators
     title: Extract indicators and notable strings
     goal: List URLs, domains, IP addresses, file paths, registry paths, e-mail addresses, commands and credentials-like strings found in the file, each with its offset or line.
+    guide: Use strings_extract for binary and grep for text. Include derived/ files from earlier tasks and name the file for each indicator.
     priority: 110
     tools_hint: [strings_extract, grep]
 required_questions:

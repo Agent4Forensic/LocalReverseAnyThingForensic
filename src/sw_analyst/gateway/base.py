@@ -28,3 +28,7 @@ class ToolGateway(Protocol):
     def sample_path(self, job_id: str) -> str:
         """Jailed path of the job's sample (for display only)."""
         ...
+
+    def list_files(self, job_id: str) -> list[dict]:
+        """Sample and derived artifacts: path, kind, size, sha256. Drives artifact recursion in the engine."""
+        ...

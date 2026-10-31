@@ -5,28 +5,33 @@ steps:
   - id: static_triage
     title: PE headers, sections and packer indicators
     goal: Record machine type, timestamp, subsystem, entry point, sections (names, sizes, flags, entropy) and overlay; judge packing/protection using section entropy, import count and entry point location.
+    guide: Call pe_headers first. Packed signs need several together - section entropy above 7.2 on large raw size, only a few imports (LoadLibraryA, GetProcAddress, VirtualAlloc), entry point outside the first code section, section names such as UPX0. High entropy alone is a hypothesis, resources are also compressed. A CLR entry (mscoree.dll) means .NET; say so, native analysis shows only a stub.
     priority: 100
     tools_hint: [pe_headers, entropy_map]
   - id: imports_capabilities
     title: Imports and capability hints
     goal: From the import table derive capability hints (process/memory, network, crypto, persistence, anti-debug) and name the imports that justify each hint.
+    guide: Group imports by category and quote the import names. Every capability from imports stays a hypothesis, because no code path was read. grep refuses binary files, use pe_headers output.
     priority: 120
-    tools_hint: [pe_headers, grep]
+    tools_hint: [pe_headers]
   - id: strings_iocs
     title: Strings and indicators
     goal: Extract ASCII and UTF-16 strings, classify URLs, domains, IPs, paths, registry keys, commands, mutex names, and note suspicious strings with offsets.
+    guide: Use strings_extract with both encodings and min_len 6, page with offset. Report offset and text. Do not treat a string as behaviour; it shows presence only.
     priority: 130
-    tools_hint: [strings_extract, grep]
+    tools_hint: [strings_extract]
   - id: resources_overlay
     title: Resources and overlay
     goal: Inspect overlay and high-entropy regions for embedded payloads or configuration blobs and record their offsets, sizes and entropy.
+    guide: pe_headers gives the overlay offset. Look at it with hexdump. If it holds encoded text, call decode_layer with offset and length of exactly that blob (skip any prefix) and read the result. A result with its own magic is a new artifact; the platform triages it. Do not guess keys.
     priority: 150
-    tools_hint: [entropy_map, hexdump, decode_layer]
+    tools_hint: [pe_headers, entropy_map, hexdump, decode_layer]
   - id: crypto_config
     title: Crypto constants and configuration
     goal: Search for crypto-related constants, base64/hex blobs and configuration structures; state what was found and what could not be determined.
+    guide: Without a disassembler you can only see constants and blobs, not their use. Say so. Identify algorithms only as hypothesis unless a constant is quoted. Function-level questions (key handling, control flow) are a GAP until the disassembler tools exist.
     priority: 170
-    tools_hint: [grep, hexdump, decode_layer]
+    tools_hint: [strings_extract, hexdump, decode_layer]
 required_questions:
   - What does the software do (main function)?
   - Which persistence, communication and encryption mechanisms are indicated?

@@ -35,6 +35,7 @@ def main() -> None:
     # Heavy imports only after the cheap paths above, so --check works with a half-installed environment.
     import uvicorn
 
+    from sw_analyst.common.hostguard import HostGuard
     from sw_analyst.common.store import Store
     from sw_analyst.gateway.dev_gateway import DevGateway
     from sw_analyst.llm.ollama import OllamaClient
@@ -46,9 +47,11 @@ def main() -> None:
     store = Store(data / "sw_analyst.db", data / "logs")
     gateway = DevGateway(data)
     log("GUARD", f"gateway ready with {len(gateway.list_tools())} read-only tools")
+    log("GUARD", "DevGateway parses samples on this host: harmless test samples only, real samples need the VM gateway",
+        "WARN")
     llm = OllamaClient(args.model, args.ollama_url, num_ctx=args.num_ctx)
     translator = Translator(llm, cache=store)
-    worker = Worker(store, JobEngine(store, llm, gateway, translator))
+    worker = Worker(store, JobEngine(store, llm, gateway, translator, host_guard=HostGuard(data, ollama_url=args.ollama_url)))
     worker.start()
     log("WORKER", f"worker started (model {args.model}, num_ctx {args.num_ctx})")
     app = create_app(store, worker, gateway, llm, translator, report_model=args.model, port=args.port)

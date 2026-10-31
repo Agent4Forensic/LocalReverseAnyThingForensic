@@ -269,6 +269,18 @@ class Store:
     def get_evidence(self, eid: str) -> Optional[dict]:
         return self._one("SELECT * FROM evidence WHERE id=?", (eid,))
 
+    def find_evidence(self, job_id: str, tool: str, params: dict) -> Optional[dict]:
+        """Earlier successful result of the same deterministic call in this job, if any."""
+        for ev in self._q("SELECT * FROM evidence WHERE job_id=? AND tool=? ORDER BY id", (job_id, tool)):
+            if ev["params"] == params and not ev["text"].startswith("[tool error]"):
+                return ev
+        return None
+
+    def evidence_index(self, job_id: str, limit: int = 12) -> list[dict]:
+        """Newest evidence as id, tool, parameters, without the (untrusted) text."""
+        rows = self._q("SELECT id,tool,params_json FROM evidence WHERE job_id=? ORDER BY id DESC LIMIT ?", (job_id, limit))
+        return list(reversed(rows))
+
     def list_evidence(self, job_id: str) -> list[dict]:
         rows = self._q("SELECT id,task_id,tool,tool_version,result_sha256,LENGTH(text) AS size,created_at "
                        "FROM evidence WHERE job_id=? ORDER BY id", (job_id,))

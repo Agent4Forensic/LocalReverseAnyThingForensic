@@ -18,6 +18,7 @@ class LLMResponse(BaseModel):
     prompt_tokens: int = 0
     completion_tokens: int = 0
     duration_ms: int = 0
+    done_reason: str = ""   # "length" means the reply was cut by the token budget
     raw: dict = Field(default_factory=dict)
 
 

@@ -38,6 +38,7 @@ class TaskOrigin(str, Enum):
     EVALUATOR = "evaluator"  # derived by self-evaluation (logical follow-up)
     PRIORITIZER = "prioritizer"
     USER = "user"
+    ARTIFACT = "artifact"    # derived file that needs its own analysis (recursion)
 
 
 class FindingStatus(str, Enum):
