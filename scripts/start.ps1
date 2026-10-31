@@ -1,6 +1,7 @@
 # start.ps1 - one-stop start of sw-analyst: CHECK, INSTALL, UPDATE, OLLAMA, MODEL, APP, then a quiet status loop.
 # Design: docs/architecture/dashboard-v2.md section 4. Every line: [HH:mm:ss] [STAGE] message (terminal colored, also data\logs\start-<date>.log).
 # Installs only from infra\manifest.json (URL + SHA-256, hash mismatch = hard error) and requirements.lock (--require-hashes).
+# Programs it cannot install itself get an install hint in the log: see $InstallHints.
 # Never touches foreign processes (e.g. the Ollama on 11434, other WSL/Docker projects). No admin rights needed.
 # Pure ASCII on purpose (Windows PowerShell 5.1 encoding).
 param(
@@ -11,7 +12,8 @@ param(
     [switch]$Update,
     [switch]$Offline,
     [switch]$NoBrowser,
-    [switch]$NoCleanup      # skip the cleanup of orphans, scratch files, old logs and own Docker leftovers
+    [switch]$NoCleanup,     # skip the cleanup of orphans, scratch files, old logs and own Docker leftovers
+    [switch]$BuildTools     # build missing tool images (ADR-0006, needs Docker and network once, can take 10 minutes)
 )
 $ErrorActionPreference = 'Stop'
 
@@ -26,6 +28,12 @@ $OllamaUrl = "http://127.0.0.1:$OllamaPort"
 New-Item -ItemType Directory -Force -Path $RunDir, $LogDir | Out-Null
 $LogFile   = Join-Path $LogDir ("start-{0:yyyy-MM-dd}.log" -f (Get-Date))
 $Utf8      = New-Object System.Text.UTF8Encoding($false)
+$InstallHints = @{
+    python = 'winget install --id Python.Python.3.11 --exact'
+    uv     = 'winget install --id astral-sh.uv --exact (optional, faster than pip)'
+    docker = 'winget install --id Docker.DockerDesktop --exact, then start Docker Desktop (optional, only for the Ghidra, capa, FLOSS, YARA and jadx tools)'
+    nvidia = 'install the NVIDIA driver from https://www.nvidia.com/drivers (without it the model runs slowly on the CPU)'
+}
 
 # ---- logging ---------------------------------------------------------------------------------------------
 function Write-Stage([string]$Stage, [string]$Msg, [string]$Level = 'INFO') {
@@ -107,6 +115,7 @@ function Show-Results($Results) {
 function Install-Venv {
     $uv = Get-Command uv -ErrorAction SilentlyContinue
     if (-not (Test-Path $Py)) {
+        if (-not $uv -and -not (Get-Command python -ErrorAction SilentlyContinue)) { throw "neither uv nor python found; install Python 3.11 with: $($InstallHints.python)" }
         Write-Stage 'INSTALL' 'creating .venv'
         if ($uv) { Invoke-Native 'uv' @('venv', (Join-Path $Root '.venv')) }
         else { Invoke-Native 'python' @('-m', 'venv', (Join-Path $Root '.venv')) }
@@ -125,6 +134,19 @@ function Install-Lock {
     Write-Stage 'INSTALL' 'installing requirements.lock with --require-hashes'
     if (Get-Command uv -ErrorAction SilentlyContinue) { Invoke-Native 'uv' (@('pip', 'install', '--python', $Py, '--require-hashes', '-r', $lock) + $extra) }
     else { Invoke-Native $Py (@('-m', 'pip', 'install', '--require-hashes', '-r', $lock) + $extra) }
+}
+function Install-ToolImages {
+    if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { Write-Stage 'INSTALL' "docker not found; tool images skipped. $($InstallHints.docker)" 'WARN'; return }
+    & docker info --format '{{.ServerVersion}}' 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) { Write-Stage 'INSTALL' 'docker daemon not reachable; start Docker Desktop, tool images skipped' 'WARN'; return }
+    foreach ($p in $Manifest.tool_images.PSObject.Properties) {
+        & docker image inspect $p.Value 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) { Write-Stage 'INSTALL' "image $($p.Value) present" 'OK'; continue }
+        if ($Offline) { Write-Stage 'INSTALL' "image $($p.Value) missing and -Offline is set" 'WARN'; continue }
+        Write-Stage 'INSTALL' "building $($p.Value) from pinned sources (network, can take minutes)"
+        Invoke-Native 'powershell.exe' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $Root 'infra\tools\build-images.ps1'), '-Only', $p.Name)
+        Write-Stage 'INSTALL' "image $($p.Value) built" 'OK'
+    }
 }
 function Install-Ollama($c) {
     if ($Offline) { throw 'offline: Ollama is missing and cannot be downloaded' }
@@ -158,6 +180,7 @@ try {
     # ---- 1. CHECK ----
     Write-Stage 'CHECK' ("PowerShell {0}, {1}, repo {2}" -f $PSVersionTable.PSVersion, [Environment]::OSVersion.VersionString, $Root)
     if ($Offline) { Write-Stage 'CHECK' 'offline mode: no network access, local checks and vendor\ only' 'WARN' }
+    if (-not (Get-Command nvidia-smi -ErrorAction SilentlyContinue)) { Write-Stage 'CHECK' "nvidia-smi not found; $($InstallHints.nvidia)" 'WARN' }
     $ModelTag = Resolve-Model
     $results = Invoke-Check $ModelTag
     if ($null -eq $results) { Write-Stage 'CHECK' '.venv missing; python checks follow after INSTALL' 'WARN' }
@@ -170,6 +193,7 @@ try {
     if (Test-Path $OllamaExe) { Write-Stage 'INSTALL' "ollama $($ol.version) present" 'OK' }
     elseif ($older.Count -gt 0) { Write-Stage 'INSTALL' "ollama $($ol.version) missing, older $($older[0].Name) present; see UPDATE" 'WARN' }
     else { Install-Ollama $ol }
+    if ($BuildTools) { Install-ToolImages }
 
     # ---- 3. UPDATE (report; apply only with -Update, only pinned versions) ----
     if ($SkipUpdateCheck) { Write-Stage 'UPDATE' 'skipped (-SkipUpdateCheck)' }
@@ -234,6 +258,18 @@ try {
         try { Invoke-Native $OllamaExe @('pull', $ModelTag) } finally { Remove-Item Env:OLLAMA_HOST -ErrorAction SilentlyContinue }
         Write-Stage 'MODEL' "$ModelTag pulled" 'OK'
     } else { Write-Stage 'MODEL' "$ModelTag present" 'OK' }
+    # The embedding model is for the knowledge base, nothing needs it yet: a failed pull must not stop the start.
+    $embed = $Manifest.models.embedding
+    if ($embed -and $tags -notcontains $embed -and $tags -notcontains "${embed}:latest") {
+        if ($Offline) { Write-Stage 'MODEL' "embedding model $embed missing and -Offline is set" 'WARN' }
+        else {
+            Write-Stage 'MODEL' "embedding model $embed missing: one-time download from the Ollama registry" 'WARN'
+            $env:OLLAMA_HOST = "127.0.0.1:$OllamaPort"
+            try { Invoke-Native $OllamaExe @('pull', $embed); Write-Stage 'MODEL' "$embed pulled" 'OK' }
+            catch { Write-Stage 'MODEL' "pull of $embed failed: $($_.Exception.Message)" 'WARN' }
+            finally { Remove-Item Env:OLLAMA_HOST -ErrorAction SilentlyContinue }
+        }
+    } elseif ($embed) { Write-Stage 'MODEL' "$embed present" 'OK' }
     try {
         $sw = [Diagnostics.Stopwatch]::StartNew()
         $body = @{ model = $ModelTag; prompt = ''; stream = $false; keep_alive = '10m' } | ConvertTo-Json -Compress

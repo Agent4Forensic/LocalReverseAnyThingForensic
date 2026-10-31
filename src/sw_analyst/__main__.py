@@ -37,6 +37,7 @@ def main() -> None:
 
     from sw_analyst.common.hostguard import HostGuard
     from sw_analyst.common.store import Store
+    from sw_analyst.gateway.container_tools import attach_container_tools
     from sw_analyst.gateway.dev_gateway import DevGateway
     from sw_analyst.llm.ollama import OllamaClient
     from sw_analyst.orchestrator.engine import JobEngine
@@ -46,7 +47,9 @@ def main() -> None:
 
     store = Store(data / "sw_analyst.db", data / "logs")
     gateway = DevGateway(data)
-    log("GUARD", f"gateway ready with {len(gateway.list_tools())} read-only tools")
+    container_tools = attach_container_tools(gateway)
+    log("GUARD", f"gateway ready with {len(gateway.list_tools())} read-only tools, "
+                 f"{len(container_tools)} of them in offline containers")
     log("GUARD", "DevGateway parses samples on this host: harmless test samples only, real samples need the VM gateway",
         "WARN")
     llm = OllamaClient(args.model, args.ollama_url, num_ctx=args.num_ctx)

@@ -221,6 +221,65 @@ def _rva_to_off(info: dict, rva: int, data_len: int) -> Optional[int]:
     return None
 
 
+RT_TYPES = {1: "CURSOR", 2: "BITMAP", 3: "ICON", 4: "MENU", 5: "DIALOG", 6: "STRING", 7: "FONTDIR", 8: "FONT",
+            9: "ACCELERATOR", 10: "RCDATA", 11: "MESSAGETABLE", 12: "GROUP_CURSOR", 14: "GROUP_ICON", 16: "VERSION",
+            17: "DLGINCLUDE", 19: "PLUGPLAY", 20: "VXD", 21: "ANICURSOR", 22: "ANIICON", 23: "HTML", 24: "MANIFEST"}
+MAX_RESOURCES = 2000
+MAX_RESOURCE_DEPTH = 8
+
+
+def parse_resources(data: bytes, info: dict) -> dict[str, Any]:
+    """Walk the resource tree of a parsed PE. Returns {resources, warnings}; never raises.
+
+    The tree comes from the sample: offsets can loop or point anywhere, so visited directories, depth and count are bounded.
+    """
+    found: list[dict] = []
+    warnings: list[str] = []
+    dirs = info.get("dirs") or []
+    root_rva = dirs[2][0] if len(dirs) > 2 else 0
+    root = _rva_to_off(info, root_rva, len(data)) if root_rva else None
+    if root is None:
+        return {"resources": found, "warnings": warnings}
+    r = _Reader(data)
+    visited: set[int] = set()
+
+    def name_of(entry_name: int, depth: int) -> str:
+        if entry_name & 0x80000000:
+            o = root + (entry_name & 0x7FFFFFFF)
+            n = r.u16(o)
+            return _safe_name(data[o + 2:o + 2 + 2 * min(n, 128)].decode("utf-16le", "replace").encode("ascii", "replace"))
+        return RT_TYPES.get(entry_name, str(entry_name)) if depth == 0 else str(entry_name)
+
+    def walk(offset: int, path: list[str], depth: int) -> None:
+        if offset in visited or depth > MAX_RESOURCE_DEPTH:
+            warnings.append(f"resource directory at 0x{offset:x} skipped (loop or too deep)")
+            return
+        visited.add(offset)
+        count = r.u16(offset + 12) + r.u16(offset + 14)
+        for i in range(count):
+            if len(found) >= MAX_RESOURCES:
+                warnings.append(f"listing limited to {MAX_RESOURCES} resources")
+                return
+            e = offset + 16 + 8 * i
+            nm, target = r.u32(e), r.u32(e + 4)
+            sub = path + [name_of(nm, depth)]
+            if target & 0x80000000:
+                walk(root + (target & 0x7FFFFFFF), sub, depth + 1)
+                continue
+            rva, size = r.u32(root + target), r.u32(root + target + 4)
+            off = _rva_to_off(info, rva, len(data))
+            raw = data[off:off + size] if off is not None else b""
+            found.append({"path": "/".join(sub), "rva": rva, "file_offset": off, "size": size,
+                          "entropy": round(shannon_entropy(raw), 3) if raw else 0.0,
+                          "truncated": off is None or off + size > len(data), "head": raw[:4]})
+
+    try:
+        walk(root, [], 0)
+    except (struct.error, IndexError, RecursionError) as exc:
+        warnings.append(f"resource tree is corrupt ({type(exc).__name__}); listing is partial")
+    return {"resources": found, "warnings": warnings}
+
+
 def _parse_imports(data: bytes, info: dict) -> None:
     info["imports"] = []
     info["imports_truncated"] = False
