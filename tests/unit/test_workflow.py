@@ -7,6 +7,7 @@ import re
 import struct
 
 import pytest
+from fastapi.testclient import TestClient
 
 from sw_analyst.common.hostguard import HostGuard, HostLimits
 from sw_analyst.common.models import JobSpec, TargetQuestion
@@ -18,6 +19,8 @@ from sw_analyst.llm.base import LLMResponse
 from sw_analyst.llm.fake import ScriptedLLM
 from sw_analyst.llm.ollama import OllamaClient
 from sw_analyst.orchestrator.engine import JobEngine
+from sw_analyst.orchestrator.worker import Worker
+from sw_analyst.webui.app import create_app
 from sw_analyst.orchestrator.runner import check_answer_grounding, guard_task_text
 from sw_analyst.orchestrator.verifier import verify_finding
 from sw_analyst.report.builder import build_report
@@ -695,6 +698,24 @@ def test_answer_with_indicator_outside_the_evidence_is_not_grounded(tmp_path):
     assert check_answer_grounding(store, jid, "The server is 198.51.100[.]7.")[0]
     ok, why = check_answer_grounding(store, jid, "The server is 203.0.113.9.")
     assert not ok and "203.0.113.9" in why
+
+
+def test_done_when_reaches_report_and_queue(tmp_path):
+    store, gw, llm, engine, jid = _setup(tmp_path, lambda m: NOTHING)
+    store.add_task(jid, title="t", goal="g", kind="analyze", origin="planner", priority=1,
+                   params={"done_when": "key value quoted"})
+    assert "| key value quoted |" in build_report(store, jid, "en")
+    client = TestClient(create_app(store, Worker(store, engine), gw, llm, None, report_model="t"),
+                        base_url="http://127.0.0.1:8765")
+    assert client.get(f"/api/jobs/{jid}/queue").json()[0]["done_when"] == "key value quoted"
+
+
+def test_report_text_cannot_open_html_in_foreign_viewers(tmp_path):
+    store, gw, llm, engine, jid = _setup(tmp_path, lambda m: NOTHING)
+    task = store.add_task(jid, title="t", goal="g", kind="analyze", origin="recipe", priority=1)
+    store.add_finding(jid, task["id"], "see `<img src=x onerror=alert(1)> and </div> and a < b", "open", [], [], "")
+    report = build_report(store, jid, "en")
+    assert "<img" not in report and "</div" not in report and "a < b" in report
 
 
 def test_guard_block_note_is_no_work_order(tmp_path):
