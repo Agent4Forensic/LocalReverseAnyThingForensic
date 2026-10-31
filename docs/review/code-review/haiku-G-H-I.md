@@ -1,7 +1,7 @@
 # Code-Review Haiku G/H/I (nur lesend, keine Quelländerung)
 
 Stand: Arbeitsbaum am 2026-10-31 (uncommitted Änderungen in dom.js, tests/forensic/* sind untracked).
-Pfade relativ zu D:\Projects\LocalReverseAnything.
+Pfade relativ zur Repo-Wurzel.
 
 Kategorien: 1 Injektion/XSS/Pfad, 2 Fremdressourcen/Netz, 3 fehlende oder tote Pfade, 4 Lint/Bug,
 5 Löschumfang/Datensicherheit, 6 Pins/Hashes/Versionen, 7 Fremdprozesse, 8 Test-Schwäche oder Lücke.
