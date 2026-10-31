@@ -5,9 +5,9 @@ Stand: 2026-10-31. Ziel: Jede Aussage des Berichts ist nachweisbar, jeder Lauf r
 ## 1. Beweiskette und Integrität (Chain of Custody)
 | ID | Prüfung | Abnahme | Status |
 |---|---|---|---|
-| C1 | Eingangs-Hash: SHA-256 des hochgeladenen Samples gleich dem Hash im Job, in der Evidence (`hash_file`) und im Bericht | alle drei identisch | [~] Bericht-Hash wird im E2E geprüft, Vergleich mit `hash_file`-Evidence fehlt |
-| C2 | Sample unverändert: Datei nach dem Job byteidentisch, Schreibschutz gesetzt, zweites `store_sample` wird abgelehnt | Hash vor und nach dem Job gleich | [~] Ablehnung getestet, Vorher/Nachher-Vergleich nach vollem Job fehlt |
-| C3 | Abgeleitete Artefakte (`derived/layerNN.bin`): jeder Hash steht in Evidence und Bericht, Neuberechnung stimmt | Hash der Datei = Evidence-Hash | [ ] |
+| C1 | Eingangs-Hash: SHA-256 des hochgeladenen Samples gleich dem Hash im Job, in der Evidence (`hash_file`) und im Bericht | alle drei identisch | [x] `test_c1_sample_hash_job_file_report_agree` |
+| C2 | Sample unverändert: Datei nach dem Job byteidentisch, Schreibschutz gesetzt, zweites `store_sample` wird abgelehnt | Hash vor und nach dem Job gleich | [x] `test_c2_sample_is_byte_identical_and_read_only_after_job` |
+| C3 | Abgeleitete Artefakte (`derived/layerNN.bin`): jeder Hash steht in Evidence und Bericht, Neuberechnung stimmt | Hash der Datei = Evidence-Hash | [~] Hash in Evidence und Neuberechnung grün; Artefakt-Hash im Bericht fehlt (xfail, F-15) |
 | C4 | Audit-Kette: Änderung, Löschen, Umordnen oder Einfügen einer Zeile wird von `verify_file` erkannt, Position stimmt | `broken_at` = manipulierte Zeile | [x] `tests/forensic/test_chain_of_custody.py` (Ändern, Löschen, Vertauschen, Einfügen; Kürzen am Ende nur über gemerkten Kopf-Hash erkennbar, als Grenze getestet) |
 | C5 | Audit vollständig: jede Store-Änderung (Task, Step, Evidence, Finding, Answer) erzeugt einen Audit-Eintrag in Event-Reihenfolge | Zahl der DB-Events = Zahl der Audit-Zeilen | [ ] |
 | C6 | Zeitstempel monoton, UTC, ISO-8601; Dauer je Task passt zur Summe der Steps (Toleranz) | keine negativen Dauern, keine Rückwärtssprünge | [~] |
