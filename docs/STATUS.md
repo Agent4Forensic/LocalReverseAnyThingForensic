@@ -35,10 +35,10 @@ Stand: 2026-10-31 · Legende: `[x]` erledigt und geprüft · `[~]` begonnen · `
 - [!] Hyper-V: Dienst `vmms` läuft, Admin-Rechte fehlen für VM-Anlage. Admin-Skript wird erzeugt (Phase 1).
 
 ### P5 Analyse-Werkzeuge (Dev-Test mit harmlosen Proben)
-- [ ] Ghidra (aktuelle Version, JDK-Anforderung prüfen) im Docker-Image, headless
-- [ ] REA (`morluto/rea`, Commit 6014928) in Container, nur statische Tools, Version pinnen
+- [~] Ghidra: Version recherchiert und gepinnt (12.1.4, JDK 21, SHA-256 verifiziert), Docker-Image noch nicht gebaut
+- [!] REA: Reputationswarnung (414k Sterne/103k Forks bei 6 Monaten Alter). Erst tiefere Prüfung (native/, patches/, install.sh, npm gegen Repo), dann entscheiden. Siehe B5.
 - [ ] jadx, apktool, capa, YARA, FLOSS, radare2, binwalk, pefile, lief, androguard im Image
-- [ ] Lokale MCP-Server prüfen (Ghidra-MCP-Kandidaten), Auswahl per ADR
+- [~] Ghidra-MCP: Empfehlung pyghidra-mcp v0.2.7 (kleinste Angriffsfläche, keine Code-Ausführung); ADR folgt nach Funktionstest
 - [ ] Alle Downloads mit SHA-256 in `docs/dev-environment.md`
 
 ### P6 Abschluss Voraussetzungen
@@ -51,6 +51,7 @@ Stand: 2026-10-31 · Legende: `[x]` erledigt und geprüft · `[~]` begonnen · `
 - B1: `wsl --shutdown` zum Anwenden des 24-GB-Limits erlaubt? (beendet WSL-Instanzen, auch andere Projekte)
 - B2: VRAM-Belegung durch Desktop-Apps: Apps schließen oder kleineres Modell akzeptieren?
 - B4: Freier RAM beim Test nur 3,7 von 31 GB (Docker Desktop frisch gestartet plus Browser/Apps). 24-GB-Limit ist nur realistisch, wenn andere Programme während der Analyse geschlossen sind.
+- B5: REA zurückstellen und pyghidra-mcp als Primärweg nehmen? (Empfehlung: ja, REA später optional nach Tiefenprüfung)
 - B3: Admin-Rechte für Hyper-V-Einrichtung: Du führst das erzeugte Skript selbst aus (bestätigt in Auswahl, Termin offen).
 
 ## Phasen 0–12 (laut PROJEKTPLAN.md Abschnitt 7)
