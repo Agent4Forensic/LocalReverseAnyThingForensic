@@ -19,7 +19,6 @@ from sw_analyst.prompts.registry import PROMPTS, list_prompts
 from sw_analyst.report.builder import build_report
 
 MAX_SAMPLE = 64 * 1024 * 1024
-ALLOWED_ORIGINS = {"http://127.0.0.1:8765", "http://localhost:8765"}
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
        "base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
@@ -53,14 +52,15 @@ def job_summary(j: dict) -> dict:
     return {k: j.get(k) for k in keys}
 
 
-def create_app(store: Store, worker, gateway, llm, translator=None, report_model: str = "") -> FastAPI:
+def create_app(store: Store, worker, gateway, llm, translator=None, report_model: str = "", port: int = 8765) -> FastAPI:
+    allowed_origins = {f"http://127.0.0.1:{port}", f"http://localhost:{port}"}
     app = FastAPI(title="sw-analyst", docs_url=None, redoc_url=None, openapi_url=None)
 
     @app.middleware("http")
     async def security(request: Request, call_next):
         if request.method not in ("GET", "HEAD", "OPTIONS"):
             origin = request.headers.get("origin")
-            if origin not in ALLOWED_ORIGINS:
+            if origin not in allowed_origins:
                 return JSONResponse({"error": {"code": "forbidden_origin", "message": "invalid Origin"}}, status_code=403)
         host = (request.headers.get("host") or "").split(":")[0]
         if host not in ("127.0.0.1", "localhost"):
@@ -224,6 +224,43 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
                                "evidence_id": a["evidence_id"], "kind": a["kind"]}
                               for a in store.list_annotations(job_id, path)]
         return res
+
+
+    # ---- live activity: what is the AI doing right now -------------------------------------------------
+    @app.get("/api/jobs/{job_id}/activity")
+    def activity(job_id: str):
+        from datetime import datetime, timezone
+        j = need_job(job_id)
+
+        def elapsed(ts):
+            try:
+                return int((datetime.now(timezone.utc) - datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)).total_seconds() * 1000)
+            except (TypeError, ValueError):
+                return 0
+        tasks = store.list_tasks(job_id)
+        running = next((t for t in tasks if t["status"] == "running" and t["kind"] != "group"), None)
+        step = None
+        recent = []
+        if running:
+            steps = store.list_steps(running["id"])
+            cur = next((s for s in reversed(steps) if s["status"] == "running"), None)
+            if cur:
+                step = {k: cur[k] for k in ("id", "kind", "what", "how", "why", "tool", "started_at", "input_preview")}
+                step["elapsed_ms"] = elapsed(cur["started_at"])
+            recent = [{"ts": s["started_at"], "kind": s["kind"], "what": s["what"], "status": s["status"],
+                       "duration_ms": s["duration_ms"]} for s in steps[-10:]]
+        phase = {"queued": "idle", "running": "analysis"}.get(j["status"], "finished")
+        if running:
+            phase = {"triage": "triage", "question": "analysis"}.get(running["kind"], "analysis")
+            if step and step["kind"] in ("evaluate", "prioritize", "translate"):
+                phase = {"evaluate": "evaluation", "prioritize": "prioritization", "translate": "translation"}[step["kind"]]
+        state = "working" if j["status"] == "running" else ("idle" if j["status"] == "queued" else "finished")
+        nxt = [{"task_id": t["id"], "title": t["title"]} for t in store.queue(job_id) if t["status"] == "pending"][:3]
+        return {"state": state, "phase": phase,
+                "task": ({"id": running["id"], "title": running["title"], "goal": running["goal"], "origin": running["origin"],
+                          "started_at": running["started_at"], "elapsed_ms": elapsed(running["started_at"])} if running else None),
+                "step": step, "model": {"name": report_model or llm.model}, "recent": recent,
+                "queue_length": len(store.queue(job_id)), "next": nxt}
 
     # ---- log, timeline, guard, audit ---------------------------------------------------------------------
     @app.get("/api/jobs/{job_id}/log")

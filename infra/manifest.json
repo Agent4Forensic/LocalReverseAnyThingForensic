@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "note": "Pinned sources only. Every download needs url + sha256; 'pending' means not pinned yet (review required before use). A hash mismatch is a hard error.",
+  "components": {
+    "ollama": {
+      "version": "0.40.13",
+      "url": "https://github.com/ollama/ollama/releases/download/v0.40.13/ollama-windows-amd64.zip",
+      "sha256": "7afa38624fa62ee5d8293422d0ab084c1bb4603134c7f4dafce11a033b57cc19",
+      "archive": "zip",
+      "target": "D:\\Tools\\sw-analyst\\ollama-0.40.13",
+      "exe": "ollama.exe"
+    },
+    "ghidra": {
+      "version": "12.1.4",
+      "source": "NationalSecurityAgency/ghidra",
+      "url": "pending",
+      "sha256": "ddac49f903da9d5bac833e5cc79395098b9c33cfd3279be5f31bd00387d2d4db",
+      "target": "pending",
+      "status": "pending: URL and target path not reviewed yet"
+    },
+    "rea": {
+      "version": "pending",
+      "source": "morluto/rea",
+      "url": "pending",
+      "sha256": "pending",
+      "target": "pending",
+      "status": "pending: commit pin and review required (CLAUDE.md)"
+    }
+  },
+  "models": {
+    "note": "Tags are real Ollama library tags (qwen3 family). gemma4/ornith from the research were never verified and are not used until a pull succeeds; see docs/adr/0001-modellwahl.md.",
+    "chat_tiers": {
+      "A": "qwen3:14b",
+      "B": "qwen3:8b",
+      "C": "qwen3:4b"
+    },
+    "embedding": "qwen3-embedding:0.6b"
+  }
+}
