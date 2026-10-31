@@ -137,7 +137,7 @@ flowchart LR
 | Stand | Inhalt |
 |---|---|
 | Fertig | Kern, Orchestrator, Guard, Dev-Gateway, Container-Werkzeuge (ADR-0006), Bericht und Defanging, Übersetzung, Start/Stopp/Cleanup, Tests |
-| Teilweise | Dashboard (Ansichten Übersicht, Auftrag, Code, Bericht; Tabs Diagramme/Log/Guard und Layout offen), erster echter Modelllauf; Container-Werkzeuge sind einzeln getestet, aber noch nicht in einem Modelllauf gemessen |
+| Teilweise | Dashboard (Übersicht, Beispiele, Auftrag mit Aktivität, Baum, Queue, Code, Datei mit Hex/Assembler/Pseudocode, Log, Schutz, Bericht, Export/Import; Diagramme offen; Browserlauf nur mit Skript-Modell geprüft), erster echter Modelllauf; Container-Werkzeuge sind einzeln getestet, aber noch nicht in einem Modelllauf gemessen |
 | Offen | REA (zurückgestellt), apktool, radare2, binwalk, Wissensdatenbank, Obsidian-Vault-Writer, Hyper-V-VM, forensische Testblöcke, Modell-Benchmark |
 | Nur Entwurf | Dynamische Analyse (braucht ADR-0005 und ausdrückliche Freigabe) |
 
