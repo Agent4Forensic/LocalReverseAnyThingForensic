@@ -43,7 +43,7 @@ Stand: 2026-10-31 · Legende: `[x]` erledigt und geprüft · `[~]` begonnen · `
 
 ### P6 Abschluss Voraussetzungen
 - [x] Verifikationsskript `infra/verify-prereqs.ps1` (Lauf: 24 PASS, 2 FAIL: VRAM, Ollama-Server; 2 WARN: freier RAM, graphify-out)
-- [ ] Kompakte Doku `docs/README.md` (Überblick, Entscheidungen, Runbook Kurzform)
+- [x] Kompakte Doku `docs/README.md` (Dokumentenkarte, Entscheidungen, Begriffe), dazu `docs/runbooks/betrieb.md` und `docs/security/sicherheitsmodell.md` (2026-10-31)
 - [ ] graphify-Lauf über das Repo, `graphify-out/` vorhanden
 - [ ] Freigabe von Jan für Phase 0
 

@@ -138,6 +138,9 @@ Tests: `.venv\Scripts\python.exe -m pytest`. Beispielfälle mit automatischer Pr
 
 ## Weiterlesen
 
+- [`docs/README.md`](docs/README.md) – Dokumentenkarte: wo steht was
+- [`docs/runbooks/betrieb.md`](docs/runbooks/betrieb.md) – Start, Stopp, Ablage, Fehlerbehebung
+- [`docs/security/sicherheitsmodell.md`](docs/security/sicherheitsmodell.md) – Schutzschichten, Tests, Restrisiko
 - [`PROJEKTPLAN.md`](PROJEKTPLAN.md) – Quelle der Wahrheit (Ziele, Sicherheit, Phasen)
 - [`docs/STATUS.md`](docs/STATUS.md) – aktueller Stand, offene Aufgaben
 - [`docs/architecture/chain.md`](docs/architecture/chain.md) – Analysekette im Detail
