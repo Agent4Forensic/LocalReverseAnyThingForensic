@@ -2,13 +2,16 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import json
+import logging
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from sw_analyst.common.audit import verify_file
 from sw_analyst.common.models import JobSpec, TargetQuestion
@@ -20,6 +23,7 @@ from sw_analyst.report.builder import build_report
 
 MAX_SAMPLE = 64 * 1024 * 1024
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+EXAMPLES_DIR = Path(__file__).resolve().parents[3] / "example"
 CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
        "base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
 
@@ -37,9 +41,10 @@ class JobIn(BaseModel):
     focus: str = Field(default="", max_length=2000)
     target_questions: list[QuestionIn] = Field(default_factory=list, max_length=20)
     emulation_opt_in: bool = False
-    budget_max_tasks: int = Field(default=60, ge=5, le=300)
-    budget_max_steps: int = Field(default=600, ge=20, le=5000)
-    budget_max_minutes: int = Field(default=120, ge=1, le=1440)
+    # The dashboard sends no budget: the result counts, not the duration. Defaults are the upper limits.
+    budget_max_tasks: int = Field(default=300, ge=5, le=300)
+    budget_max_steps: int = Field(default=5000, ge=20, le=5000)
+    budget_max_minutes: int = Field(default=1440, ge=1, le=1440)
 
 
 def _err(status: int, code: str, msg: str) -> HTTPException:
@@ -52,7 +57,54 @@ def job_summary(j: dict) -> dict:
     return {k: j.get(k) for k in keys}
 
 
-def create_app(store: Store, worker, gateway, llm, translator=None, report_model: str = "", port: int = 8765) -> FastAPI:
+def load_examples(directory: Path) -> tuple[dict[str, dict], dict]:
+    """Challenges from example/ with their harmless, in-memory sample builders. A missing or broken folder means
+    no examples, never a startup error."""
+    try:
+        spec = importlib.util.spec_from_file_location("sw_example_samples", directory / "samples.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        found = {}
+        for f in sorted(directory.glob("challenges/*/challenge.json")):
+            c = json.loads(f.read_text(encoding="utf-8"))
+            file_ok = not c["sample"].get("file") or (f.parent / c["sample"]["file"]).is_file()
+            if c["id"] == f.parent.name and c["sample"]["builder"] in mod.BUILDERS and file_ok:
+                found[c["id"]] = c
+        return found, mod.BUILDERS
+    except Exception as e:  # noqa: BLE001 - examples are optional
+        logging.getLogger("sw_analyst").warning("examples not loaded from %s: %s", directory, e)
+        return {}, {}
+
+
+def example_view(c: dict) -> dict:
+    """What the form may show. The flag, the goal and the test notes stay on the server."""
+    return {"id": c["id"], "title": c["title"], "level": c.get("level", ""), "description": c["description"],
+            "sample_name": c["sample"]["name"], "job_description": c["job_description"],
+            "questions": list(c["questions"])}
+
+
+SPA_ROUTES = ("new", "prompts", "job")  # first path segment of the client routes in static/app.js parseRoute()
+
+
+class _SpaFiles(StaticFiles):
+    """Static files plus index.html for client-side routes (/job/..., /new), so URLs need no '#'."""
+
+    async def get_response(self, path: str, scope):
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as e:
+            rel = path.replace(chr(92), "/")  # Starlette hands over OS separators (backslash on Windows)
+            # Only the client routes of app.js fall back to index.html. Everything else (api, docs, traversal
+            # paths that the client normalised) stays 404 (tests/forensic/test_api_security.py).
+            if (e.status_code == 404 and rel.split("/")[0] in SPA_ROUTES
+                    and "." not in rel.rsplit("/", 1)[-1]):
+                return await super().get_response("index.html", scope)
+            raise
+
+
+def create_app(store: Store, worker, gateway, llm, translator=None, report_model: str = "", port: int = 8765,
+               examples_dir: Path | None = None) -> FastAPI:
+    examples, builders = load_examples(examples_dir or EXAMPLES_DIR)
     allowed_origins = {f"http://127.0.0.1:{port}", f"http://localhost:{port}"}
     app = FastAPI(title="sw-analyst", docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -99,8 +151,13 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
     def jobs():
         return [job_summary(j) for j in store.list_jobs()]
 
+    @app.get("/api/examples")
+    def example_list():
+        return [example_view(c) for c in examples.values()]
+
     @app.post("/api/jobs")
-    async def create_job(spec: str = Form(...), sample: UploadFile = File(...)):
+    async def create_job(spec: str = Form(...), sample: UploadFile | None = File(None),
+                         example: str | None = Form(None)):
         try:
             data_in = JobIn.model_validate_json(spec)
         except ValidationError as e:
@@ -108,10 +165,20 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
         if data_in.emulation_opt_in:
             raise _err(422, "emulation_disabled", "emulation is not available in this phase")
         data = bytearray()
-        while chunk := await sample.read(1024 * 1024):
-            data += chunk
-            if len(data) > MAX_SAMPLE:
-                raise _err(413, "too_large", "sample larger than 64 MiB")
+        if example:
+            c = examples.get(example)
+            if not c:
+                raise _err(422, "unknown_example", f"example {example} does not exist")
+            data = bytearray(builders[c["sample"]["builder"]]())
+            sample_name = c["sample"]["name"]
+        else:
+            if sample is None:
+                raise _err(422, "empty_sample", "choose an example or upload a sample file")
+            while chunk := await sample.read(1024 * 1024):
+                data += chunk
+                if len(data) > MAX_SAMPLE:
+                    raise _err(413, "too_large", "sample larger than 64 MiB")
+            sample_name = sample.filename or "sample"
         if not data:
             raise _err(422, "empty_sample", "the sample file is empty")
         qs = [TargetQuestion(id=q.id or f"Q{i + 1}", text_orig=q.text, expected=q.expected)
@@ -122,7 +189,7 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
                         focus=data_in.focus, target_questions=qs, emulation_opt_in=False,
                         budget_max_tasks=data_in.budget_max_tasks, budget_max_steps=data_in.budget_max_steps,
                         budget_max_minutes=data_in.budget_max_minutes)
-        name = Path(sample.filename or "sample").name[:120]
+        name = Path(sample_name).name[:120]
         job = store.create_job(jspec, name, sha256_hex(bytes(data)))
         gateway.store_sample(job["id"], bytes(data))
         return job_summary(job)
@@ -340,6 +407,6 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
     # Static files at the root so that relative references in index.html (app.js, styles.css) resolve.
     # Mounted last: every /api route above takes precedence.
     if STATIC_DIR.is_dir():
-        app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
+        app.mount("/", _SpaFiles(directory=str(STATIC_DIR), html=True), name="static")
 
     return app

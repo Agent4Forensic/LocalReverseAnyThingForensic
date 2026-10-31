@@ -1,0 +1,20 @@
+{
+  "id": "08-ctf-nsa-hid-dragon",
+  "title": "NSA_hid_dragon",
+  "level": "leicht",
+  "description": "Windows-EXE. Hinweis: „If you can’t see it, then try feeding it to the Dragon head.“ (Ghidra). Ein Text sagt „There is no flag here!!“.",
+  "goal": "Die KI soll über Strings hinaus in Code und Daten suchen und die Flagge mit Beleg nennen.",
+  "tests": "Disassembler-Denken, irreführende Ausgaben.",
+  "sample": {
+    "name": "chall_3.exe",
+    "builder": "ctf_08",
+    "file": "chall_3.exe",
+    "sha256": "37e134cf1e9a08d296ba22646f4ed8e0ae1aecc3ddda7e6556db6edf84022fc9"
+  },
+  "job_description": "CTF: find the flag in this Windows executable. Static analysis only, the file must not be run.",
+  "questions": [
+    "What is the flag? Name where in the file you found it."
+  ],
+  "flag": "FLAG{ghidra_is_useful}",
+  "source": "InfectedCapstone/Reverse_Engineering_CTFs@d50e12c98cac16babb0aeb91db1ecbb493abe230 (no licence; file stays untracked, see example/README.md)"
+}

@@ -140,7 +140,7 @@
             h('button', { type: 'button', cls: 'btn sm', on: { click: function () { confirming = false; paint(); } } }, 'Nein'))
         : h('button', { type: 'button', cls: 'btn sm danger', on: { click: function () { confirming = true; paint(); } } }, icon('stop'), 'Abbrechen');
       SW.dom.fill(host,
-        h('p', { cls: 'crumb' }, h('a', { href: '#/', text: '← Übersicht' })),
+        h('p', { cls: 'crumb' }, h('a', { href: '/', text: '← Übersicht' })),
         h('div', { cls: 'page-h jh-top' },
           h('div', { cls: 'grow' }, h('h1', { id: 'job-h', tabindex: '-1', text: s.title }),
             h('p', { cls: 'page-sub' }, h('span', { cls: 'mono', text: s.id }), ' · ', s.sample_name || '–', ' · ', h('span', { cls: 'mono', title: s.sample_sha256, text: fmt.shortHash(s.sample_sha256, 16) }))),
@@ -149,7 +149,7 @@
           p ? h('div', { cls: 'jh-prog' }, ui.bar(p.percent, s.status === 'done' ? 'ok' : ''), h('span', { cls: 'small muted nowrap', text: p.done + '/' + p.tasks_total + ' Aufgaben · ' + (p.running ? p.running + ' läuft · ' : '') + (p.pending || 0) + ' offen' + (p.failed ? ' · ' + p.failed + ' fehlgeschlagen' : '') })) : null,
           h('span', { cls: 'small muted', text: 'Typ ' + (s.detected_type || '–') + ' / Rezept ' + (s.recipe || '–') }),
           h('span', { cls: 'small muted', text: 'Dauer ' + (s.started_at ? fmt.duration(s.duration_ms) : '–') }),
-          st.totals ? h('span', { cls: 'small muted', text: st.totals.steps + ' Schritte · ' + st.totals.tool_calls + ' Werkzeug- · ' + st.totals.llm_calls + ' Modellaufrufe' }) : null,
+          st.totals ? h('span', { cls: 'small muted', text: st.totals.steps + ' Schritte · ' + st.totals.tool_calls + ' Werkzeugaufrufe · ' + st.totals.llm_calls + ' Modellaufrufe' }) : null,
           h('span', { cls: 'small conn-pill tone-' + (st.conn === 'live' ? 'ok' : st.conn === 'offline' ? 'err' : 'warn') }, h('span', { cls: 'dot', 'aria-hidden': 'true' }), connLabel))
       );
     }

@@ -37,6 +37,9 @@ def load_challenges() -> dict[str, dict]:
         c = json.loads(f.read_text(encoding="utf-8"))
         if c["id"] != f.parent.name or c["sample"]["builder"] not in BUILDERS:
             sys.exit(f"{f}: id must equal the folder name and sample.builder must exist in samples.BUILDERS")
+        if c["sample"].get("file") and not (f.parent / c["sample"]["file"]).is_file():
+            print(f"skip {c['id']}: {c['sample']['file']} missing (git-ignored third-party file, see README)")
+            continue
         found[c["id"]] = c
     return found
 

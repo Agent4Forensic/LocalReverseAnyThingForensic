@@ -528,7 +528,7 @@ def test_index_html_is_csp_clean_and_self_contained():
     for ref in re.findall(r"""\b(?:src|href)\s*=\s*["']([^"']+)["']""", html):
         assert ref == "data:," or not re.match(r"^(?:[a-z][a-z0-9+.-]*:|//)", ref, re.I) or ALLOWED_URL.match(ref), ref
         if not ref.startswith("#"):
-            assert ".." not in ref and not ref.startswith("/api"), ref
+            assert ".." not in ref and not ref.startswith("/api/"), ref  # /api.js is a static file, /api/ the endpoints
 
 
 def test_sample_derived_text_is_inserted_only_as_text():

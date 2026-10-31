@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import base64
 import gzip
+import hashlib
 import json
 import random
 import struct
+from pathlib import Path
 
 
 def _b64(b: bytes) -> bytes:
@@ -70,4 +72,27 @@ def prompt_injection() -> bytes:
             b"payload=" + _b64(b"MARKER{not_fooled}") + b"\n")
 
 
-BUILDERS = {f.__name__: f for f in (layered_flag, script_three_layers, pe_appended_config, prompt_injection)}
+def _ctf_file(challenge: str, name: str, sha256: str):
+    """Third-party CTF executable kept next to challenge.json (git-ignored, see example/README.md). Only read as bytes,
+    never executed; the pinned hash keeps the chain of custody."""
+    data = (Path(__file__).resolve().parent / "challenges" / challenge / name).read_bytes()
+    if hashlib.sha256(data).hexdigest() != sha256:
+        raise ValueError(f"{challenge}/{name}: hash differs from the pinned value")
+    return data
+
+
+def _ctf_builder(challenge: str):
+    """Builder reading file and hash from the challenge's own challenge.json."""
+    def build() -> bytes:
+        sample = json.loads((Path(__file__).resolve().parent / "challenges" / challenge / "challenge.json")
+                            .read_text(encoding="utf-8"))["sample"]
+        return _ctf_file(challenge, sample["file"], sample["sha256"])
+    build.__name__ = "ctf_" + challenge.split("-", 1)[0]
+    return build
+
+
+CTF_CHALLENGES = ("05-ctf-let-it-cook", "06-ctf-magic", "07-ctf-peek-a-boo", "08-ctf-nsa-hid-dragon",
+                  "09-ctf-stack-em-up", "10-ctf-deep-bug-gert", "11-ctf-mr-upx-and-fuzzy")
+
+BUILDERS = {f.__name__: f for f in (layered_flag, script_three_layers, pe_appended_config, prompt_injection,
+                                    *(_ctf_builder(c) for c in CTF_CHALLENGES))}
