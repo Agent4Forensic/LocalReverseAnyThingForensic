@@ -14,6 +14,7 @@ from sw_analyst.common.models import JobSpec, TargetQuestion
 from sw_analyst.common.store import Store
 from sw_analyst.common.util import sha256_hex
 from sw_analyst.gateway.dev_gateway import DevGateway
+from sw_analyst.guard import action_json_schema
 from sw_analyst.guard.scanner import scan
 from sw_analyst.llm.base import LLMResponse
 from sw_analyst.llm.fake import ScriptedLLM
@@ -21,7 +22,7 @@ from sw_analyst.llm.ollama import OllamaClient
 from sw_analyst.orchestrator.engine import JobEngine
 from sw_analyst.orchestrator.worker import Worker
 from sw_analyst.webui.app import create_app
-from sw_analyst.orchestrator.runner import check_answer_grounding, guard_task_text
+from sw_analyst.orchestrator.runner import _tools_block, check_answer_grounding, guard_task_text
 from sw_analyst.orchestrator.verifier import verify_finding
 from sw_analyst.report.builder import build_report
 
@@ -735,3 +736,27 @@ def test_report_keeps_open_points_out_of_the_proven_findings(tmp_path):
     assert "Key not found yet." in report[report.index("## Open questions"):]
     assert "Key not found yet." not in report[report.index("## R4"):report.index("## R5")]
     assert "Goal (model's self-assessment)" in report
+
+
+def test_tool_list_tells_the_model_defaults_ranges_and_parameter_texts(tmp_path):
+    block = _tools_block(DevGateway(tmp_path).list_tools())
+    assert "block_size:int default=4096 range=64..1048576 - Block size in bytes." in block
+    assert block.count("Logical file name") == 1   # the shared path text is printed once
+
+
+def test_action_schema_binds_tools_and_keeps_findings_mandatory(tmp_path):
+    tools = DevGateway(tmp_path).list_tools()
+    branches = action_json_schema(tools)["anyOf"]
+    by_tool = {b["properties"]["tool"]["const"]: b for b in branches if "tool" in b["properties"]}
+    assert set(by_tool) == {t.name for t in tools}
+    assert by_tool["entropy_map"]["properties"]["args"]["properties"]["block_size"]["minimum"] == 64
+    assert branches[-1]["required"] == ["action", "summary", "findings"]   # the same rule as validate_action
+
+
+def test_ollama_sends_a_schema_as_format_and_keeps_plain_json_mode(monkeypatch):
+    client = OllamaClient("m")
+    formats = []
+    monkeypatch.setattr(client, "_post", lambda path, body: formats.append(body["format"]) or {"message": {"content": "{}"}})
+    client.chat([], json_mode={"type": "object"})
+    client.chat([], json_mode=True)
+    assert formats == [{"type": "object"}, "json"]

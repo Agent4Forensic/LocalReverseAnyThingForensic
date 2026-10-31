@@ -43,14 +43,14 @@ class OllamaClient:
         except Exception:
             return False
 
-    def chat(self, messages: list[ChatMessage], *, json_mode: bool = False, think: bool = True,
+    def chat(self, messages: list[ChatMessage], *, json_mode: bool | dict = False, think: bool = True,
              max_tokens: int = 2048, temperature: float = 0.1) -> LLMResponse:
         body = {"model": self.model, "stream": False,
                 "messages": [m.model_dump() for m in messages],
                 "options": {"temperature": temperature, "num_predict": max_tokens, "num_ctx": self.num_ctx,
                             "seed": self.seed}}
         if json_mode:
-            body["format"] = "json"
+            body["format"] = json_mode if isinstance(json_mode, dict) else "json"
         body["think"] = think
         t0 = time.monotonic()
         try:
