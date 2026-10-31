@@ -23,18 +23,34 @@ steps:
     guide: Use strings_extract with both encodings and min_len 6, page with offset. Report offset and text. Do not treat a string as behaviour; it shows presence only.
     priority: 130
     tools_hint: [strings_extract]
+  - id: capa_yara
+    title: Capabilities and decoded strings from code
+    goal: Run capa, YARA and FLOSS and record matched capabilities, rule hits and decoded strings with their code locations.
+    done_when: capa rules, YARA rules and decoded strings are listed with locations and evidence as hypotheses, or a finding names which tool found nothing or failed.
+    guide: Call capa_scan, yara_scan and floss_decode once each; the first call can take minutes. capa and YARA hits are hypotheses until code confirms them. Name the location of each hit so a later step can read that code.
+    priority: 135
+    tools_hint: [capa_scan, yara_scan, floss_decode]
+    requires_tools: [capa_scan, yara_scan, floss_decode]
   - id: resources_overlay
     title: Resources and overlay
     goal: Inspect overlay and high-entropy regions for embedded payloads or configuration blobs and record their offsets, sizes and entropy.
     done_when: Offset, size and entropy of the overlay and high-entropy regions are recorded with evidence, or a finding states none exist in the sample or names the tool limit that prevented inspection.
-    guide: pe_headers gives the overlay offset. Look at it with hexdump. If it holds encoded text, call decode_layer with offset and length of exactly that blob (skip any prefix) and read the result. A result with its own magic is a new artifact; the platform triages it. Do not guess keys.
+    guide: pe_headers gives the overlay offset and pe_resources lists resources with offset and size. Look at them with hexdump. If one holds encoded text, call decode_layer with offset and length of exactly that blob (skip any prefix) and read the result. If it holds an unencoded file, save it with extract_range. A result with its own magic is a new artifact; the platform triages it. Do not guess keys.
     priority: 150
-    tools_hint: [pe_headers, entropy_map, hexdump, decode_layer]
+    tools_hint: [pe_headers, pe_resources, entropy_map, hexdump, decode_layer, extract_range]
+  - id: ghidra_full
+    title: Code of the relevant functions
+    goal: Find the functions behind the indicated capabilities, read their decompiled code and establish what they do, from which callers, with which control flow.
+    done_when: The entry point and each function behind an indicated capability are named with address and quoted code, or a finding names which function could not be read and why.
+    guide: Start with list_functions (the first call can take minutes), then decompile the entry point and the functions at capa locations or those using suspicious imports. Follow callers with xrefs. Use disassemble when decompiled output is missing and basic_blocks for control flow. Quote code as evidence; a behaviour is confirmed only by code that performs it, and decompiler output only approximates the code. Follow key handling to its source before using a key with decode_layer.
+    priority: 160
+    tools_hint: [list_functions, decompile, xrefs, disassemble, basic_blocks]
+    requires_tools: [list_functions, decompile, xrefs, disassemble, basic_blocks]
   - id: crypto_config
     title: Crypto constants and configuration
     goal: Search for crypto-related constants, base64/hex blobs and configuration structures; state what was found and what could not be determined.
     done_when: Any crypto constants, encoded blobs and config structures are listed with offsets, or a finding states none were seen, and a finding names what stays undeterminable without a disassembler.
-    guide: Without a disassembler you can only see constants and blobs, not their use. Say so. Identify algorithms only as hypothesis unless a constant is quoted. Function-level questions (key handling, control flow) are a GAP until the disassembler tools exist.
+    guide: Constants and blobs alone do not show their use. Identify algorithms only as hypothesis unless a constant is quoted. Function-level questions (key handling, control flow) need decompile; if that tool is not offered to you, they are a GAP.
     priority: 170
     tools_hint: [strings_extract, hexdump, decode_layer]
 required_questions:

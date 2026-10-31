@@ -37,7 +37,7 @@ Die Schichten 1 bis 11 sind umgesetzt und getestet. Die Isolation durch eine Hyp
 
 - Das Modell hat keine Shell und keine Schreibwerkzeuge außer Notizen und Annotationen im Job-Arbeitsbereich.
 - Es gibt keine dynamische Analyse. Ein Bedarf wird als offene Lücke (`GAP`) im Bericht benannt, nicht umgesetzt. Entwurf: [ADR-0005](../adr/0005-dynamische-analyse.md), keine Umsetzung ohne ausdrückliche Freigabe.
-- Neue Werkzeuge (Ghidra, jadx, capa und weitere) kommen nur hinter dem Gateway und nur nach Freigabe der Allowlist ([ADR-0006](../adr/0006-statische-werkzeuge-allowlist.md)).
+- Ghidra, capa, FLOSS, YARA und jadx laufen nur hinter dem Gateway in Containern ohne Netz, ohne Root und ohne Hostmount ([ADR-0006](../adr/0006-statische-werkzeuge-allowlist.md), dort auch die Abweichungen). Weitere Werkzeuge brauchen eine eigene Freigabe der Allowlist.
 
 ## Bekannte Grenzen und offene Punkte
 

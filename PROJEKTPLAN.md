@@ -113,6 +113,8 @@ Siehe `CLAUDE.md` im Repo-Root (enthält den Block des Originalplans, ergänzt u
 
 ### 6.2 MCP-Tool-Gateway (in der VM)
 
+> **Stand 2026-10-31 (ADR-0006):** Das Gateway ist derzeit eine interne Allowlist (`DevGateway`), kein MCP-Server, und es gibt keine `.mcp.json`. Fremdwerkzeuge laufen hinter dem Gateway in Containern. Abweichende Namen im Code: `decompile` (`decompile_function`), `extract_range` (`extract_overlay`), `decode_layer` (`script_deobfuscate_layer`), `pe_headers` enthält `pe_imports`; `ghidra_analyze` läuft automatisch beim ersten Ghidra-Aufruf. Noch offen sind `apktool_decode`, `list_native_libs`, `extract_embedded`, `emulate_function` und `notes_write`. Die VM-Variante und damit die Frage nach MCP entscheidet der VM-Baustein.
+
 Nur lesende/analysierende Tools, jedes mit Schema, Validierung, Timeout, Speicher- und Ausgabelimit, Pfad-Jail:
 
 - `sample_info`, `hash_file`, `identify_type`, `entropy_map`
