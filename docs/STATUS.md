@@ -54,5 +54,17 @@ Stand: 2026-10-31 · Legende: `[x]` erledigt und geprüft · `[~]` begonnen · `
 - B5: REA zurückstellen und pyghidra-mcp als Primärweg nehmen? (Empfehlung: ja, REA später optional nach Tiefenprüfung)
 - B3: Admin-Rechte für Hyper-V-Einrichtung: Du führst das erzeugte Skript selbst aus (bestätigt in Auswahl, Termin offen).
 
+## Aktuelle Arbeit (feat/core-chain)
+- [~] Kern: Datenmodell, Gateway-/LLM-Vertrag, Audit-Log (Hash-Kette), SQLite-Store, Ollama-/Fake-Client geschrieben; Tests stehen aus
+- [~] Agenten parallel: Frontend, Dev-Gateway, Prompt-Schutz, Übersetzung+Defanging (in Arbeit)
+- [~] Blueprint (docs/blueprint/, 15 Dateien, Fable 5.1, 4 Agenten) in Arbeit; Themenliste des Berichts von Jan liegt vor (Übergabe+Hashes, Erkennung je Schritt, logischer Aufbau mit Nachweis, Zielfragen/CTF)
+- [~] Audit morluto/rea (Tool-Inventar, npm gegen Repo) läuft
+- [ ] Orchestrator (Planer, Queue, Prüfer, Evaluator, Priorisierer), Prompts je Aufgabentyp, API, Bericht, Wiring, CTF-Tests
+- [ ] graphify-Lauf über das Repo (nach Abgabe der Agenten)
+
+## Backlog (von Jan beauftragt, braucht ADR und Freigabe)
+- [ ] **Dynamische Analyse** (ADR-0005, Entwurf): widerspricht Nicht-Ziel 1 des Plans und ist nach CLAUDE.md Verbot 3 nur mit ADR und ausdrücklicher Freigabe umsetzbar. Voraussetzungen: Hyper-V-VM ohne Netzwerkkarte, Snapshot/Rollback, simuliertes Netz, Opt-in pro Job, Audit, Gateway-Tools (`capture_trace`, `emulate_function`), Berichtsregel "niedrigere Konfidenz bis statisch bestätigt". Blueprint-Datei `10-dynamic-analysis.md` beschreibt die Methodik als Wissen.
+- [ ] REA: Live-Komponenten (Frida, ADB, Prozess-Capture) bleiben bis zur Freigabe von ADR-0005 aus.
+
 ## Phasen 0–12 (laut PROJEKTPLAN.md Abschnitt 7)
 Alle offen. Beginn erst nach Abschluss von Phase P und Freigabe.

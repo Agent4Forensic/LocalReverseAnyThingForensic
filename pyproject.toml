@@ -1,0 +1,10 @@
+[project]
+name = "sw-analyst"
+version = "0.1.0"
+description = "Offline static reverse-engineering and IT-forensics analysis chain driven by a local LLM"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q"
