@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Keeps the graphify knowledge graph current after every commit (AST only, no LLM, no cost).
+# Runs in the background so a commit never waits for it; failures are ignored on purpose.
+command -v graphify >/dev/null 2>&1 || exit 0
+[ -f graphify-out/graph.json ] || exit 0
+( graphify update . >/dev/null 2>&1 & )
+exit 0
