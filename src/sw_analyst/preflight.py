@@ -372,10 +372,12 @@ def check_models(ollama_port: int, model: str | None, embedding: str | None) -> 
     return out
 
 
-def check_gateway() -> dict:
+def check_gateway(scratch_parent: str | Path | None = None) -> dict:
     try:
         from sw_analyst.gateway.dev_gateway import DevGateway
-        with tempfile.TemporaryDirectory() as d:
+        if scratch_parent:   # inside the project folder, not %TEMP% (virus scanner exception)
+            Path(scratch_parent).mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=scratch_parent) as d:
             n = len(DevGateway(d).list_tools())
         return result("gateway:selftest", OK if n > 0 else FEHLER, f"{n} Werkzeuge registriert")
     except Exception as e:  # any failure here is a platform error, report it
@@ -408,7 +410,7 @@ def run_checks(root: str | Path, data_dir: str | Path, app_port: int = 8765, oll
                        [str(Path(manifest.get("components", {}).get("ollama", {}).get("target", "D:/Tools/sw-analyst/ollama")).parent)])
     res.append(check_ollama_binary(manifest))
     res += check_models(ollama_port, model, manifest.get("models", {}).get("embedding"))
-    res.append(check_gateway())
+    res.append(check_gateway(data_dir / "tmp"))
     res.append(check_audit_chain(data_dir))
     return res
 
