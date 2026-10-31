@@ -23,8 +23,8 @@ Stand: 2026-10-31. Auftrag von Jan: alle Lücken aus dem Soll-Ist-Abgleich als B
 ## 2. Regeln für jeden Block
 
 1. Start in eigenem Git-Worktree (`isolation: "worktree"`), Basis ist der Branch `feat/webui-analysis`.
-2. Zuerst graphify, mit absolutem Pfad, weil `graphify-out/` im Worktree fehlt: `graphify query "<Frage>" --graph D:\Projects\LocalReverseAnything\graphify-out\graph.json`. Danach gezielt `Read` mit Zeilenbereich.
-3. Tests: `D:\Projects\LocalReverseAnything\.venv\Scripts\python.exe -m pytest <eigene Tests> -q -p no:warnings`, vor der Abgabe einmal die ganze Suite. Blöcke ohne Python-Anteil lassen zusätzlich `node --test tests/js` laufen.
+2. Zuerst graphify, mit absolutem Pfad, weil `graphify-out/` im Worktree fehlt: `graphify query "<Frage>" --graph <Haupt-Checkout>\graphify-out\graph.json`. Danach gezielt `Read` mit Zeilenbereich.
+3. Tests: `<Haupt-Checkout>\.venv\Scripts\python.exe -m pytest <eigene Tests> -q -p no:warnings`, vor der Abgabe einmal die ganze Suite. Blöcke ohne Python-Anteil lassen zusätzlich `node --test tests/js` laufen.
 4. Nur die Dateien des eigenen Blocks ändern. Reicht das nicht: Abbruch mit `BLOCKED: <Datei, Grund>`, kein Umgehen.
 5. Nichts committen, nichts pushen, kein Merge.
 6. Keine neue Abhängigkeit, kein Netz, kein Modellaufruf, kein Ollama. Tests laufen mit `ScriptedLLM`.
