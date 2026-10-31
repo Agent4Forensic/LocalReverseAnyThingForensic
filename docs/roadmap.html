@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sw-analyst Roadmap</title>
+<!-- Single Page, offline: kein CDN, keine Netzwerkzugriffe. Quelle der Daten: docs/STATUS.md und git log. Stand 2026-10-31. -->
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1c2128;--mute:#5b6572;--line:#dfe3e8;--done:#2e8b57;--part:#c98a00;--open:#8a94a3;--draft:#7a5cc8;--blk:#c0392b;--acc:#2b6cb0}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#0f1318;--card:#171c23;--ink:#e6e9ee;--mute:#9aa4b2;--line:#2a313b;--done:#4cc38a;--part:#e5b43c;--open:#7d8795;--draft:#a58cf0;--blk:#ef6b5b;--acc:#6fa8e8}}
+:root[data-theme=dark]{--bg:#0f1318;--card:#171c23;--ink:#e6e9ee;--mute:#9aa4b2;--line:#2a313b;--done:#4cc38a;--part:#e5b43c;--open:#7d8795;--draft:#a58cf0;--blk:#ef6b5b;--acc:#6fa8e8}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:1080px;margin:0 auto;padding:20px 16px 60px}
+h1{font-size:26px;margin:0 0 4px}h2{font-size:19px;margin:34px 0 10px;padding-top:6px;border-top:1px solid var(--line)}h3{font-size:15px;margin:0 0 6px}
+p.sub{color:var(--mute);margin:0 0 14px}
+nav{position:sticky;top:0;background:var(--bg);padding:8px 0;z-index:5;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--line);align-items:center}
+nav a{color:var(--acc);text-decoration:none;font-size:13px;padding:3px 8px;border:1px solid var(--line);border-radius:12px;background:var(--card)}
+nav button{margin-left:auto;font:inherit;font-size:13px;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:12px;padding:3px 10px;cursor:pointer}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+.grid{display:grid;gap:12px}.kpis{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.kpi b{display:block;font-size:26px}.kpi span{color:var(--mute);font-size:13px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--mute);margin:6px 0 10px}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:baseline}
+.s-done{--c:var(--done)}.s-part{--c:var(--part)}.s-open{--c:var(--open)}.s-draft{--c:var(--draft)}.s-blk{--c:var(--blk)}
+.dot,.chip i{background:var(--c)}
+.chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;border:1px solid var(--c);color:var(--c);border-radius:10px;padding:0 8px;white-space:nowrap}
+.chip i{width:7px;height:7px;border-radius:50%}
+svg{width:100%;height:auto;display:block}
+svg text{fill:var(--ink);font:12px system-ui,sans-serif}
+svg .m{fill:var(--mute)}
+.bar{display:grid;grid-template-columns:150px 1fr 70px;gap:8px;align-items:center;margin:6px 0;font-size:13px}
+.bar .track{display:flex;height:16px;border-radius:5px;overflow:hidden;background:var(--line)}
+.bar .track span{height:100%;background:var(--c)}
+.bar em{color:var(--mute);font-style:normal;text-align:right}
+.lanes{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.item{border-left:3px solid var(--c);padding:4px 0 4px 9px;margin:8px 0}
+.item small{display:block;color:var(--mute)}
+.log{border-left:2px solid var(--line);margin-left:6px}
+.entry{position:relative;padding:3px 0 7px 16px}
+.entry:before{content:"";position:absolute;left:-6px;top:9px;width:10px;height:10px;border-radius:50%;background:var(--c);border:2px solid var(--bg)}
+.entry time{color:var(--mute);font-size:12px;margin-right:6px}.entry code{color:var(--mute);font-size:12px}
+.t-feat{--c:var(--done)}.t-fix{--c:var(--blk)}.t-docs{--c:var(--acc)}.t-chore{--c:var(--open)}.t-wip{--c:var(--part)}
+.filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.filters button{font:inherit;font-size:12px;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;padding:2px 10px;cursor:pointer}
+.filters button[aria-pressed=true]{border-color:var(--acc);color:var(--acc)}
+table{border-collapse:collapse;width:100%;font-size:13px}td,th{border-bottom:1px solid var(--line);padding:5px 6px;text-align:left;vertical-align:top}
+.scroll{overflow-x:auto}
+@media (max-width:560px){.bar{grid-template-columns:1fr 60px}.bar .lbl{grid-column:1/-1}}
+</style>
+</head>
+<body>
+<main>
+<nav><a href="#kpi">Überblick</a><a href="#arch">Architektur</a><a href="#stand">Baustein-Stand</a><a href="#road">Roadmap</a><a href="#gantt">Zeitleiste</a><a href="#log">Log</a><a href="#blocker">Offene Fragen</a><button id="theme" type="button">Hell/Dunkel</button></nav>
+
+<h1>sw-analyst · Roadmap und Log</h1>
+<p class="sub">Offline-KI zur statischen Analyse unbekannter Software. Stand 2026-10-31. Belegt nur, was in <code>docs/STATUS.md</code> und im Git-Log steht; Zahlen unten werden aus den Daten dieser Seite berechnet.</p>
+<div class="legend" id="legend"></div>
+
+<h2 id="kpi">Überblick</h2>
+<div class="grid kpis" id="kpis"></div>
+
+<h2 id="arch">Architektur nach Umsetzungsstand</h2>
+<p class="sub">Farbe = Stand des Bausteins. Gestrichelt = noch nicht gebaut.</p>
+<div class="card"><svg id="arch-svg" viewBox="0 0 1000 400" role="img" aria-label="Architekturdiagramm mit Umsetzungsstand"></svg></div>
+
+<h2 id="stand">Stand je Bereich</h2>
+<p class="sub">Balken = Anteil der Einzelpunkte je Status (jeder Punkt zählt gleich, keine Aufwandsschätzung). Klick auf einen Bereich zeigt die Punkte.</p>
+<div class="card" id="bars"></div>
+<div class="card" id="detail" style="margin-top:12px" hidden></div>
+
+<h2 id="road">Roadmap</h2>
+<div class="grid lanes" id="lanes"></div>
+
+<h2 id="gantt">Zeitleiste der Arbeit (Commits)</h2>
+<p class="sub">Alle Commits ohne Merges. Höhe = Anzahl Commits je Stunde, Farbe = Commit-Typ.</p>
+<div class="card"><svg id="time-svg" viewBox="0 0 1000 220" role="img" aria-label="Commits pro Stunde"></svg></div>
+
+<h2 id="log">Log: was wurde wann gemacht</h2>
+<div class="filters" id="filters"></div>
+<div class="card"><div class="log" id="logbox"></div></div>
+
+<h2 id="blocker">Blocker und offene Fragen an Jan</h2>
+<div class="card scroll"><table id="blk"><thead><tr><th>ID</th><th>Frage</th><th>Stand</th></tr></thead><tbody></tbody></table></div>
+
+<p class="sub" style="margin-top:30px">Pflege: Daten stehen im Skript am Seitenende (<code>AREAS</code>, <code>LANES</code>, <code>LOG</code>, <code>BLOCKERS</code>). Nach jeder Arbeitsrunde zusammen mit <code>docs/STATUS.md</code> aktualisieren.</p>
+</main>
+
+<script>
+"use strict";
+var ST={done:"Fertig",part:"Teilweise",open:"Offen",draft:"Nur Entwurf",blk:"Blockiert"};
+var ORDER=["done","part","open","draft","blk"];
+
+/* Bereiche mit Einzelpunkten. s: done|part|open|draft|blk */
+var AREAS=[
+ {n:"Voraussetzungen",i:[
+  ["Inventur Hardware und Tools","done"],["Plugins/Skills geprüft, Audits mit SHA","done"],["Claude-Code-Einstellungen, Hooks","done"],
+  ["Docker + GPU-Durchreichung","done"],["Verifikationsskript verify-prereqs","done"],["Ollama-Server und Umgebung","part"],["Modellauswahl automatisiert","part"],
+  ["WSL-Limit 24 GB (braucht wsl --shutdown)","blk"],["Hyper-V-VM (Admin-Skript)","blk"],["Embedding-Modell","open"]]},
+ {n:"Kern",i:[["Datenmodell","done"],["SQLite-Store","done"],["Audit-Log, Hash-Kette","done"],["LLM-Client Ollama + ScriptedLLM","done"]]},
+ {n:"Orchestrator",i:[["Rezepte exe/apk/script/generic","done"],["Engine und Worker","done"],["Task-Runner","done"],["Prüfer (Belegzwang)","done"],["Bewerter und Priorisierer","done"],["Prompt-Registry","done"],["Modell je Aufgabentyp","open"]]},
+ {n:"Guard und Gateway",i:[["Scanner und Sanitizer","done"],["Aktions-Validierung","done"],["Dev-Gateway mit statischen Tools","done"],["Ghidra-Adapter","open"],["Disassembler-Tools hinter Gateway","open"],["Tools im Docker-Image (jadx, capa, YARA …)","open"]]},
+ {n:"Bericht und Übersetzung",i:[["Berichtsgenerator","done"],["Defanging","done"],["Übersetzung DE/EN mit Glossar, Cache","done"],["Diagramme im Bericht","open"]]},
+ {n:"Web und Dashboard",i:[["API (FastAPI) mit /activity","done"],["Frontend: Übersicht, Auftrag, Code, Bericht","part"],["Tabs Diagramme, Log, Guard","open"],["Layout-Fehler Kopfzeile/Tabs","open"],["Upload im Browser getestet","open"],["Lernpfad und Ablaufpläne (V2)","open"]]},
+ {n:"Betrieb",i:[["start.ps1 mit Preflight und Pins","part"],["stop.ps1","part"],["cleanup.ps1 (pre/post)","done"],["Manifest mit Hashes","done"],["Echter stop.ps1-Lauf","open"]]},
+ {n:"Tests",i:[["387 Tests grün (Unit, Sicherheit, E2E, CTF scripted)","done"],["Forensische Blöcke 1 bis 8","open"],["Ground-Truth-Korpus","open"],["Live-Modell-Tests","open"],["Netz-Sperr- und Manipulationstest","open"]]},
+ {n:"Wissen und Vault",i:[["Dev-Vault als Markdown","done"],["Wissensdatenbank (Ingest, Index)","open"],["Obsidian-Notiz-Writer","open"]]},
+ {n:"Isolation und Dynamik",i:[["REA Audit und Pin","part"],["Ghidra gepinnt, Image fehlt","part"],["Hyper-V-VM ohne NIC","open"],["Dynamische Analyse (ADR-0005)","draft"]]}
+];
+
+/* Roadmap-Spuren */
+var LANES=[
+ {t:"Jetzt: zum Laufen bringen",i:[
+  ["R1","Arbeitsbaum sichern, nach GitHub","done","main gepusht"],
+  ["R2","Modell qwen3:8b ziehen, Smoke-Test, Tempo messen","part","Lauf läuft; Messwerte nicht dokumentiert"],
+  ["R3","Backend lauffähig (Origin portabel, /activity, Antwortbudget)","part","Origin und /activity committed; Budget offen"],
+  ["R4","Frontend-MVP fertigstellen","part","4 Ansichten da, Browser-Test fehlt"],
+  ["R5","Erster echter Lauf: CTF-Probe mit Modell","open","braucht R2 bis R4"],
+  ["R6","start/stop scharf testen","open","braucht R2, R3"],
+  ["R7","Abnahme: Security-Review, Tag v0.1.0","open","main bereits gemerged, Review steht aus"]]},
+ {t:"Danach (Priorität 2)",i:[
+  ["P1","Anpassungen aus docs/review/platform-adjustments.md","open","Guard-Schema, Store-Tabellen, Endpunkte"],
+  ["F","Forensische Tests Block 1 und 2","open","Audit-Manipulation, Hash-Abgleich"],
+  ["CR","Code-Review durch alle Modelle (9 Pakete)","open","Plan in STATUS.md"],
+  ["G","Ghidra-Image und Disassembler hinter Gateway","open","ADR und Freigabe nötig"],
+  ["D2","Dashboard V2: Lernpfad, Diagramme","open","Spec: dashboard-v2.md"],
+  ["VM","Hyper-V-VM ohne NIC","blk","Admin-Rechte durch Jan"]]},
+ {t:"Modell-Messung (M0 bis M7)",i:[
+  ["M0","Basislinie qwen3:8b im Echtlauf","open","braucht R5"],
+  ["M1","Benchmark-Arena run_arena.py","open",""],
+  ["M2","Billige Hebel: Schema-Ausgabe, Few-Shot, Denkbudget","open",""],
+  ["M3","Stufe 1: qwen3:14b, gemma4:12b, phi4-reasoning:14b, ornith:9b, gpt-oss:20b","open",""],
+  ["M4","Stufe 2 (Offload): 30B-Klasse","open","nur bei Bedarf, Blackwell-Absturzrisiko"],
+  ["M5-M7","ADR-0001, Rollen im Manifest, Engine wählt Modell, Hardware-Vorlage","open",""]]},
+ {t:"Backlog (braucht ADR und Freigabe)",i:[
+  ["DYN","Dynamische Analyse (ADR-0005)","draft","widerspricht Nicht-Ziel 1; nur mit Freigabe"],
+  ["REA","REA-Live-Komponenten (Frida, ADB)","draft","bleiben aus bis ADR-0005"],
+  ["KB","Wissensdatenbank und Obsidian-Writer","open","Phasen 0-12 des Plans"],
+  ["FL","Flussdiagramm-Datei docs/architecture/workflows.md","open","von Jan beauftragt"],
+  ["LIC","Lizenz festlegen","open","Entscheidung von Jan"]]}
+];
+
+/* Git-Log (ohne Merges), Quelle: git log main --no-merges */
+var LOG=[
+["2026-10-31 17:24","5d5a15e","chore: initial scaffold, project plan, prerequisites status"],
+["2026-10-31 17:24","342bae3","chore: enforce LF for git hooks"],
+["2026-10-31 17:25","4476d72","docs: update prerequisites status"],
+["2026-10-31 17:26","b779a47","docs: record verified tool research and REA reputation warning"],
+["2026-10-31 17:40","1de14ab","chore: add ollama scripts, model ADR draft, verify script port"],
+["2026-10-31 17:50","ac43cc7","docs: ghidra-mcp audit, dynamic-analysis ADR draft, blueprint style contract, core data layer"],
+["2026-10-31 17:53","30327b1","wip: orchestrator verifier, runner, prompts, recipes"],
+["2026-10-31 17:54","439eb8d","docs: record REA 6.8.0 audit and approval conditions"],
+["2026-10-31 19:34","ce71fd6","docs: complete blueprint (15 files); feat: engine, helper agents, recipes loader"],
+["2026-10-31 19:38","68856d8","feat: dev gateway with static tools, report builder, API app, worker, e2e test"],
+["2026-10-31 19:41","68bed0c","chore: stop tracking machine-specific graphify output"],
+["2026-10-31 19:42","f76f874","docs: agent rules, git workflow, dashboard v2 spec"],
+["2026-10-31 19:43","49d51ea","docs: status for new requirements"],
+["2026-10-31 19:46","0fb7a84","feat: prompt-injection guard, e2e chain tests, engine status fix"],
+["2026-10-31 19:49","eddf78d","docs: forensic test plan and todo entry"],
+["2026-10-31 19:50","bc0deb5","chore: enforce graphify (CLAUDE.md section, post-commit auto-update)"],
+["2026-10-31 19:50","d5fd4b6","docs: require graphify evidence from every agent"],
+["2026-10-31 19:53","8ae92f8","docs: plan to get the platform running"],
+["2026-10-31 19:56","0eb4bca","fix: start.ps1 hardening, verified model tags, port-aware origin check, activity endpoint"],
+["2026-10-31 20:05","7bd9697","fix: port owner detection without LISTEN row, model evaluation and plan"],
+["2026-10-31 20:10","3f4a6e3","feat: cleanup.ps1 before start and after stop"],
+["2026-10-31 20:11","1f2940f","wip(dashboard): frontend MVP views (overview, job, code, report), not yet tested in browser"],
+["2026-10-31 20:15","0969d02","fix: pin python-multipart (app did not start), webui boot tests"],
+["2026-10-31 20:18","7b330d7","chore: bump python-multipart to 0.0.33 (hash-pinned)"],
+["2026-10-31 20:22","d4545d8","docs: add README (purpose, architecture diagrams, tech, status)"]
+];
+
+var BLOCKERS=[
+["B1","wsl --shutdown für 24-GB-Limit erlaubt? (beendet auch andere WSL-Instanzen)","offen"],
+["B2","VRAM durch Desktop-Apps belegt: Apps schließen oder kleineres Modell?","offen"],
+["B3","Hyper-V: Jan führt das erzeugte Admin-Skript selbst aus","Termin offen"],
+["B4","Freier RAM beim Test nur 3,7 von 31 GB; 24-GB-Limit braucht geschlossene Programme","offen"],
+["B5","REA ohne Live-Komponenten freigegeben","erledigt"],
+["L","Lizenz des Projekts","offen"],
+["CR","Security-Review vor v0.1.0 (main wurde bereits gemerged)","offen"]
+];
+
+var NS="http://www.w3.org/2000/svg";
+function $(id){return document.getElementById(id)}
+function el(tag,attrs,text,parent){var e=document.createElementNS(NS,tag);for(var k in attrs)e.setAttribute(k,attrs[k]);if(text!=null)e.textContent=text;if(parent)parent.appendChild(e);return e}
+function h(tag,cls,text,parent){var e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;if(parent)parent.appendChild(e);return e}
+function color(s){return getComputedStyle(document.documentElement).getPropertyValue("--"+(s==="blk"?"blk":s)).trim()}
+function chip(s,parent){var c=h("span","chip s-"+s,"",parent);h("i","",null,c);c.appendChild(document.createTextNode(ST[s]));return c}
+
+/* Legende */
+ORDER.forEach(function(s){var sp=h("span","s-"+s,"",$("legend"));h("span","dot",null,sp);sp.appendChild(document.createTextNode(ST[s]))});
+
+/* KPIs aus den Daten */
+var cnt={done:0,part:0,open:0,draft:0,blk:0},total=0;
+AREAS.forEach(function(a){a.i.forEach(function(p){cnt[p[1]]++;total++})});
+var types={};LOG.forEach(function(l){var t=l[2].split(/[:(]/)[0];types[t]=(types[t]||0)+1});
+[["387","Tests grün"],[String(LOG.length),"Commits (ohne Merges)"],[Math.round(cnt.done/total*100)+" %","Punkte fertig ("+cnt.done+"/"+total+")"],
+ [String(cnt.part),"Punkte teilweise"],[String(cnt.open+cnt.draft+cnt.blk),"Punkte offen/geplant"],["≈6.900","Zeilen Python (src)"],["4 · 15","ADRs · Blueprint-Dateien"]]
+ .forEach(function(k){var d=h("div","card kpi","",$("kpis"));h("b","",k[0],d);h("span","",k[1],d)});
+
+/* Architektur-SVG */
+function archDraw(){
+ var svg=$("arch-svg");svg.textContent="";
+ var B=[ // x,y,w,h,label,status
+  [20,160,130,60,"Nutzer / Browser","done"],[190,160,150,60,"Web-UI (FastAPI + JS)","part"],[380,160,150,60,"Orchestrator\nEngine · Worker","done"],
+  [570,60,150,50,"Triage · Rezepte","done"],[570,130,150,50,"Task-Runner","done"],[570,200,150,50,"Prüfer · Bewerter","done"],[570,270,150,50,"Bericht · Defanging","done"],
+  [380,290,150,50,"SQLite · Audit-Kette","done"],[380,40,150,50,"Übersetzung DE/EN","done"],
+  [760,60,110,50,"Ollama (lokal)","part"],[760,130,110,50,"Guard","done"],[760,200,110,50,"Gateway · Jail","done"],
+  [900,130,90,50,"Dev-Tools","done"],[900,200,90,50,"Ghidra · REA","open"],[760,290,230,50,"Docker-Tools (jadx, capa …)","open"],
+  [380,350,150,40,"Wissens-DB · Vault","open"],[570,350,420,40,"Hyper-V-VM ohne NIC → dynamische Analyse (Entwurf)","draft"]];
+ var cs=getComputedStyle(document.documentElement);
+ B.forEach(function(b){var c=cs.getPropertyValue("--"+b[5]).trim();
+  var dash=(b[5]==="open"||b[5]==="draft")?"6 4":"";
+  el("rect",{x:b[0],y:b[1],width:b[2],height:b[3],rx:8,fill:c,"fill-opacity":.16,stroke:c,"stroke-width":2,"stroke-dasharray":dash},null,svg);
+  var ls=b[4].split("\n");ls.forEach(function(l,i){el("text",{x:b[0]+b[2]/2,y:b[1]+b[3]/2+4+(i-(ls.length-1)/2)*15,"text-anchor":"middle"},l,svg)})});
+ function arrow(x1,y1,x2,y2){el("line",{x1:x1,y1:y1,x2:x2,y2:y2,stroke:cs.getPropertyValue("--mute").trim(),"stroke-width":1.5,"marker-end":"url(#ar)"},null,svg)}
+ var defs=el("defs",{},null,svg),m=el("marker",{id:"ar",markerWidth:8,markerHeight:8,refX:7,refY:4,orient:"auto"},null,defs);
+ el("path",{d:"M0,0 L8,4 L0,8 z",fill:cs.getPropertyValue("--mute").trim()},null,m);
+ arrow(150,190,190,190);arrow(340,190,380,190);arrow(530,175,570,90);arrow(530,190,570,155);arrow(530,205,570,225);arrow(530,215,570,290);
+ arrow(455,160,455,90);arrow(455,220,455,290);arrow(720,155,760,155);arrow(720,85,760,85);arrow(815,110,815,130);arrow(815,180,815,200);
+ arrow(870,155,900,155);arrow(870,225,900,225);arrow(815,250,815,290);
+}
+
+/* Balken je Bereich */
+function bars(){
+ var box=$("bars");box.textContent="";
+ AREAS.forEach(function(a,idx){
+  var n=a.i.length,c={};a.i.forEach(function(p){c[p[1]]=(c[p[1]]||0)+1});
+  var row=h("div","bar","",box);row.style.cursor="pointer";
+  h("div","lbl",a.n,row);
+  var tr=h("div","track","",row);
+  ORDER.forEach(function(s){if(c[s]){var sp=h("span","s-"+s,"",tr);sp.style.width=(c[s]/n*100)+"%";sp.title=ST[s]+": "+c[s]}});
+  h("em","",(c.done||0)+"/"+n,row);
+  row.addEventListener("click",function(){var d=$("detail");d.hidden=false;d.textContent="";h("h3","",a.n,d);
+   a.i.forEach(function(p){var it=h("div","item s-"+p[1],"",d);it.textContent=p[0]+" ";chip(p[1],it)})});
+ });
+}
+
+/* Roadmap-Spuren */
+function lanes(){
+ LANES.forEach(function(l){var c=h("div","card","",$("lanes"));h("h3","",l.t,c);
+  l.i.forEach(function(p){var it=h("div","item s-"+p[2],"",c);var b=h("b","",p[0]+" ",it);it.appendChild(document.createTextNode(p[1]+" "));chip(p[2],it);if(p[3])h("small","",p[3],it)})});
+}
+
+/* Zeitleiste: Commits je Stunde */
+function timeline(){
+ var svg=$("time-svg");svg.textContent="";
+ var cs=getComputedStyle(document.documentElement),hrs={};
+ LOG.forEach(function(l){var hh=parseInt(l[0].slice(11,13),10);var t=l[2].split(/[:(]/)[0];(hrs[hh]=hrs[hh]||[]).push(t)});
+ var from=17,to=20,w=1000,L=40,R=20,T=14,Bm=36,H=220,cw=(w-L-R)/(to-from+1),max=1;
+ for(var k in hrs)max=Math.max(max,hrs[k].length);
+ var tcol={feat:"--done",fix:"--blk",docs:"--acc",chore:"--open",wip:"--part"};
+ for(var y=0;y<=max;y+=Math.max(1,Math.ceil(max/5))){var yy=H-Bm-(H-Bm-T)*y/max;el("line",{x1:L,x2:w-R,y1:yy,y2:yy,stroke:cs.getPropertyValue("--line").trim()},null,svg);el("text",{x:L-6,y:yy+4,"text-anchor":"end",class:"m"},String(y),svg)}
+ for(var hh=from;hh<=to;hh++){var arr=hrs[hh]||[],x=L+(hh-from)*cw+cw*0.2,bw=cw*0.6,ch=(H-Bm-T)/max;
+  arr.forEach(function(t,i){el("rect",{x:x,y:H-Bm-(i+1)*ch+1,width:bw,height:ch-2,rx:3,fill:cs.getPropertyValue(tcol[t]||"--open").trim()},null,svg)});
+  el("text",{x:x+bw/2,y:H-14,"text-anchor":"middle"},hh+":00",svg)}
+ var lx=L;Object.keys(tcol).forEach(function(t){el("rect",{x:lx,y:H-8,width:9,height:9,fill:cs.getPropertyValue(tcol[t]).trim()},null,svg);el("text",{x:lx+13,y:H,class:"m"},t+" ("+(types[t]||0)+")",svg);lx+=110});
+}
+
+/* Log mit Filter */
+var active={};
+function logView(){
+ var f=$("filters");f.textContent="";
+ Object.keys(types).sort().forEach(function(t){var b=h("button","",t+" ("+types[t]+")",f);b.setAttribute("aria-pressed",active[t]!==false);
+  b.addEventListener("click",function(){active[t]=active[t]===false;logView()})});
+ var box=$("logbox");box.textContent="";
+ LOG.slice().reverse().forEach(function(l){var t=l[2].split(/[:(]/)[0];if(active[t]===false)return;
+  var e=h("div","entry t-"+(types[t]?t:"chore"),"",box);h("time","",l[0],e);h("code","",l[1],e);e.appendChild(document.createTextNode(" "+l[2]))});
+ var m=h("div","entry t-docs","",box);
+ m.textContent="2026-10-31 · Merge feat/core-chain und feat/dashboard nach main (--no-ff), Tests grün, gepusht; Branch docs/code-review-todo ergänzt Review-Plan.";
+ box.insertBefore(m,box.firstChild);
+}
+
+/* Blocker */
+BLOCKERS.forEach(function(b){var tr=h("tr","","",document.querySelector("#blk tbody"));b.forEach(function(c){h("td","",c,tr)})});
+
+/* Theme */
+$("theme").addEventListener("click",function(){var r=document.documentElement,cur=r.getAttribute("data-theme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");r.setAttribute("data-theme",cur==="dark"?"light":"dark");redraw()});
+function redraw(){archDraw();timeline()}
+archDraw();bars();lanes();timeline();logView();
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change",redraw);
+</script>
+</body>
+</html>
