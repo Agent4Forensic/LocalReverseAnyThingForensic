@@ -3,281 +3,463 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>sw-analyst Roadmap</title>
-<!-- Single Page, offline: kein CDN, keine Netzwerkzugriffe. Quelle der Daten: docs/STATUS.md und git log. Stand 2026-10-31. -->
+<title>Forensic Reverse Engineering Plattform · Workflow und Roadmap</title>
+<!-- Single Page, offline: kein CDN, keine Netzwerkzugriffe. Quellen: docs/blueprint/02-workflow-master.md, 09-tool-selection-matrix.md, src/sw_analyst/recipes/*.yaml, docs/STATUS.md. Stand 2026-10-31. -->
 <style>
-:root{--bg:#f6f7f9;--card:#fff;--ink:#1c2128;--mute:#5b6572;--line:#dfe3e8;--done:#2e8b57;--part:#c98a00;--open:#8a94a3;--draft:#7a5cc8;--blk:#c0392b;--acc:#2b6cb0}
-@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#0f1318;--card:#171c23;--ink:#e6e9ee;--mute:#9aa4b2;--line:#2a313b;--done:#4cc38a;--part:#e5b43c;--open:#7d8795;--draft:#a58cf0;--blk:#ef6b5b;--acc:#6fa8e8}}
-:root[data-theme=dark]{--bg:#0f1318;--card:#171c23;--ink:#e6e9ee;--mute:#9aa4b2;--line:#2a313b;--done:#4cc38a;--part:#e5b43c;--open:#7d8795;--draft:#a58cf0;--blk:#ef6b5b;--acc:#6fa8e8}
+:root{--bg:#f7f8fa;--card:#fff;--ink:#0f172a;--mute:#64748b;--line:#e2e8f0;--soft:#f1f5f9;--done:#15803d;--part:#b45309;--open:#64748b;--draft:#7c3aed;--acc:#1d4ed8}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#0b1220;--card:#111a2b;--ink:#e2e8f0;--mute:#94a3b8;--line:#1f2a3d;--soft:#16213a;--done:#4ade80;--part:#fbbf24;--open:#94a3b8;--draft:#a78bfa;--acc:#60a5fa}}
+:root[data-theme=dark]{--bg:#0b1220;--card:#111a2b;--ink:#e2e8f0;--mute:#94a3b8;--line:#1f2a3d;--soft:#16213a;--done:#4ade80;--part:#fbbf24;--open:#94a3b8;--draft:#a78bfa;--acc:#60a5fa}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
-main{max-width:1080px;margin:0 auto;padding:20px 16px 60px}
-h1{font-size:26px;margin:0 0 4px}h2{font-size:19px;margin:34px 0 10px;padding-top:6px;border-top:1px solid var(--line)}h3{font-size:15px;margin:0 0 6px}
-p.sub{color:var(--mute);margin:0 0 14px}
-nav{position:sticky;top:0;background:var(--bg);padding:8px 0;z-index:5;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--line);align-items:center}
-nav a{color:var(--acc);text-decoration:none;font-size:13px;padding:3px 8px;border:1px solid var(--line);border-radius:12px;background:var(--card)}
-nav button{margin-left:auto;font:inherit;font-size:13px;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:12px;padding:3px 10px;cursor:pointer}
-.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
-.grid{display:grid;gap:12px}.kpis{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
-.kpi b{display:block;font-size:26px}.kpi span{color:var(--mute);font-size:13px}
-.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--mute);margin:6px 0 10px}
-.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:baseline}
-.s-done{--c:var(--done)}.s-part{--c:var(--part)}.s-open{--c:var(--open)}.s-draft{--c:var(--draft)}.s-blk{--c:var(--blk)}
-.dot,.chip i{background:var(--c)}
-.chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;border:1px solid var(--c);color:var(--c);border-radius:10px;padding:0 8px;white-space:nowrap}
-.chip i{width:7px;height:7px;border-radius:50%}
+html{scroll-behavior:smooth;scroll-padding-top:56px}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+code,.tool{font-family:ui-monospace,"Cascadia Mono",Consolas,monospace}
+header.top{background:var(--card);border-bottom:1px solid var(--line)}
+.wrap{max-width:1120px;margin:0 auto;padding:0 20px}
+header.top .wrap{padding-top:28px;padding-bottom:20px}
+.eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute);margin:0 0 6px}
+h1{font-size:28px;line-height:1.2;margin:0 0 8px;font-weight:650;letter-spacing:-.01em}
+.lead{color:var(--mute);margin:0;max-width:760px}
+nav{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
+nav .wrap{display:flex;gap:2px;align-items:center;overflow-x:auto;white-space:nowrap}
+nav a{color:var(--mute);text-decoration:none;font-size:13px;padding:12px 11px;border-bottom:2px solid transparent}
+nav a:hover,nav a.on{color:var(--ink);border-bottom-color:var(--acc)}
+nav button{margin-left:auto;font:inherit;font-size:12px;border:1px solid var(--line);background:var(--card);color:var(--mute);border-radius:6px;padding:3px 10px;cursor:pointer}
+main{padding-bottom:70px}
+section{padding-top:44px}
+h2{font-size:20px;margin:0 0 4px;font-weight:650;letter-spacing:-.005em}
+h3{font-size:14px;margin:0 0 8px;font-weight:650}
+p.sub{color:var(--mute);margin:0 0 16px;max-width:780px;font-size:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:16px}
+.grid{display:grid;gap:12px}
+.cols{grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--mute);margin:0 0 12px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--c);display:inline-block}
+.s-done{--c:var(--done)}.s-part{--c:var(--part)}.s-open{--c:var(--open)}.s-draft{--c:var(--draft)}
+.chip{display:inline-flex;align-items:center;gap:5px;font-size:11px;border:1px solid var(--c);color:var(--c);border-radius:10px;padding:0 7px;white-space:nowrap;vertical-align:middle}
+.chip i{width:6px;height:6px;border-radius:50%;background:var(--c)}
+.tool{display:inline-block;font-size:11.5px;border:1px solid var(--line);border-left:3px solid var(--c);border-radius:4px;padding:1px 6px;margin:2px 4px 2px 0;background:var(--card);color:var(--ink)}
 svg{width:100%;height:auto;display:block}
 svg text{fill:var(--ink);font:12px system-ui,sans-serif}
 svg .m{fill:var(--mute)}
-.bar{display:grid;grid-template-columns:150px 1fr 70px;gap:8px;align-items:center;margin:6px 0;font-size:13px}
-.bar .track{display:flex;height:16px;border-radius:5px;overflow:hidden;background:var(--line)}
+svg .sm{font-size:11px;fill:var(--mute)}
+svg .b{font-weight:600}
+svg .hit{cursor:pointer}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);font-weight:600;text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:11px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+tr.flash td{background:var(--soft)}
+td.n{width:44px;color:var(--mute);font-variant-numeric:tabular-nums}
+td b{font-weight:600}
+td small{display:block;color:var(--mute);margin-top:2px}
+.scroll{overflow-x:auto;padding:4px 6px}
+.budget{display:flex;height:22px;border-radius:5px;overflow:hidden;margin:8px 0 6px;font-size:11px}
+.budget span{display:flex;align-items:center;justify-content:center;color:#fff;white-space:nowrap}
+.steps{display:flex;gap:0;flex-wrap:wrap;margin:6px 0 0;padding:0;list-style:none;counter-reset:s}
+.steps li{counter-increment:s;flex:1 1 150px;padding:8px 12px 8px 30px;position:relative;font-size:13px;border-left:1px solid var(--line)}
+.steps li:first-child{border-left:0}
+.steps li:before{content:counter(s);position:absolute;left:8px;top:8px;width:16px;height:16px;border-radius:50%;background:var(--soft);color:var(--mute);font-size:10px;display:flex;align-items:center;justify-content:center}
+.steps small{display:block;color:var(--mute)}
+.rec h3 span{font-weight:400;color:var(--mute);font-size:12px;margin-left:6px}
+.rec ol{margin:0 0 12px;padding-left:18px;font-size:13px}
+.rec li{margin:4px 0}
+.rec .lab{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);margin:12px 0 4px}
+.bar{display:grid;grid-template-columns:200px 1fr 60px;gap:12px;align-items:center;margin:2px 0;font-size:13.5px;padding:6px 8px;border-radius:6px;cursor:pointer}
+.bar:hover,.bar.sel{background:var(--soft)}
+.bar .track{display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--line)}
 .bar .track span{height:100%;background:var(--c)}
-.bar em{color:var(--mute);font-style:normal;text-align:right}
-.lanes{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
-.item{border-left:3px solid var(--c);padding:4px 0 4px 9px;margin:8px 0}
+.bar em{color:var(--mute);font-style:normal;text-align:right;font-variant-numeric:tabular-nums;font-size:12px}
+.item{border-left:3px solid var(--c);padding:3px 0 3px 10px;margin:8px 0;font-size:13.5px}
 .item small{display:block;color:var(--mute)}
-.log{border-left:2px solid var(--line);margin-left:6px}
-.entry{position:relative;padding:3px 0 7px 16px}
-.entry:before{content:"";position:absolute;left:-6px;top:9px;width:10px;height:10px;border-radius:50%;background:var(--c);border:2px solid var(--bg)}
-.entry time{color:var(--mute);font-size:12px;margin-right:6px}.entry code{color:var(--mute);font-size:12px}
-.t-feat{--c:var(--done)}.t-fix{--c:var(--blk)}.t-docs{--c:var(--acc)}.t-chore{--c:var(--open)}.t-wip{--c:var(--part)}
-.filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
-.filters button{font:inherit;font-size:12px;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;padding:2px 10px;cursor:pointer}
-.filters button[aria-pressed=true]{border-color:var(--acc);color:var(--acc)}
-table{border-collapse:collapse;width:100%;font-size:13px}td,th{border-bottom:1px solid var(--line);padding:5px 6px;text-align:left;vertical-align:top}
-.scroll{overflow-x:auto}
-@media (max-width:560px){.bar{grid-template-columns:1fr 60px}.bar .lbl{grid-column:1/-1}}
+.lane h3{padding-bottom:8px;border-bottom:1px solid var(--line);margin-bottom:6px}
+.lane b{font-weight:600;margin-right:4px}
+footer{color:var(--mute);font-size:12.5px;padding-top:36px}
+@media (max-width:640px){.bar{grid-template-columns:1fr 50px}.bar .lbl{grid-column:1/-1}h1{font-size:23px}}
 </style>
 </head>
 <body>
-<main>
-<nav><a href="#kpi">Überblick</a><a href="#arch">Architektur</a><a href="#stand">Baustein-Stand</a><a href="#road">Roadmap</a><a href="#gantt">Zeitleiste</a><a href="#log">Log</a><a href="#blocker">Offene Fragen</a><button id="theme" type="button">Hell/Dunkel</button></nav>
+<header class="top"><div class="wrap">
+<p class="eyebrow">Technische Übersicht · Stand 2026-10-31</p>
+<h1>Forensic Reverse Engineering Plattform</h1>
+<p class="lead">Offline-KI zur statischen Analyse unbekannter Software (EXE, APK, Skripte). Diese Seite zeigt, welche Schritte der Reverse-Engineering-Workflow vorsieht, welches Werkzeug in welcher Phase läuft und was davon bereits umgesetzt ist.</p>
+</div></header>
 
-<h1>sw-analyst · Roadmap und Log</h1>
-<p class="sub">Offline-KI zur statischen Analyse unbekannter Software. Stand 2026-10-31. Belegt nur, was in <code>docs/STATUS.md</code> und im Git-Log steht; Zahlen unten werden aus den Daten dieser Seite berechnet.</p>
+<nav><div class="wrap" id="nav">
+<a href="#workflow">Workflow</a><a href="#pfade">Pfadwahl</a><a href="#rezepte">Ablauf je Dateityp</a><a href="#tools">Werkzeuge</a><a href="#arch">Architektur</a><a href="#stand">Umsetzungsstand</a><a href="#road">Roadmap</a>
+<button id="theme" type="button" aria-label="Farbschema wechseln">Hell / Dunkel</button>
+</div></nav>
+
+<main><div class="wrap">
+
+<section id="workflow">
+<h2>Workflow: acht Phasen von der Probe zum Bericht</h2>
+<p class="sub">Quelle: <code>docs/blueprint/02-workflow-master.md</code>. Die Phasen 3 bis 5 laufen iterativ: entpackte Artefakte gehen zurück in die Triage, Verhaltensfragen zurück in die Tiefenanalyse. Die Farbe einer Phase zeigt, wie viele ihrer Werkzeuge bereits laufen. Klick auf eine Phase springt zur Beschreibung.</p>
 <div class="legend" id="legend"></div>
+<div class="card"><svg id="flow" viewBox="0 0 1000 196" role="img" aria-label="Phasenmodell des Reverse-Engineering-Workflows"></svg></div>
 
-<h2 id="kpi">Überblick</h2>
-<div class="grid kpis" id="kpis"></div>
+<div class="card scroll" style="margin-top:12px"><table id="phases">
+<thead><tr><th>#</th><th>Phase</th><th>Was passiert</th><th>Werkzeuge</th><th>Abschluss</th></tr></thead><tbody></tbody></table></div>
 
-<h2 id="arch">Architektur nach Umsetzungsstand</h2>
-<p class="sub">Farbe = Stand des Bausteins. Gestrichelt = noch nicht gebaut.</p>
-<div class="card"><svg id="arch-svg" viewBox="0 0 1000 400" role="img" aria-label="Architekturdiagramm mit Umsetzungsstand"></svg></div>
+<div class="grid cols" style="margin-top:12px">
+ <div class="card"><h3>Zeitbudget je Job (Richtwert)</h3>
+  <div class="budget" id="budget"></div>
+  <div class="sub" id="budgetLeg" style="margin:0 0 6px;font-size:12px"></div>
+  <p class="sub" style="margin:6px 0 0">Reicht das Budget nicht, endet die Tiefenanalyse zuerst. Der Job wird dann <code>partial</code>, der Bericht nennt die offenen Punkte samt Grund.</p></div>
+ <div class="card"><h3>Dynamische Analyse (nicht aktiv)</h3>
+  <p class="sub" style="margin:0 0 8px">Die Plattform startet nie eine Probe. Ein dynamischer Bedarf wird als offenes Finding vermerkt.</p>
+  <div id="dynTools"></div></div>
+</div>
 
-<h2 id="stand">Stand je Bereich</h2>
-<p class="sub">Balken = Anteil der Einzelpunkte je Status (jeder Punkt zählt gleich, keine Aufwandsschätzung). Klick auf einen Bereich zeigt die Punkte.</p>
+<div class="card" style="margin-top:12px"><h3>Ablauf eines einzelnen Tool-Aufrufs</h3>
+<ol class="steps">
+ <li>Task-Runner<small>Modell wählt genau eine JSON-Aktion</small></li>
+ <li>Guard<small>Schema und Allowlist prüfen</small></li>
+ <li>Gateway<small>Pfad-Jail, Limits, Aufruf</small></li>
+ <li>Evidence<small>Ergebnis mit ID und Hash</small></li>
+ <li>Prüfer<small>Zitat muss wörtlich vorkommen</small></li>
+ <li>Bewerter<small>Lücken, Folgeaufgaben</small></li>
+</ol></div>
+</section>
+
+<section id="pfade">
+<h2>Pfadwahl nach der Triage</h2>
+<p class="sub">Mehrere Zeilen können zutreffen. Reihenfolge: Container zuerst, dann Ebenen, dann Packer, dann Code.</p>
+<div class="card scroll"><table id="paths"><thead><tr><th>Beobachtung</th><th>Pfad</th><th>Nächster Schritt</th><th>Werkzeuge</th></tr></thead><tbody></tbody></table></div>
+<div class="card" style="margin-top:12px"><h3>Funktionsranking in Ghidra (Phase 3)</h3>
+<p class="sub" style="margin-bottom:8px">Kandidaten werden bewertet und in absteigender Reihenfolge geprüft. Bibliothekscode (CRT, FLIRT-Treffer) bleibt außen vor. Bei Gleichstand gewinnt die Funktion, die eine offene Zielfrage beantwortet.</p>
+<div class="scroll" style="padding:0"><table id="rank"><thead><tr><th>Signal</th><th>Gewicht</th><th>Fundstelle</th></tr></thead><tbody></tbody></table></div></div>
+</section>
+
+<section id="rezepte">
+<h2>Ablauf je Dateityp</h2>
+<p class="sub">Je Typ wählt die Triage ein Rezept (<code>src/sw_analyst/recipes/*.yaml</code>). Die Schritte unter „Läuft heute“ sind implementiert und getestet. „Geplant“ stammt aus dem Blueprint und braucht Werkzeuge, die noch nicht hinter dem Gateway stehen.</p>
+<div class="grid cols" id="recipes"></div>
+</section>
+
+<section id="tools">
+<h2>Werkzeuge</h2>
+<p class="sub">Alle Werkzeuge sind statisch und schreibgeschützt und laufen nur hinter dem Gateway. Jeder Aufruf erzeugt eine Evidence-ID.</p>
+<div class="card scroll"><table id="toolTbl"><thead><tr><th>Werkzeug</th><th>Zweck</th><th>Phase</th><th>Stand</th></tr></thead><tbody></tbody></table></div>
+</section>
+
+<section id="arch">
+<h2>Architektur</h2>
+<p class="sub">Farbe = Umsetzungsstand, gestrichelt = noch nicht gebaut. Werkzeuge werden ausschließlich über das Gateway erreicht.</p>
+<div class="card"><svg id="arch-svg" viewBox="0 0 1020 410" role="img" aria-label="Architekturdiagramm mit Umsetzungsstand"></svg></div>
+</section>
+
+<section id="stand">
+<h2>Umsetzungsstand je Bereich</h2>
+<p class="sub">Jeder Punkt zählt gleich, es gibt keine Aufwandsschätzung. Klick auf einen Bereich zeigt die Einzelpunkte.</p>
 <div class="card" id="bars"></div>
 <div class="card" id="detail" style="margin-top:12px" hidden></div>
+</section>
 
-<h2 id="road">Roadmap</h2>
-<div class="grid lanes" id="lanes"></div>
+<section id="road">
+<h2>Roadmap</h2>
+<p class="sub">Reihenfolge von links nach rechts. Quelle: <code>docs/STATUS.md</code>.</p>
+<div class="grid cols" id="lanes" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr))"></div>
+</section>
 
-<h2 id="gantt">Zeitleiste der Arbeit (Commits)</h2>
-<p class="sub">Alle Commits ohne Merges. Höhe = Anzahl Commits je Stunde, Farbe = Commit-Typ.</p>
-<div class="card"><svg id="time-svg" viewBox="0 0 1000 220" role="img" aria-label="Commits pro Stunde"></svg></div>
-
-<h2 id="log">Log: was wurde wann gemacht</h2>
-<div class="filters" id="filters"></div>
-<div class="card"><div class="log" id="logbox"></div></div>
-
-<h2 id="blocker">Blocker und offene Fragen an Jan</h2>
-<div class="card scroll"><table id="blk"><thead><tr><th>ID</th><th>Frage</th><th>Stand</th></tr></thead><tbody></tbody></table></div>
-
-<p class="sub" style="margin-top:30px">Pflege: Daten stehen im Skript am Seitenende (<code>AREAS</code>, <code>LANES</code>, <code>LOG</code>, <code>BLOCKERS</code>). Nach jeder Arbeitsrunde zusammen mit <code>docs/STATUS.md</code> aktualisieren.</p>
-</main>
+<footer>Pflege: Die Daten stehen im Skript am Seitenende (<code>TOOLS</code>, <code>PHASES</code>, <code>PATHS</code>, <code>RECIPES</code>, <code>AREAS</code>, <code>LANES</code>). Nach jeder Arbeitsrunde zusammen mit <code>docs/STATUS.md</code> aktualisieren.</footer>
+</div></main>
 
 <script>
 "use strict";
-var ST={done:"Fertig",part:"Teilweise",open:"Offen",draft:"Nur Entwurf",blk:"Blockiert"};
-var ORDER=["done","part","open","draft","blk"];
-
-/* Bereiche mit Einzelpunkten. s: done|part|open|draft|blk */
-var AREAS=[
- {n:"Voraussetzungen",i:[
-  ["Inventur Hardware und Tools","done"],["Plugins/Skills geprüft, Audits mit SHA","done"],["Claude-Code-Einstellungen, Hooks","done"],
-  ["Docker + GPU-Durchreichung","done"],["Verifikationsskript verify-prereqs","done"],["Ollama-Server und Umgebung","part"],["Modellauswahl automatisiert","part"],
-  ["WSL-Limit 24 GB (braucht wsl --shutdown)","blk"],["Hyper-V-VM (Admin-Skript)","blk"],["Embedding-Modell","open"]]},
- {n:"Kern",i:[["Datenmodell","done"],["SQLite-Store","done"],["Audit-Log, Hash-Kette","done"],["LLM-Client Ollama + ScriptedLLM","done"]]},
- {n:"Orchestrator",i:[["Rezepte exe/apk/script/generic","done"],["Engine und Worker","done"],["Task-Runner","done"],["Prüfer (Belegzwang)","done"],["Bewerter und Priorisierer","done"],["Prompt-Registry","done"],["Modell je Aufgabentyp","open"]]},
- {n:"Guard und Gateway",i:[["Scanner und Sanitizer","done"],["Aktions-Validierung","done"],["Dev-Gateway mit statischen Tools","done"],["Ghidra-Adapter","open"],["Disassembler-Tools hinter Gateway","open"],["Tools im Docker-Image (jadx, capa, YARA …)","open"]]},
- {n:"Bericht und Übersetzung",i:[["Berichtsgenerator","done"],["Defanging","done"],["Übersetzung DE/EN mit Glossar, Cache","done"],["Diagramme im Bericht","open"]]},
- {n:"Web und Dashboard",i:[["API (FastAPI) mit /activity","done"],["Frontend: Übersicht, Auftrag, Code, Bericht","part"],["Tabs Diagramme, Log, Guard","open"],["Layout-Fehler Kopfzeile/Tabs","open"],["Upload im Browser getestet","open"],["Lernpfad und Ablaufpläne (V2)","open"]]},
- {n:"Betrieb",i:[["start.ps1 mit Preflight und Pins","part"],["stop.ps1","part"],["cleanup.ps1 (pre/post)","done"],["Manifest mit Hashes","done"],["Echter stop.ps1-Lauf","open"]]},
- {n:"Tests",i:[["387 Tests grün (Unit, Sicherheit, E2E, CTF scripted)","done"],["Forensische Blöcke 1 bis 8","open"],["Ground-Truth-Korpus","open"],["Live-Modell-Tests","open"],["Netz-Sperr- und Manipulationstest","open"]]},
- {n:"Wissen und Vault",i:[["Dev-Vault als Markdown","done"],["Wissensdatenbank (Ingest, Index)","open"],["Obsidian-Notiz-Writer","open"]]},
- {n:"Isolation und Dynamik",i:[["REA Audit und Pin","part"],["Ghidra gepinnt, Image fehlt","part"],["Hyper-V-VM ohne NIC","open"],["Dynamische Analyse (ADR-0005)","draft"]]}
-];
-
-/* Roadmap-Spuren */
-var LANES=[
- {t:"Jetzt: zum Laufen bringen",i:[
-  ["R1","Arbeitsbaum sichern, nach GitHub","done","main gepusht"],
-  ["R2","Modell qwen3:8b ziehen, Smoke-Test, Tempo messen","part","Lauf läuft; Messwerte nicht dokumentiert"],
-  ["R3","Backend lauffähig (Origin portabel, /activity, Antwortbudget)","part","Origin und /activity committed; Budget offen"],
-  ["R4","Frontend-MVP fertigstellen","part","4 Ansichten da, Browser-Test fehlt"],
-  ["R5","Erster echter Lauf: CTF-Probe mit Modell","open","braucht R2 bis R4"],
-  ["R6","start/stop scharf testen","open","braucht R2, R3"],
-  ["R7","Abnahme: Security-Review, Tag v0.1.0","open","main bereits gemerged, Review steht aus"]]},
- {t:"Danach (Priorität 2)",i:[
-  ["P1","Anpassungen aus docs/review/platform-adjustments.md","open","Guard-Schema, Store-Tabellen, Endpunkte"],
-  ["F","Forensische Tests Block 1 und 2","open","Audit-Manipulation, Hash-Abgleich"],
-  ["CR","Code-Review durch alle Modelle (9 Pakete)","open","Plan in STATUS.md"],
-  ["G","Ghidra-Image und Disassembler hinter Gateway","open","ADR und Freigabe nötig"],
-  ["D2","Dashboard V2: Lernpfad, Diagramme","open","Spec: dashboard-v2.md"],
-  ["VM","Hyper-V-VM ohne NIC","blk","Admin-Rechte durch Jan"]]},
- {t:"Modell-Messung (M0 bis M7)",i:[
-  ["M0","Basislinie qwen3:8b im Echtlauf","open","braucht R5"],
-  ["M1","Benchmark-Arena run_arena.py","open",""],
-  ["M2","Billige Hebel: Schema-Ausgabe, Few-Shot, Denkbudget","open",""],
-  ["M3","Stufe 1: qwen3:14b, gemma4:12b, phi4-reasoning:14b, ornith:9b, gpt-oss:20b","open",""],
-  ["M4","Stufe 2 (Offload): 30B-Klasse","open","nur bei Bedarf, Blackwell-Absturzrisiko"],
-  ["M5-M7","ADR-0001, Rollen im Manifest, Engine wählt Modell, Hardware-Vorlage","open",""]]},
- {t:"Backlog (braucht ADR und Freigabe)",i:[
-  ["DYN","Dynamische Analyse (ADR-0005)","draft","widerspricht Nicht-Ziel 1; nur mit Freigabe"],
-  ["REA","REA-Live-Komponenten (Frida, ADB)","draft","bleiben aus bis ADR-0005"],
-  ["KB","Wissensdatenbank und Obsidian-Writer","open","Phasen 0-12 des Plans"],
-  ["FL","Flussdiagramm-Datei docs/architecture/workflows.md","open","von Jan beauftragt"],
-  ["LIC","Lizenz festlegen","open","Entscheidung von Jan"]]}
-];
-
-/* Git-Log (ohne Merges), Quelle: git log main --no-merges */
-var LOG=[
-["2026-10-31 17:24","5d5a15e","chore: initial scaffold, project plan, prerequisites status"],
-["2026-10-31 17:24","342bae3","chore: enforce LF for git hooks"],
-["2026-10-31 17:25","4476d72","docs: update prerequisites status"],
-["2026-10-31 17:26","b779a47","docs: record verified tool research and REA reputation warning"],
-["2026-10-31 17:40","1de14ab","chore: add ollama scripts, model ADR draft, verify script port"],
-["2026-10-31 17:50","ac43cc7","docs: ghidra-mcp audit, dynamic-analysis ADR draft, blueprint style contract, core data layer"],
-["2026-10-31 17:53","30327b1","wip: orchestrator verifier, runner, prompts, recipes"],
-["2026-10-31 17:54","439eb8d","docs: record REA 6.8.0 audit and approval conditions"],
-["2026-10-31 19:34","ce71fd6","docs: complete blueprint (15 files); feat: engine, helper agents, recipes loader"],
-["2026-10-31 19:38","68856d8","feat: dev gateway with static tools, report builder, API app, worker, e2e test"],
-["2026-10-31 19:41","68bed0c","chore: stop tracking machine-specific graphify output"],
-["2026-10-31 19:42","f76f874","docs: agent rules, git workflow, dashboard v2 spec"],
-["2026-10-31 19:43","49d51ea","docs: status for new requirements"],
-["2026-10-31 19:46","0fb7a84","feat: prompt-injection guard, e2e chain tests, engine status fix"],
-["2026-10-31 19:49","eddf78d","docs: forensic test plan and todo entry"],
-["2026-10-31 19:50","bc0deb5","chore: enforce graphify (CLAUDE.md section, post-commit auto-update)"],
-["2026-10-31 19:50","d5fd4b6","docs: require graphify evidence from every agent"],
-["2026-10-31 19:53","8ae92f8","docs: plan to get the platform running"],
-["2026-10-31 19:56","0eb4bca","fix: start.ps1 hardening, verified model tags, port-aware origin check, activity endpoint"],
-["2026-10-31 20:05","7bd9697","fix: port owner detection without LISTEN row, model evaluation and plan"],
-["2026-10-31 20:10","3f4a6e3","feat: cleanup.ps1 before start and after stop"],
-["2026-10-31 20:11","1f2940f","wip(dashboard): frontend MVP views (overview, job, code, report), not yet tested in browser"],
-["2026-10-31 20:15","0969d02","fix: pin python-multipart (app did not start), webui boot tests"],
-["2026-10-31 20:18","7b330d7","chore: bump python-multipart to 0.0.33 (hash-pinned)"],
-["2026-10-31 20:22","d4545d8","docs: add README (purpose, architecture diagrams, tech, status)"]
-];
-
-var BLOCKERS=[
-["B1","wsl --shutdown für 24-GB-Limit erlaubt? (beendet auch andere WSL-Instanzen)","offen"],
-["B2","VRAM durch Desktop-Apps belegt: Apps schließen oder kleineres Modell?","offen"],
-["B3","Hyper-V: Jan führt das erzeugte Admin-Skript selbst aus","Termin offen"],
-["B4","Freier RAM beim Test nur 3,7 von 31 GB; 24-GB-Limit braucht geschlossene Programme","offen"],
-["B5","REA ohne Live-Komponenten freigegeben","erledigt"],
-["L","Lizenz des Projekts","offen"],
-["CR","Security-Review vor v0.1.0 (main wurde bereits gemerged)","offen"]
-];
-
+var ST={done:"Umgesetzt",part:"In Arbeit",open:"Geplant",draft:"Entwurf, aus"};
+var ORDER=["done","part","open","draft"];
 var NS="http://www.w3.org/2000/svg";
 function $(id){return document.getElementById(id)}
 function el(tag,attrs,text,parent){var e=document.createElementNS(NS,tag);for(var k in attrs)e.setAttribute(k,attrs[k]);if(text!=null)e.textContent=text;if(parent)parent.appendChild(e);return e}
 function h(tag,cls,text,parent){var e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;if(parent)parent.appendChild(e);return e}
-function color(s){return getComputedStyle(document.documentElement).getPropertyValue("--"+(s==="blk"?"blk":s)).trim()}
 function chip(s,parent){var c=h("span","chip s-"+s,"",parent);h("i","",null,c);c.appendChild(document.createTextNode(ST[s]));return c}
+
+/* ---------- Daten ---------- */
+
+/* Werkzeuge: [Name, Stand, Gruppe, Zweck, Phasen] */
+var TOOLS=[
+ ["sample_info","done","Dev-Gateway","Größe, Name, Hashes, erste Bytes","0"],
+ ["hash_file","done","Dev-Gateway","MD5, SHA-1, SHA-256 von Probe oder Artefakt","0"],
+ ["identify_type","done","Dev-Gateway","Echten Dateityp aus Magic-Bytes und Skript-Heuristik","1"],
+ ["entropy_map","done","Dev-Gateway","Entropie je Block, Regionen über 7,2 als Packer-Hinweis","1 · 4"],
+ ["pe_headers","done","Dev-Gateway","PE-Header, Sektionen, Imports, Overlay","1 · 2"],
+ ["zip_list","done","Dev-Gateway","Einträge von ZIP, APK, JAR, OOXML, ohne Entpacken","1 · 4"],
+ ["zip_read_text","done","Dev-Gateway","Einen Texteintrag eines Containers lesen","4"],
+ ["script_detect","done","Dev-Gateway","Skriptsprache und Verschleierungsmarker","1 · 2"],
+ ["strings_extract","done","Dev-Gateway","ASCII- und UTF-16-Strings, gefiltert und seitenweise","1 · 2"],
+ ["grep","done","Dev-Gateway","Regex-Suche in Probe oder Textartefakt","2 · 5"],
+ ["hexdump","done","Dev-Gateway","Rohbytes ab Offset (max. 512)","4"],
+ ["read_lines","done","Dev-Gateway","Zeilenbereich von Skripten und dekodierten Ebenen","3"],
+ ["decode_layer","done","Dev-Gateway","Ein statischer Dekodierschritt (Base64, Hex, URL, ROT13, XOR, gzip, zlib)","4"],
+ ["Ghidra","part","Disassembler","Disassemblieren, Dekompilieren, Xrefs, Funktionsliste (Version gepinnt, Docker-Image fehlt)","3 · 5"],
+ ["REA (statisch)","part","Disassembler","Zusatzwerkzeug, nur statische Funktionen (Audit fertig, Einbau offen)","3"],
+ ["radare2","open","Disassembler","Schnelle Info und Disassembly als Fallback zu Ghidra","3"],
+ ["jadx","open","Android","DEX nach Java, Lader- und Krypto-Logik lesen","3"],
+ ["apktool","open","Android","Binäres Manifest, Ressourcen, Smali","2"],
+ ["androguard","open","Android","Manifest, Berechtigungen, Komponenten, Zertifikat","2"],
+ ["capa","open","Erkennung","Fähigkeiten-Regeln mit Adressen für gezieltes Dekompilieren","2 · 5"],
+ ["YARA","open","Erkennung","Familien- und Packer-Signaturen aus gebündelten Regeln","1 · 2"],
+ ["FLOSS","open","Erkennung","Statische, Stack- und dekodierte Strings aus PE","2"],
+ ["pefile / LIEF","open","Parser","Detail-Parser für PE, ELF, Signaturen, Imphash","2"],
+ ["binwalk","open","Parser","Eingebettete Dateien und Signaturen finden","4"],
+ ["exiftool / file","open","Parser","Metadaten und Magic-Typ als Gegenprobe","1"],
+ ["Prüfer","done","Plattform","Zitat muss wörtlich in der Evidence stehen","6"],
+ ["Bewerter","done","Plattform","Lücken und Folgeaufgaben je Ergebnis","6"],
+ ["Priorisierer","done","Plattform","Queue nach Informationsgewinn ordnen","6"],
+ ["Berichtsgenerator","done","Plattform","Markdown-Bericht mit Evidence-IDs","7"],
+ ["Defanging","done","Plattform","IOCs im Bericht entschärfen","7"],
+ ["Übersetzung","done","Plattform","DE/EN mit Glossar und Cache","7"],
+ ["Wissens-DB","open","Plattform","Technik- und Krypto-Wissen für die Verhaltensdeutung","5"],
+ ["Sandbox / Debugger / Netz-Capture","draft","Dynamisch","Nur als Entwurf (ADR-0005), nicht aktiv","-"]
+];
+var TMAP={};TOOLS.forEach(function(t){TMAP[t[0]]=t});
+
+/* Phasen */
+var PHASES=[
+ {n:0,t:"Intake",act:"Identität der Probe festhalten (Chain of Custody): Hashes, Größe, eingereichter Name, Tool-Versionen, Rezept. Herkunftsangaben des Nutzers gelten als Behauptung, nicht als Beleg.",tools:["hash_file","sample_info"],exit:"Hashes als Evidence gespeichert"},
+ {n:1,t:"Triage",act:"Echten Typ per Magic-Bytes erkennen (nicht per Endung), Entropie je Region, typspezifischer Header (PE, ZIP/APK, Skript), gefilterte Strings. Danach Pfad wählen.",tools:["identify_type","entropy_map","pe_headers","zip_list","script_detect","strings_extract","YARA","exiftool / file"],exit:"Typ bestätigt, Pfad gewählt, Packer-Verdacht als Hypothese vermerkt"},
+ {n:2,t:"Statische Basis",act:"Breite, billige Indikatoren. EXE: Imports, Sektionen, Overlay, Fähigkeiten, Strings. APK: Manifest, Berechtigungen, Zertifikat, DEX- und Native-Listen. Skript: Sprache, Kodierung, sichtbare URLs und Befehle.",tools:["pe_headers","grep","capa","YARA","FLOSS","pefile / LIEF","androguard","apktool"],exit:"Jeder Pflichtschritt des Rezepts hat Evidence oder dokumentierten Fehlschlag"},
+ {n:3,t:"Tiefenanalyse",act:"Ghidra einmal je Artefakt analysieren, Einstieg und höchstbewertete Funktionen dekompilieren, Callees, Konstanten und Xrefs sichten, je Funktion 3 bis 6 Zeilen Zusammenfassung. APK: DEX mit jadx lesen.",tools:["Ghidra","REA (statisch)","jadx","radare2","read_lines"],exit:"Abdeckungsziel erreicht (z. B. 90 % der relevanten Funktionen) oder Rest als Teilaufgaben"},
+ {n:4,t:"Entpacken",act:"Mechanismus erkennen (Packer-Stub, Skriptebene, verschlüsseltes Asset), Schlüssel, Algorithmus und Offset finden, mit erlaubtem Tool dekodieren. Jedes Artefakt bekommt Hash und Elternverweis und geht zurück in die Triage.",tools:["decode_layer","binwalk","hexdump","zip_read_text","entropy_map"],exit:"Jede Ebene entpackt (Artefakt mit Hash) oder begründet ungelöst"},
+ {n:5,t:"Verhalten",act:"Code-Fakten in Fähigkeiten übersetzen: Persistenz, Kommunikation, Injektion, Krypto, Zerstörung, Anti-Analyse. Je Fähigkeit die Kette vom Auslöser bis zum API-Aufruf mit Argumenten belegen. IOCs nur aus bestätigten Findings.",tools:["Ghidra","capa","grep","Wissens-DB"],exit:"Jede behauptete Fähigkeit hat einen erreichbaren Codepfad oder ist Hypothese mit benanntem fehlendem Glied"},
+ {n:6,t:"Synthese",act:"Findings nach Status ordnen, Widersprüche lösen, Abdeckung prüfen. Jede Zielfrage wird nur aus bestätigten Findings beantwortet, sonst „ungelöst“ mit Grund.",tools:["Prüfer","Bewerter","Priorisierer"],exit:"Jede Zielfrage beantwortet oder ungelöst"},
+ {n:7,t:"Bericht",act:"Zusammenfassung, Chain of Custody, Antworten, Findings mit Evidence-ID und Zitat, entschärfte IOCs, offene Fragen, Methodik. Nie Payload-Bytes.",tools:["Berichtsgenerator","Defanging","Übersetzung"],exit:"Bericht erzeugt (Deutsch und Englisch)"}
+];
+
+/* Pfadwahl */
+var PATHS=[
+ ["Archiv oder Container (ZIP, OOXML, ISO)","Container","Einträge auflisten, Mitglieder als Artefakte extrahieren, rekursiv analysieren",["zip_list","zip_read_text","binwalk"]],
+ ["Skript mit langem Base64/Hex-Blob oder <code>eval</code>, <code>IEX</code>, <code>Invoke-Expression</code>","Ebenen","Jede Ebene mit <code>decode_layer</code> dekodieren, jede Ebene ist Evidence",["script_detect","decode_layer","read_lines"]],
+ ["PE, Sektions-Entropie über 7,2, kaum Imports, Einstieg außerhalb der Code-Sektion, Sektionen wie <code>UPX0</code>","Packer","Packer und Stub statisch bestimmen, dann Phase 4",["entropy_map","pe_headers","YARA"]],
+ ["PE mit CLR-Verzeichnis und Import <code>mscoree.dll</code>","Managed (.NET)","IL statt nativer Ansicht; capa und YARA verstehen .NET",["pe_headers","capa"]],
+ ["PE mit normaler Entropie und vielen Imports","Nativ","Phase 2, danach Funktionsranking in Phase 3",["pe_headers","capa","Ghidra"]],
+ ["PE mit großem Overlay oder hochentropischer Ressource plus Ressourcen-APIs","Dropper / Loader","Artefakt extrahieren und rekursiv analysieren, Lader-Logik lesen",["entropy_map","hexdump","decode_layer"]],
+ ["APK mit <code>lib/*.so</code> plus <code>DexClassLoader</code> oder verschlüsselten Assets","Mehrstufige APK","Manifest, Application-Klasse, Lader, danach die <code>.so</code> in Ghidra",["zip_list","jadx","Ghidra"]],
+ ["APK ohne Native-Code und ohne Lader","Standard-APK","Manifest, Komponenten, jadx",["androguard","apktool","jadx"]],
+ ["Unbekannter Typ","Generisch","Header als Hexdump, Signatursuche, gefilterte Strings",["hexdump","binwalk","strings_extract"]]
+];
+
+/* Ghidra-Ranking */
+var RANK=[
+ ["Einstieg, <code>main</code>/<code>WinMain</code>, <code>DllMain</code>, Exports, TLS-Callbacks","hoch","Einstiegspunkt, Exportliste, TLS-Verzeichnis"],
+ ["Aufrufe sensibler Imports (Injektion, Krypto, Netzwerk, Run-Keys, Dienste)","hoch","Xrefs auf Import-Einträge"],
+ ["Verweise auf auffällige Strings (URL, Pfad, Befehl, Mutex, Erpresser-Text)","hoch","Xrefs von Stringadressen"],
+ ["Krypto-Konstanten (AES-S-Box, SHA-256, CRC32, ChaCha, RC4-Schleife)","hoch","capa, YARA, Bytesuche"],
+ ["Dynamische API-Auflösung (Hash-Schleifen, PEB-Walk)","hoch","capa, Schleifen über Exportnamen"],
+ ["Große Dispatch-Funktion über Befehls-ID","mittel bis hoch","Funktionsgröße, viele Cases"],
+ ["Schleifen mit XOR, Add, Rotate über Puffer","mittel","Dekodierroutinen"],
+ ["Kleine Wrapper mit einem Aufruf","niedrig","nur zum Benennen"]
+];
+
+/* Rezepte */
+var RECIPES=[
+ {n:"EXE / DLL",f:"exe.yaml",now:[
+   ["PE-Header, Sektionen, Packer-Hinweise",["pe_headers","entropy_map"]],
+   ["Imports und Fähigkeits-Hinweise",["pe_headers","grep"]],
+   ["Strings und Indikatoren",["strings_extract","grep"]],
+   ["Ressourcen und Overlay",["entropy_map","hexdump","decode_layer"]],
+   ["Krypto-Konstanten und Konfiguration",["grep","hexdump","decode_layer"]]],
+  plan:["Fähigkeiten mit capa","Signaturen mit YARA, Strings mit FLOSS","Funktionsranking und Dekompilierung in Ghidra","Packer-Stubs entpacken, Stage-Map bei mehrstufigen Proben"]},
+ {n:"APK",f:"apk.yaml",now:[
+   ["Container-Struktur",["zip_list"]],
+   ["Manifest und Berechtigungs-Hinweise",["zip_read_text","strings_extract"]],
+   ["Strings und Endpunkte",["strings_extract","grep"]],
+   ["Nachladen von Code und eingebettete Payloads",["grep","zip_list","entropy_map"]]],
+  plan:["Manifest, Komponenten, Zertifikat mit androguard und apktool","DEX-Quelltext mit jadx","Native <code>.so</code> (<code>JNI_OnLoad</code>) in Ghidra","Entschlüsselung von Assets"]},
+ {n:"Skript",f:"script.yaml",now:[
+   ["Sprache und Verschleierung erkennen",["script_detect","read_lines","grep"]],
+   ["Eingebettete Ebenen statisch dekodieren",["decode_layer","read_lines","grep"]],
+   ["Verhalten des dekodierten Skripts",["read_lines","grep"]],
+   ["Indikatoren sammeln",["grep","strings_extract"]]],
+  plan:["Familien-Regeln mit YARA","Rekursion auf entpackte Stufen mit Stage-Map"]},
+ {n:"Generisch",f:"generic.yaml",now:[
+   ["Struktur und Inhaltsklasse beschreiben",["hexdump","entropy_map","strings_extract"]],
+   ["Indikatoren und auffällige Strings",["strings_extract","grep"]]],
+  plan:["Signatursuche mit binwalk","Format-Parser für unbekannte Container"]}
+];
+
+/* Bereiche mit Einzelpunkten */
+var AREAS=[
+ {n:"Voraussetzungen",i:[
+  ["Inventur Hardware und Tools","done"],["Plugins und Skills geprüft, Audits mit SHA","done"],["Claude-Code-Einstellungen, Hooks","done"],
+  ["Docker mit GPU-Durchreichung","done"],["Verifikationsskript verify-prereqs","done"],["Ollama-Server und Umgebung","part"],["Modellauswahl automatisiert","part"],
+  ["WSL-Limit 24 GB (braucht wsl --shutdown)","open"],["Hyper-V-VM (Admin-Skript)","open"],["Embedding-Modell","open"]]},
+ {n:"Kern",i:[["Datenmodell","done"],["SQLite-Store","done"],["Audit-Log mit Hash-Kette","done"],["LLM-Client Ollama und ScriptedLLM","done"]]},
+ {n:"Orchestrator",i:[["Rezepte exe, apk, script, generic","done"],["Engine und Worker","done"],["Task-Runner","done"],["Prüfer (Belegzwang)","done"],["Bewerter und Priorisierer","done"],["Prompt-Registry","done"],["Modell je Aufgabentyp","open"]]},
+ {n:"Guard und Gateway",i:[["Scanner und Sanitizer","done"],["Aktions-Validierung","done"],["Dev-Gateway mit 13 statischen Tools","done"],["Ghidra-Adapter","open"],["Disassembler-Tools hinter dem Gateway","open"],["Tools im Docker-Image (jadx, capa, YARA …)","open"]]},
+ {n:"Bericht und Übersetzung",i:[["Berichtsgenerator","done"],["Defanging","done"],["Übersetzung DE/EN mit Glossar und Cache","done"],["Diagramme im Bericht","open"]]},
+ {n:"Web und Dashboard",i:[["API (FastAPI) mit /activity","done"],["Frontend: Übersicht, Auftrag, Code, Bericht","part"],["Tabs Diagramme, Log, Guard","open"],["Layout-Fehler Kopfzeile und Tabs","open"],["Upload im Browser getestet","open"],["Lernpfad und Ablaufpläne (V2)","open"]]},
+ {n:"Betrieb",i:[["start.ps1 mit Preflight und Pins","part"],["stop.ps1","part"],["cleanup.ps1 (vor und nach dem Lauf)","done"],["Manifest mit Hashes","done"],["Echter stop.ps1-Lauf","open"]]},
+ {n:"Tests",i:[["387 Tests grün (Unit, Sicherheit, E2E, CTF mit Skript-Modell)","done"],["Forensische Blöcke 1 bis 8","open"],["Ground-Truth-Korpus","open"],["Live-Modell-Tests","open"],["Netz-Sperr- und Manipulationstest","open"]]},
+ {n:"Wissen und Vault",i:[["Dev-Vault als Markdown","done"],["Wissensdatenbank (Ingest, Index)","open"],["Obsidian-Notiz-Writer","open"]]},
+ {n:"Isolation und Dynamik",i:[["REA: Audit und Pin","part"],["Ghidra gepinnt, Image fehlt","part"],["Hyper-V-VM ohne Netzwerkkarte","open"],["Dynamische Analyse (ADR-0005)","draft"]]}
+];
+
+/* Roadmap-Spuren */
+var LANES=[
+ {t:"1 · Zum Laufen bringen",i:[
+  ["R1","Arbeitsbaum sichern, nach GitHub","done","main gepusht"],
+  ["R2","Modell qwen3:8b ziehen, Smoke-Test, Tempo messen","part","Messwerte nicht dokumentiert"],
+  ["R3","Backend lauffähig (Origin portabel, /activity, Antwortbudget)","part","Antwortbudget offen"],
+  ["R4","Frontend-MVP fertigstellen","part","4 Ansichten vorhanden, Browser-Test fehlt"],
+  ["R5","Erster echter Lauf: CTF-Probe mit Modell","open","braucht R2 bis R4"],
+  ["R6","start und stop scharf testen","open","braucht R2, R3"],
+  ["R7","Abnahme: Security-Review, Tag v0.1.0","open","main ist bereits gemerged, Review steht aus"]]},
+ {t:"2 · Reverse-Engineering-Tiefe",i:[
+  ["G","Ghidra-Image und Disassembler hinter dem Gateway","open","ADR und Freigabe nötig"],
+  ["T","Tools im Image: jadx, apktool, androguard, capa, YARA, FLOSS, radare2, binwalk","open","Version- und Hash-Pin je Tool"],
+  ["P1","Anpassungen aus docs/review/platform-adjustments.md","open","Guard-Schema, Store-Tabellen, Endpunkte"],
+  ["F","Forensische Tests Block 1 und 2","open","Audit-Manipulation, Hash-Abgleich"],
+  ["CR","Code-Review durch alle Modelle (9 Pakete)","open","Plan in STATUS.md"],
+  ["D2","Dashboard V2: Lernpfad, Diagramme","open","Spec: dashboard-v2.md"],
+  ["VM","Hyper-V-VM ohne Netzwerkkarte","open","Admin-Skript nötig"]]},
+ {t:"3 · Modell-Messung",i:[
+  ["M0","Basislinie qwen3:8b im Echtlauf","open","braucht R5"],
+  ["M1","Benchmark-Arena run_arena.py","open",""],
+  ["M2","Billige Hebel: Schema-Ausgabe, Few-Shot, Denkbudget","open",""],
+  ["M3","Stufe 1: qwen3:14b, gemma4:12b, phi4-reasoning:14b, ornith:9b, gpt-oss:20b","open",""],
+  ["M4","Stufe 2 (Offload): 30B-Klasse","open","nur bei Bedarf, Absturzrisiko auf Blackwell"],
+  ["M5–M7","ADR-0001, Rollen im Manifest, Engine wählt Modell, Hardware-Vorlage","open",""]]},
+ {t:"4 · Backlog (ADR und Freigabe nötig)",i:[
+  ["DYN","Dynamische Analyse (ADR-0005)","draft","widerspricht Nicht-Ziel 1, nur mit Freigabe"],
+  ["REA","REA-Live-Komponenten (Frida, ADB)","draft","bleiben aus bis ADR-0005"],
+  ["KB","Wissensdatenbank und Obsidian-Writer","open","Phasen 0 bis 12 des Plans"],
+  ["FL","Flussdiagramm-Datei docs/architecture/workflows.md","open",""],
+  ["LIC","Lizenz festlegen","open",""]]}
+];
+
+/* ---------- Darstellung ---------- */
+
+function toolChip(name,parent){var t=TMAP[name]||[name,"open","","",""];var c=h("span","tool s-"+t[1],name,parent);c.title=t[2]+": "+t[3]+" ("+ST[t[1]]+")";return c}
 
 /* Legende */
 ORDER.forEach(function(s){var sp=h("span","s-"+s,"",$("legend"));h("span","dot",null,sp);sp.appendChild(document.createTextNode(ST[s]))});
 
-/* KPIs aus den Daten */
-var cnt={done:0,part:0,open:0,draft:0,blk:0},total=0;
-AREAS.forEach(function(a){a.i.forEach(function(p){cnt[p[1]]++;total++})});
-var types={};LOG.forEach(function(l){var t=l[2].split(/[:(]/)[0];types[t]=(types[t]||0)+1});
-[["387","Tests grün"],[String(LOG.length),"Commits (ohne Merges)"],[Math.round(cnt.done/total*100)+" %","Punkte fertig ("+cnt.done+"/"+total+")"],
- [String(cnt.part),"Punkte teilweise"],[String(cnt.open+cnt.draft+cnt.blk),"Punkte offen/geplant"],["≈6.900","Zeilen Python (src)"],["4 · 15","ADRs · Blueprint-Dateien"]]
- .forEach(function(k){var d=h("div","card kpi","",$("kpis"));h("b","",k[0],d);h("span","",k[1],d)});
+/* Phasenstatus aus den Werkzeugen ableiten */
+function phaseState(p){var d=0,o=0;p.tools.forEach(function(n){var s=(TMAP[n]||[0,"open"])[1];if(s==="done")d++;else o++});return d===p.tools.length?"done":(d===0?"open":"part")}
+function phaseCount(p){var d=0;p.tools.forEach(function(n){if((TMAP[n]||[0,"open"])[1]==="done")d++});return d+"/"+p.tools.length+" Tools"}
 
-/* Architektur-SVG */
+/* Phasen-Pipeline */
+function flowDraw(){
+ var svg=$("flow");svg.textContent="";
+ var defs=el("defs",{},null,svg),m=el("marker",{id:"ah",markerWidth:8,markerHeight:8,refX:7,refY:4,orient:"auto"},null,defs);
+ el("path",{d:"M0,0 L8,4 L0,8 z",style:"fill:var(--mute)"},null,m);
+ var w=112,gap=13,x0=6,y=50,hh=64;
+ PHASES.forEach(function(p,i){
+  var x=x0+i*(w+gap),s=phaseState(p),g=el("g",{"class":"hit",tabindex:0,role:"link","aria-label":"Phase "+p.n+" "+p.t},null,svg);
+  el("rect",{x:x,y:y,width:w,height:hh,rx:8,"fill-opacity":.13,style:"fill:var(--"+s+");stroke:var(--"+s+");stroke-width:1.6"+(s==="open"?";stroke-dasharray:5 4":"")},null,g);
+  el("text",{x:x+10,y:y+19,"class":"sm"},"Phase "+p.n,g);
+  el("text",{x:x+10,y:y+38,"class":"b"},p.t,g);
+  el("text",{x:x+10,y:y+55,"class":"sm"},phaseCount(p),g);
+  if(i<PHASES.length-1)el("line",{x1:x+w+1,y1:y+hh/2,x2:x+w+gap-1,y2:y+hh/2,"stroke-width":1.4,"marker-end":"url(#ah)",style:"stroke:var(--mute)"},null,svg);
+  var go=function(){var tr=document.getElementById("ph"+p.n);tr.scrollIntoView({block:"center"});tr.classList.add("flash");setTimeout(function(){tr.classList.remove("flash")},1400)};
+  g.addEventListener("click",go);g.addEventListener("keydown",function(e){if(e.key==="Enter")go()});
+ });
+ function cx(i){return x0+i*(w+gap)+w/2}
+ /* Schleife 4 -> 1: neues Artefakt */
+ el("path",{d:"M"+cx(4)+","+(y+hh)+" C"+cx(4)+",172 "+cx(1)+",172 "+cx(1)+","+(y+hh+2),fill:"none","stroke-width":1.4,"marker-end":"url(#ah)","stroke-dasharray":"4 3",style:"stroke:var(--mute)"},null,svg);
+ el("text",{x:(cx(4)+cx(1))/2,y:188,"text-anchor":"middle","class":"sm"},"entpacktes Artefakt: zurück in die Triage",svg);
+ /* Schleife 5 -> 3: Rückfragen */
+ el("path",{d:"M"+cx(5)+","+y+" C"+cx(5)+",6 "+cx(3)+",6 "+cx(3)+","+(y-2),fill:"none","stroke-width":1.4,"marker-end":"url(#ah)","stroke-dasharray":"4 3",style:"stroke:var(--mute)"},null,svg);
+ el("text",{x:(cx(5)+cx(3))/2,y:14,"text-anchor":"middle","class":"sm"},"offene Frage zum Code: zurück in die Tiefenanalyse",svg);
+}
+
+/* Phasentabelle */
+PHASES.forEach(function(p){
+ var tr=h("tr","","",document.querySelector("#phases tbody"));tr.id="ph"+p.n;
+ h("td","n",String(p.n),tr);
+ var t=h("td","","",tr);h("b","",p.t,t);var sc=h("small","","",t);chip(phaseState(p),sc);
+ h("td","",p.act,tr);
+ var tt=h("td","","",tr);p.tools.forEach(function(n){toolChip(n,tt)});
+ h("td","",p.exit,tr);
+});
+
+/* Zeitbudget */
+[["Triage und Basis","15 %",15,"var(--acc)"],["Tiefenanalyse und Entpacken","55 %",55,"var(--done)"],["Zielfragen","20 %",20,"var(--part)"],["Reserve","10 %",10,"var(--open)"]]
+ .forEach(function(b){var s=h("span","",b[1],$("budget"));s.style.width=b[2]+"%";s.style.background=b[3];s.title=b[0];var l=h("span","",b[0]+" "+b[1],$("budgetLeg"));l.style.cssText="display:inline-flex;align-items:center;gap:5px;margin-right:12px";var d=h("i","",null,l);d.style.cssText="width:8px;height:8px;border-radius:2px;background:"+b[3]});
+
+/* Dynamisch */
+toolChip("Sandbox / Debugger / Netz-Capture",$("dynTools"));
+
+/* Pfadtabelle (enthält bewusst nur eigene, statische HTML-Fragmente) */
+PATHS.forEach(function(p){var tr=h("tr","","",document.querySelector("#paths tbody"));
+ h("td","",null,tr).innerHTML=p[0];h("td","",null,tr).innerHTML="<b>"+p[1]+"</b>";h("td","",null,tr).innerHTML=p[2];
+ var tt=h("td","","",tr);p[3].forEach(function(n){toolChip(n,tt)})});
+RANK.forEach(function(r){var tr=h("tr","","",document.querySelector("#rank tbody"));h("td","",null,tr).innerHTML=r[0];h("td","",r[1],tr);h("td","",r[2],tr)});
+
+/* Rezepte */
+RECIPES.forEach(function(r){
+ var c=h("div","card rec","",$("recipes")),t=h("h3","",r.n,c);h("span","",r.f,t);
+ h("div","lab","Läuft heute",c);var ol=h("ol","","",c);
+ r.now.forEach(function(s){var li=h("li","","",ol);li.appendChild(document.createTextNode(s[0]));li.appendChild(document.createElement("br"));s[1].forEach(function(n){toolChip(n,li)})});
+ h("div","lab","Geplant (Blueprint)",c);var ul=h("ul","","",c);ul.style.cssText="margin:0;padding-left:18px;font-size:13px";
+ r.plan.forEach(function(s){h("li","",null,ul).innerHTML=s});
+});
+
+/* Werkzeugtabelle */
+(function(){var last="";TOOLS.forEach(function(t){
+ var tb=document.querySelector("#toolTbl tbody");
+ if(t[2]!==last){last=t[2];var g=h("tr","","",tb);var gc=h("td","","",g);gc.colSpan=4;gc.style.cssText="background:var(--soft);font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);padding:6px 10px";gc.textContent=last}
+ var tr=h("tr","","",tb);var a=h("td","","",tr);a.style.whiteSpace="nowrap";h("span","tool s-"+t[1],t[0],a);
+ h("td","",t[3],tr);h("td","",t[4],tr);chip(t[1],h("td","","",tr))})})();
+
+/* Architektur */
 function archDraw(){
  var svg=$("arch-svg");svg.textContent="";
- var B=[ // x,y,w,h,label,status
-  [20,160,130,60,"Nutzer / Browser","done"],[190,160,150,60,"Web-UI (FastAPI + JS)","part"],[380,160,150,60,"Orchestrator\nEngine · Worker","done"],
+ var defs=el("defs",{},null,svg),m=el("marker",{id:"ar",markerWidth:8,markerHeight:8,refX:7,refY:4,orient:"auto"},null,defs);
+ el("path",{d:"M0,0 L8,4 L0,8 z",style:"fill:var(--mute)"},null,m);
+ var B=[ // x,y,w,h,Text,Stand
+  [20,160,130,60,"Nutzer / Browser","done"],[190,160,150,60,"Web-UI\nFastAPI + JavaScript","part"],[380,160,150,60,"Orchestrator\nEngine · Worker","done"],
   [570,60,150,50,"Triage · Rezepte","done"],[570,130,150,50,"Task-Runner","done"],[570,200,150,50,"Prüfer · Bewerter","done"],[570,270,150,50,"Bericht · Defanging","done"],
   [380,290,150,50,"SQLite · Audit-Kette","done"],[380,40,150,50,"Übersetzung DE/EN","done"],
   [760,60,110,50,"Ollama (lokal)","part"],[760,130,110,50,"Guard","done"],[760,200,110,50,"Gateway · Jail","done"],
-  [900,130,90,50,"Dev-Tools","done"],[900,200,90,50,"Ghidra · REA","open"],[760,290,230,50,"Docker-Tools (jadx, capa …)","open"],
-  [380,350,150,40,"Wissens-DB · Vault","open"],[570,350,420,40,"Hyper-V-VM ohne NIC → dynamische Analyse (Entwurf)","draft"]];
- var cs=getComputedStyle(document.documentElement);
- B.forEach(function(b){var c=cs.getPropertyValue("--"+b[5]).trim();
-  var dash=(b[5]==="open"||b[5]==="draft")?"6 4":"";
-  el("rect",{x:b[0],y:b[1],width:b[2],height:b[3],rx:8,fill:c,"fill-opacity":.16,stroke:c,"stroke-width":2,"stroke-dasharray":dash},null,svg);
+  [900,190,100,40,"Dev-Tools (13)","done"],[900,240,100,40,"Ghidra · REA","part"],[900,290,100,40,"Docker-Tools","open"],
+  [380,355,150,38,"Wissens-DB · Vault","open"],[570,355,200,38,"Hyper-V-VM ohne Netzwerkkarte","open"],[790,355,210,38,"Dynamische Analyse (Entwurf)","draft"]];
+ B.forEach(function(b){var s=b[5],dash=(s==="open"||s==="draft")?";stroke-dasharray:6 4":"";
+  el("rect",{x:b[0],y:b[1],width:b[2],height:b[3],rx:8,"fill-opacity":.13,style:"fill:var(--"+s+");stroke:var(--"+s+");stroke-width:1.6"+dash},null,svg);
   var ls=b[4].split("\n");ls.forEach(function(l,i){el("text",{x:b[0]+b[2]/2,y:b[1]+b[3]/2+4+(i-(ls.length-1)/2)*15,"text-anchor":"middle"},l,svg)})});
- function arrow(x1,y1,x2,y2){el("line",{x1:x1,y1:y1,x2:x2,y2:y2,stroke:cs.getPropertyValue("--mute").trim(),"stroke-width":1.5,"marker-end":"url(#ar)"},null,svg)}
- var defs=el("defs",{},null,svg),m=el("marker",{id:"ar",markerWidth:8,markerHeight:8,refX:7,refY:4,orient:"auto"},null,defs);
- el("path",{d:"M0,0 L8,4 L0,8 z",fill:cs.getPropertyValue("--mute").trim()},null,m);
- arrow(150,190,190,190);arrow(340,190,380,190);arrow(530,175,570,90);arrow(530,190,570,155);arrow(530,205,570,225);arrow(530,215,570,290);
- arrow(455,160,455,90);arrow(455,220,455,290);arrow(720,155,760,155);arrow(720,85,760,85);arrow(815,110,815,130);arrow(815,180,815,200);
- arrow(870,155,900,155);arrow(870,225,900,225);arrow(815,250,815,290);
+ function arrow(x1,y1,x2,y2,dash){el("line",{x1:x1,y1:y1,x2:x2,y2:y2,"stroke-width":1.4,"marker-end":"url(#ar)",style:"stroke:var(--mute)"+(dash?";stroke-dasharray:4 3":"")},null,svg)}
+ arrow(150,190,190,190);arrow(340,190,380,190);
+ arrow(530,175,570,90);arrow(530,190,570,155);arrow(530,205,570,225);arrow(530,215,570,290);
+ arrow(455,160,455,90);arrow(455,220,455,290);
+ arrow(720,140,760,100);arrow(720,155,760,155);   /* Runner -> Ollama, Runner -> Guard */
+ arrow(815,180,815,200);                          /* Guard -> Gateway */
+ arrow(870,215,900,210);arrow(870,225,900,260);arrow(870,235,900,310); /* Gateway -> Tools */
+ arrow(455,340,455,355,true);
 }
 
 /* Balken je Bereich */
 function bars(){
  var box=$("bars");box.textContent="";
- AREAS.forEach(function(a,idx){
+ AREAS.forEach(function(a){
   var n=a.i.length,c={};a.i.forEach(function(p){c[p[1]]=(c[p[1]]||0)+1});
-  var row=h("div","bar","",box);row.style.cursor="pointer";
+  var row=h("div","bar","",box);row.tabIndex=0;row.setAttribute("role","button");
   h("div","lbl",a.n,row);
   var tr=h("div","track","",row);
   ORDER.forEach(function(s){if(c[s]){var sp=h("span","s-"+s,"",tr);sp.style.width=(c[s]/n*100)+"%";sp.title=ST[s]+": "+c[s]}});
-  h("em","",(c.done||0)+"/"+n,row);
-  row.addEventListener("click",function(){var d=$("detail");d.hidden=false;d.textContent="";h("h3","",a.n,d);
-   a.i.forEach(function(p){var it=h("div","item s-"+p[1],"",d);it.textContent=p[0]+" ";chip(p[1],it)})});
+  h("em","",(c.done||0)+" / "+n,row);
+  var open=function(){Array.prototype.forEach.call(box.children,function(r){r.classList.remove("sel")});row.classList.add("sel");
+   var d=$("detail");d.hidden=false;d.textContent="";h("h3","",a.n,d);
+   a.i.forEach(function(p){var it=h("div","item s-"+p[1],"",d);it.appendChild(document.createTextNode(p[0]+" "));chip(p[1],it)})};
+  row.addEventListener("click",open);row.addEventListener("keydown",function(e){if(e.key==="Enter"||e.key===" "){e.preventDefault();open()}});
  });
 }
 
 /* Roadmap-Spuren */
-function lanes(){
- LANES.forEach(function(l){var c=h("div","card","",$("lanes"));h("h3","",l.t,c);
-  l.i.forEach(function(p){var it=h("div","item s-"+p[2],"",c);var b=h("b","",p[0]+" ",it);it.appendChild(document.createTextNode(p[1]+" "));chip(p[2],it);if(p[3])h("small","",p[3],it)})});
-}
+LANES.forEach(function(l){var c=h("div","card lane","",$("lanes"));h("h3","",l.t,c);
+ l.i.forEach(function(p){var it=h("div","item s-"+p[2],"",c);h("b","",p[0],it);it.appendChild(document.createTextNode(p[1]+" "));chip(p[2],it);if(p[3])h("small","",p[3],it)})});
 
-/* Zeitleiste: Commits je Stunde */
-function timeline(){
- var svg=$("time-svg");svg.textContent="";
- var cs=getComputedStyle(document.documentElement),hrs={};
- LOG.forEach(function(l){var hh=parseInt(l[0].slice(11,13),10);var t=l[2].split(/[:(]/)[0];(hrs[hh]=hrs[hh]||[]).push(t)});
- var from=17,to=20,w=1000,L=40,R=20,T=14,Bm=36,H=220,cw=(w-L-R)/(to-from+1),max=1;
- for(var k in hrs)max=Math.max(max,hrs[k].length);
- var tcol={feat:"--done",fix:"--blk",docs:"--acc",chore:"--open",wip:"--part"};
- for(var y=0;y<=max;y+=Math.max(1,Math.ceil(max/5))){var yy=H-Bm-(H-Bm-T)*y/max;el("line",{x1:L,x2:w-R,y1:yy,y2:yy,stroke:cs.getPropertyValue("--line").trim()},null,svg);el("text",{x:L-6,y:yy+4,"text-anchor":"end",class:"m"},String(y),svg)}
- for(var hh=from;hh<=to;hh++){var arr=hrs[hh]||[],x=L+(hh-from)*cw+cw*0.2,bw=cw*0.6,ch=(H-Bm-T)/max;
-  arr.forEach(function(t,i){el("rect",{x:x,y:H-Bm-(i+1)*ch+1,width:bw,height:ch-2,rx:3,fill:cs.getPropertyValue(tcol[t]||"--open").trim()},null,svg)});
-  el("text",{x:x+bw/2,y:H-14,"text-anchor":"middle"},hh+":00",svg)}
- var lx=L;Object.keys(tcol).forEach(function(t){el("rect",{x:lx,y:H-8,width:9,height:9,fill:cs.getPropertyValue(tcol[t]).trim()},null,svg);el("text",{x:lx+13,y:H,class:"m"},t+" ("+(types[t]||0)+")",svg);lx+=110});
-}
+/* Navigation: aktiver Abschnitt */
+(function(){var links=document.querySelectorAll("#nav a"),secs=[];
+ links.forEach(function(a){var s=document.querySelector(a.getAttribute("href"));if(s)secs.push([a,s])});
+ function upd(){var y=window.scrollY+90,cur=null;secs.forEach(function(p){if(p[1].offsetTop<=y)cur=p[0]});links.forEach(function(a){a.classList.toggle("on",a===cur)})}
+ window.addEventListener("scroll",upd,{passive:true});upd()})();
 
-/* Log mit Filter */
-var active={};
-function logView(){
- var f=$("filters");f.textContent="";
- Object.keys(types).sort().forEach(function(t){var b=h("button","",t+" ("+types[t]+")",f);b.setAttribute("aria-pressed",active[t]!==false);
-  b.addEventListener("click",function(){active[t]=active[t]===false;logView()})});
- var box=$("logbox");box.textContent="";
- LOG.slice().reverse().forEach(function(l){var t=l[2].split(/[:(]/)[0];if(active[t]===false)return;
-  var e=h("div","entry t-"+(types[t]?t:"chore"),"",box);h("time","",l[0],e);h("code","",l[1],e);e.appendChild(document.createTextNode(" "+l[2]))});
- var m=h("div","entry t-docs","",box);
- m.textContent="2026-10-31 · Merge feat/core-chain und feat/dashboard nach main (--no-ff), Tests grün, gepusht; Branch docs/code-review-todo ergänzt Review-Plan.";
- box.insertBefore(m,box.firstChild);
-}
+/* Theme (SVG nutzt CSS-Variablen, kein Neuzeichnen nötig) */
+$("theme").addEventListener("click",function(){var r=document.documentElement,cur=r.getAttribute("data-theme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");r.setAttribute("data-theme",cur==="dark"?"light":"dark")});
 
-/* Blocker */
-BLOCKERS.forEach(function(b){var tr=h("tr","","",document.querySelector("#blk tbody"));b.forEach(function(c){h("td","",c,tr)})});
-
-/* Theme */
-$("theme").addEventListener("click",function(){var r=document.documentElement,cur=r.getAttribute("data-theme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");r.setAttribute("data-theme",cur==="dark"?"light":"dark");redraw()});
-function redraw(){archDraw();timeline()}
-archDraw();bars();lanes();timeline();logView();
-matchMedia("(prefers-color-scheme: dark)").addEventListener("change",redraw);
+flowDraw();archDraw();bars();
 </script>
 </body>
 </html>
