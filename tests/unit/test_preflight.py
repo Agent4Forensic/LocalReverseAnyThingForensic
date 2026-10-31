@@ -123,3 +123,12 @@ def test_main_check_json_exit_code(tmp_path, capsys, monkeypatch):
     assert out["status"] == "FEHLER" and out["results"][0]["name"] == "x"
     monkeypatch.setattr(pf, "run_checks", lambda *a, **k: [pf.result("x", pf.WARN, "d")])
     assert pf.main_check(ROOT, tmp_path, 8765, 11435, None, as_json=True) == 0
+
+
+def test_path_under_recognises_own_install_root():
+    from sw_analyst.preflight import path_under
+    roots = [r"D:\Tools\sw-analyst"]
+    assert path_under(r"D:\Tools\sw-analyst\ollama-0.40.13\ollama.exe", roots)
+    assert not path_under(r"C:\Users\x\AppData\Local\Programs\Ollama\ollama.exe", roots)
+    assert not path_under(r"D:\Tools\sw-analyst-evil\ollama.exe", roots)  # prefix trick
+    assert not path_under(None, roots)

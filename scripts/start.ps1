@@ -57,6 +57,15 @@ function Invoke-Native([string]$Exe, [string[]]$CmdArgs) {
     & $Exe @CmdArgs
     if ($LASTEXITCODE -ne 0) { throw "$Exe failed with exit code $LASTEXITCODE" }
 }
+function Get-PortOwner([int]$P) {
+    # Locale-independent: any row with LOCAL port $P is the server side (the LISTEN row can be missing in hidden sessions).
+    # Get-NetTCPConnection proved unreliable in detached/hidden sessions, so netstat is parsed instead.
+    foreach ($l in (& netstat.exe -ano -p TCP)) {
+        $f = @(($l -split '\s+') | Where-Object { $_ })
+        if ($f.Count -ge 5 -and $f[0] -eq 'TCP' -and $f[1].EndsWith(":$P") -and [int]$f[-1] -gt 0) { return [int]$f[-1] }
+    }
+    return 0
+}
 function Get-Json([string]$Url, [int]$TimeoutSec = 3) { Invoke-RestMethod -Uri $Url -TimeoutSec $TimeoutSec }
 
 function Resolve-Model {
@@ -205,9 +214,10 @@ try {
         $err = @(Get-Content -LiteralPath ($olOut + '.err') -ErrorAction SilentlyContinue) -join ' '
         Exit-Fail 'OLLAMA' "start-ollama.ps1 failed (exit $($olp.ExitCode)): $err"
     }
-    $conn = Get-NetTCPConnection -LocalPort $OllamaPort -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
-    if (-not $conn) { Exit-Fail 'OLLAMA' "nothing listens on port $OllamaPort" }
-    $op = Get-Process -Id $conn.OwningProcess
+    $ownerPid = 0
+    for ($i = 0; $i -lt 10 -and $ownerPid -eq 0; $i++) { $ownerPid = Get-PortOwner $OllamaPort; if ($ownerPid -eq 0) { Start-Sleep -Milliseconds 500 } }
+    if ($ownerPid -eq 0) { Exit-Fail 'OLLAMA' "nothing listens on port $OllamaPort" }
+    $op = Get-Process -Id $ownerPid
     if (-not $op.Path -or -not (Test-UnderTools $op.Path)) { Exit-Fail 'OLLAMA' "port $OllamaPort is held by a foreign process ($($op.Name), pid $($op.Id)); not touching it" }
     @{ pid = $op.Id; name = $op.Name; started = (Get-Date).ToString('s') } | ConvertTo-Json -Compress | Set-Content (Join-Path $RunDir 'ollama.pid') -Encoding ASCII
     Write-Stage 'OLLAMA' "ollama pid $($op.Id) on $OllamaUrl (loopback only)" 'OK'

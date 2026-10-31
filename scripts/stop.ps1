@@ -48,8 +48,14 @@ function Test-OwnOllama([int]$ProcId) {
 }
 function Stop-Tree([int]$ProcId) { & cmd.exe /c "taskkill /PID $ProcId /T /F >nul 2>&1" }
 function Get-PortOwner([int]$P) {
-    $c = Get-NetTCPConnection -LocalPort $P -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($c) { return [int]$c.OwningProcess } else { return 0 }
+    # Locale-independent (no state words). Any row whose LOCAL port is $P belongs to the server side: clients use
+    # ephemeral ports. The LISTEN row itself is sometimes missing from netstat in hidden sessions, so connected rows count too.
+    # Get-NetTCPConnection proved unreliable in detached/hidden sessions, so netstat is parsed instead.
+    foreach ($l in (& netstat.exe -ano -p TCP)) {
+        $f = @(($l -split '\s+') | Where-Object { $_ })
+        if ($f.Count -ge 5 -and $f[0] -eq 'TCP' -and $f[1].EndsWith(":$P") -and [int]$f[-1] -gt 0) { return [int]$f[-1] }
+    }
+    return 0
 }
 
 # Stops "name" (app|ollama): PID file first, then whatever still listens on the port if (and only if) it is ours.

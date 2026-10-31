@@ -258,17 +258,71 @@ def port_free(port: int) -> bool:
             return False
 
 
-def check_ports(ports: dict[str, int], run_dir: str | Path) -> list[dict]:
-    """ports: {'app': 8765, 'ollama': 11435}. A busy port is fine only if our own live PID file explains it."""
+def port_owner_pid(port: int) -> int | None:
+    """PID that listens on 127.0.0.1:<port> (parsed from netstat; no admin rights needed)."""
+    try:
+        txt = subprocess.run(["netstat", "-ano", "-p", "TCP"], capture_output=True, text=True, errors="replace", timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    for line in txt.splitlines():
+        parts = line.split()
+        # State words are localised ("LISTENING"/"ABHOEREN"), so they are not used. Any row with this LOCAL port is
+        # the server side (clients use ephemeral ports); the LISTEN row itself can be missing in hidden sessions.
+        if len(parts) >= 5 and parts[0] == "TCP" and parts[1].endswith(f":{port}"):
+            try:
+                if int(parts[-1]) > 0:
+                    return int(parts[-1])
+            except ValueError:
+                return None
+    return None
+
+
+def process_path(pid: int) -> str | None:
+    """Executable path of a process (Windows, via QueryFullProcessImageNameW)."""
+    try:
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        h = k32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return None
+        try:
+            buf = ctypes.create_unicode_buffer(1024)
+            size = ctypes.c_ulong(len(buf))
+            return buf.value if k32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(size)) else None
+        finally:
+            k32.CloseHandle(h)
+    except (AttributeError, OSError):
+        return None
+
+
+def path_under(path: str | None, roots: list[str]) -> bool:
+    if not path:
+        return False
+    p = os.path.normcase(os.path.abspath(path))
+    return any(p.startswith(os.path.normcase(os.path.abspath(r)) + os.sep) for r in roots)
+
+
+def check_ports(ports: dict[str, int], run_dir: str | Path, own_roots: list[str] | None = None) -> list[dict]:
+    """ports: {'app': 8765, 'ollama': 11435}. A busy port is fine if our own live PID file explains it, or if the
+    listener is a program installed under one of own_roots (e.g. a leftover of our own earlier start)."""
     out = []
     for key, port in ports.items():
         pid = read_pid(Path(run_dir) / f"{key}.pid")
         if port_free(port):
             out.append(result(f"port:{port}", OK, f"frei ({key})"))
-        elif pid and pid_alive(pid["pid"]):
+            continue
+        if pid and pid_alive(pid["pid"]):
             out.append(result(f"port:{port}", OK, f"belegt durch eigenen Prozess pid {pid['pid']} ({key})"))
+            continue
+        owner = port_owner_pid(port)
+        exe = process_path(owner) if owner else None
+        if os.environ.get("SW_DEBUG_PREFLIGHT"):
+            print(f"[debug] port={port} owner={owner} exe={exe} roots={own_roots}", file=sys.stderr)
+        if own_roots and path_under(exe, own_roots):
+            out.append(result(f"port:{port}", OK, f"belegt durch eigene Instanz pid {owner} ({key}), wird weiterverwendet"))
         else:
-            out.append(result(f"port:{port}", FEHLER, f"belegt durch fremden Prozess ({key})",
+            who = f" ({os.path.basename(exe)}, pid {owner})" if exe else ""
+            out.append(result(f"port:{port}", FEHLER, f"belegt durch fremden Prozess{who} ({key})",
                               "Fremde Prozesse werden nie beendet; -Port / -OllamaPort aendern"))
     return out
 
@@ -335,7 +389,8 @@ def run_checks(root: str | Path, data_dir: str | Path, app_port: int = 8765, oll
     res.append(check_docker())
     res.append(check_gpu())
     res += check_ram()
-    res += check_ports({"app": app_port, "ollama": ollama_port}, data_dir / "run")
+    res += check_ports({"app": app_port, "ollama": ollama_port}, data_dir / "run",
+                       [str(Path(manifest.get("components", {}).get("ollama", {}).get("target", "D:/Tools/sw-analyst/ollama")).parent)])
     res.append(check_ollama_binary(manifest))
     res += check_models(ollama_port, model, manifest.get("models", {}).get("embedding"))
     res.append(check_gateway())

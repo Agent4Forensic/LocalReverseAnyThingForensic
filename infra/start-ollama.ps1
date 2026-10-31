@@ -15,8 +15,17 @@ if (-not (Test-Path $exe)) { throw "ollama.exe not found in $OllamaDir" }
 New-Item -ItemType Directory -Force -Path $ModelsDir, $LogDir | Out-Null
 
 # Refuse to start twice on the same port.
-$busy = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
-if ($busy) { "Port $Port already in use (pid $($busy[0].OwningProcess)). Not starting a second server."; exit 0 }
+function Get-PortOwner([int]$P) {
+    # Locale-independent: any row with LOCAL port $P is the server side (the LISTEN row can be missing in hidden sessions).
+    # Get-NetTCPConnection proved unreliable in detached/hidden sessions, so netstat is parsed instead.
+    foreach ($l in (& netstat.exe -ano -p TCP)) {
+        $f = @(($l -split '\s+') | Where-Object { $_ })
+        if ($f.Count -ge 5 -and $f[0] -eq 'TCP' -and $f[1].EndsWith(":$P") -and [int]$f[-1] -gt 0) { return [int]$f[-1] }
+    }
+    return 0
+}
+$busy = Get-PortOwner $Port
+if ($busy -ne 0) { "Port $Port already in use (pid $busy). Not starting a second server."; exit 0 }
 
 # Context length by free VRAM: small free VRAM -> smaller KV cache.
 $free = 0
