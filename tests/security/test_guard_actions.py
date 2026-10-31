@@ -291,6 +291,16 @@ def test_subtasks_and_answer():
     bad(finish(answer={"text": "a", "x": 1}))
 
 
+def test_subtask_done_when():
+    st = {"title": "t", "goal": "g", "reason": "r"}
+    r = ok(finish(subtasks=[dict(st, done_when="value quoted")]))
+    assert r.action["subtasks"][0]["done_when"] == "value quoted"
+    ok(finish(subtasks=[dict(st, done_when="d" * 300)]))
+    bad(finish(subtasks=[dict(st, done_when=5)]))
+    bad(finish(subtasks=[dict(st, done_when="d" * 301)]))
+    assert "done_when" not in ok(finish(subtasks=[st])).action["subtasks"][0]
+
+
 # ---------------------------------------------------------------- resource limits
 def test_size_limit_and_deep_nesting():
     big = finish(summary="s" * 4000, findings=[])

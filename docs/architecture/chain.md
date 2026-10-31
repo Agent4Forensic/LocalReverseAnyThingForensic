@@ -22,17 +22,19 @@ Job anlegen → Eingaben übersetzen (DE→EN) → Triage → Plan (Aufgabenbaum
 
 **Triage:** `identify_type`, `hash_file`, `sample_info` laufen deterministisch ohne KI. Der erkannte Typ wählt das Rezept (`exe`, `apk`, `script`, `generic`).
 
-**Planer:** erzeugt den Aufgabenbaum aus (a) den Schritten des Rezepts, (b) einer Aufgabe je Zielfrage (läuft zuletzt) und (c) Beschreibung und Zusatzinformationen des Nutzers, die als Kontext in jede Aufgabe eingehen. Eine große Aufgabe darf sich selbst zerlegen (`split`): sie liefert Teilaufgaben mit Ziel und Begründung, die als Kinder im Baum und in der Queue erscheinen.
+**Planer:** erzeugt den Aufgabenbaum aus (a) den Schritten des Rezepts, (b) einer Aufgabe je Zielfrage (läuft zuletzt) und (c) Beschreibung und Zusatzinformationen des Nutzers, die als Kontext in jede Aufgabe eingehen. Eine große Aufgabe darf sich selbst zerlegen (`split`): sie liefert Teilaufgaben mit Ziel und Begründung, die als Kinder im Baum und in der Queue erscheinen. Jede Aufgabe trägt ein Abnahmekriterium `done_when`. Nach den Rezeptschritten plant `agent.split` einmal höchstens 4 Aufgaben aus Beschreibung, Fokus und Zielfragen (Herkunft `planner`, siehe ADR-0007).
 
 **Queue:** Jede Aufgabe hat Status, Priorität (kleiner = früher) und Reihenfolge. Der Worker nimmt die pending-Aufgabe mit der kleinsten Priorität, bei Gleichstand die älteste. Aufgaben mit Abhängigkeit auf Elternaufgaben warten, bis diese beendet sind.
 
 **Priorisierer (Agent):** läuft nach jeder abgeschlossenen Aufgabe. Er sieht die Zusammenfassungen der bisherigen Erkenntnisse und die pending-Aufgaben und liefert neue Prioritäten mit Begründung. Er darf Aufgaben nur umsortieren oder zusätzliche Aufgaben vorschlagen. Löschen darf er nicht. Der Orchestrator validiert: nur existierende Aufgaben, Prioritätsbereich begrenzt, Duplikate (gleiches Ziel) werden abgewiesen, Budget gilt.
 
-**Selbstbewertung (Evaluator):** nach jeder Aufgabe und nach jeder Zielfrage. Der Evaluator bekommt Ziel, Ergebnis und verifizierte Findings und beantwortet: Ist das Ziel erreicht? Welche Lücken oder logischen Folgerungen bleiben? Jede Folgeaufgabe muss sich auf mindestens ein vorhandenes Finding oder eine konkrete Lücke beziehen, sonst wird sie verworfen. Das verhindert freie Spekulation.
+**Selbstbewertung (Evaluator):** nach jeder Aufgabe und nach jeder Zielfrage. Der Evaluator bekommt Ziel, Ergebnis und verifizierte Findings und beantwortet: Ist das Ziel erreicht? Welche Lücken oder logischen Folgerungen bleiben? Jede Folgeaufgabe muss sich auf mindestens ein vorhandenes Finding oder eine konkrete Lücke beziehen, sonst wird sie verworfen. Das verhindert freie Spekulation. `goal_reached` steht am Task, Lücken landen als Findings mit dem Status `open` im Bericht.
 
 **Artefakte (Rekursion):** Nach jeder Aufgabe bekommt jede neue `derived/`-Datei ohne Modell einen Typ und Hashes. Code und Container erhalten eine eigene Aufgabe mit dem Leitfaden des passenden Rezepts (höchstens 6 je Job), Text und Daten bleiben bei der dekodierenden Aufgabe.
 
-**Synthese:** Vor den Zielfragen prüft eine eigene Aufgabe die Befunde als Ganzes, benennt Widersprüche und ordnet die Standardfragen des Rezepts ein. Sie erzeugt keine Folgeaufgaben.
+**Synthese:** Vor den Zielfragen prüft eine eigene Aufgabe die Befunde als Ganzes, benennt Widersprüche und ordnet die Standardfragen des Rezepts ein. Sie wird bewertet und darf so eine Lückenrunde auslösen, deren Folgeaufgaben nicht erneut bewertet werden.
+
+**Offene Zielfragen:** Bleibt eine Frage `unresolved` und kommen später neue bestätigte Findings, läuft sie bei leerer Queue genau einmal erneut.
 
 **Budget-Reserve:** Ab 75 % des Schritt- oder Zeitbudgets werden wartende optionale Aufgaben `skipped`. Zielfragen haben Vorrang, die Synthese läuft aus der Reserve nur, wenn keine Zielfrage wartet. Folgeaufgaben überschreiten das Aufgabenbudget nicht.
 
@@ -49,7 +51,7 @@ Das Modell antwortet in jedem Zug mit genau einem JSON-Objekt (modellunabhängig
 {"action":"finish","summary":"...","findings":[{"statement":"...","status":"confirmed|hypothesis",
   "evidence":[{"id":"EV-000012","quote":"verbatim text from that evidence"}]}],
   "annotations":[{"file":"sample","line_start":10,"line_end":14,"text":"...","evidence_id":"EV-000012"}],
-  "subtasks":[{"title":"...","goal":"...","reason":"..."}]}
+  "subtasks":[{"title":"...","goal":"...","reason":"...","done_when":"..."}]}
 ```
 
 Pro Zug: Prompt-Schutz prüft die Eingabe an das Modell (Tool-Ergebnisse) und die Aktion des Modells (Allowlist, Argumentschema). Jeder Zug wird als Step gespeichert. Maximal 10 Züge pro Aufgabe; jedes Tool-Ergebnis nennt die verbleibenden Züge, der letzte Zug verlangt `finish`. Wiederholte identische Tool-Aufrufe zählen als Schleife und beenden die Aufgabe.
@@ -62,6 +64,7 @@ Für jedes Finding mit Status `confirmed`:
 1. Alle genannten Evidence-IDs existieren in diesem Job.
 2. Das Zitat kommt (nach Normalisierung von Leerraum) wörtlich im Ergebnistext der genannten Evidence vor.
 3. Referenzierte Zeilenbereiche liegen im Dokument.
+4. Ein Indikator (URL, Domain, IP, E-Mail, Hash) in der Aussage steht auch im Zitat. Sonst wird die Aussage zur `hypothesis` herabgestuft, weil ein echtes Zitat nur sich selbst belegt. Dieselbe Bindung gilt für Antworten: Jeder Indikator muss in einem Beleg des Jobs stehen. Ob die übrige Aussage zum Zitat passt, prüft die Plattform nicht mechanisch.
 Fehlschlag in 1 oder 2: Das Modell bekommt die Gründe vor dem Speichern bis zu zweimal zurück und darf korrigieren. Besteht der Fehler danach, gilt: Status `rejected` oder Herabstufung zur `hypothesis`, Grund wird gespeichert. `hypothesis` darf ohne Zitat bestehen, braucht aber mindestens eine existierende Evidence-ID als Anlass und taucht in Antworten nur als Hypothese auf. Antworten auf Zielfragen dürfen ausschließlich auf `confirmed` Findings beruhen. Gibt es keine, lautet der Status der Antwort `unresolved` mit Begründung.
 
 ## 5. Prompt-Schutz (Schichten)
@@ -71,7 +74,7 @@ Fehlschlag in 1 oder 2: Das Modell bekommt die Gründe vor dem Speichern bis zu 
 3. **Aktionsprüfung:** nur Tools der Allowlist, Argumente nach Schema, Pfad-Jail, Ausgabelimits. Alles andere wird abgelehnt und gezählt.
 4. **Wächter:** Gab es in einer Aufgabe Treffer hoher Schwere und das Modell versucht danach eine unzulässige Aktion oder wiederholt Injektionstext, wird die Aufgabe `blocked`, der Vorfall protokolliert und als Befund "Prompt-Injection im Sample" festgehalten (das ist selbst ein forensisches Ergebnis).
 5. **Keine Rechte:** Die KI hat keine Shell und keine Schreibwerkzeuge außer Notizen und Annotationen im Job-Arbeitsbereich. `tests/security/test_host_safety.py` hält das fest: feste Allowlist, kein Prozessstart und kein Netz in dem Code, den die Modellschleife erreicht.
-6. **Zweite Ordnung:** Was das Modell über das Sample schreibt, kann Sample-Text weitertragen. Bekannte Befunde und Aufgabenergebnisse stehen deshalb auch in Folge-Prompts in Datenblöcken. Vom Modell formulierte Ziele werden vor dem Anlegen einer Aufgabe gescannt; bei Treffern hoher Schwere wird die Aufgabe verworfen und als Guard-Ereignis (`plan`) festgehalten.
+6. **Zweite Ordnung:** Was das Modell über das Sample schreibt, kann Sample-Text weitertragen. Bekannte Befunde und Aufgabenergebnisse stehen deshalb auch in Folge-Prompts in Datenblöcken. Titel, Ziel, Begründung und `done_when` von Aufgaben, die das Modell formuliert hat (Herkunft `split`, `evaluator`, `prioritizer`, `planner`), stehen im Prompt als Datenblock und gelten im Wächter nicht als vertrauenswürdiger Aufgabentext. Sie werden vor dem Anlegen einer Aufgabe gescannt; bei Treffern mittlerer oder hoher Schwere wird die Aufgabe verworfen und als Guard-Ereignis (`plan`) festgehalten. Offene Punkte erreichen Analyseaufgaben, Evaluator und Planer, aber keine Zielfrage. Die Notiz über eine geblockte Aufgabe (`GUARD:`) erreicht gar keinen Folge-Prompt.
 7. **Befund statt Wiederholung:** Einen Injektionsversuch hält die Plattform selbst als Befund mit Beleg fest. Das Modell muss den Text nicht zitieren, was sonst den Wächter auslösen würde.
 
 ## 6. Übersetzungspipeline

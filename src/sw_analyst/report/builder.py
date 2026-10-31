@@ -25,7 +25,8 @@ T = {
         "question": "Frage", "answer": "Antwort", "expected": "Erwartet", "match": "Abgleich", "yes": "übereinstimmend",
         "no": "abweichend", "na": "kein Sollwert", "unresolved": "NICHT KLÄRBAR", "answered": "beantwortet",
         "confirmed": "bestätigt", "hypothesis": "Hypothese", "open_s": "offen", "rejected": "verworfen",
-        "untranslated": "[EN]", "limits": "Grenzen: rein statische Analyse, offline, lokales Modell. Aussagen ohne Beleg wurden verworfen oder als Hypothese geführt.",
+        "self_eval": "Ziel (Selbstbewertung des Modells)", "reached": "erreicht", "not_reached": "nicht erreicht", "not_rated": "nicht bewertet",
+        "untranslated": "[EN]", "limits": "Grenzen: rein statische Analyse, offline, lokales Modell. Aussagen ohne Beleg wurden verworfen oder als Hypothese geführt; offene Punkte sind keine Aussagen und haben keinen Beleg.",
     },
     "en": {
         "title": "Forensic Analysis Report", "live": "LIVE STATE (analysis still running)", "summary": "Summary",
@@ -40,7 +41,8 @@ T = {
         "question": "Question", "answer": "Answer", "expected": "Expected", "match": "Comparison", "yes": "matches",
         "no": "differs", "na": "no expected value", "unresolved": "NOT DETERMINABLE", "answered": "answered",
         "confirmed": "confirmed", "hypothesis": "hypothesis", "open_s": "open", "rejected": "rejected",
-        "untranslated": "", "limits": "Limits: static analysis only, offline, local model. Statements without evidence were rejected or kept as hypotheses.",
+        "self_eval": "Goal (model's self-assessment)", "reached": "reached", "not_reached": "not reached", "not_rated": "not rated",
+        "untranslated": "", "limits": "Limits: static analysis only, offline, local model. Statements without evidence were rejected or kept as hypotheses; open points are not statements and have no evidence.",
     },
 }
 
@@ -110,7 +112,7 @@ def build_report(store: Store, job_id: str, lang: str = "de", model_name: str = 
 
     out += ["", f"## {t['findings']}", ""]
     stat_name = {"confirmed": t["confirmed"], "hypothesis": t["hypothesis"], "open": t["open_s"], "rejected": t["rejected"]}
-    for status in ("confirmed", "hypothesis", "open"):
+    for status in ("confirmed", "hypothesis"):   # open points have no proof, they stay in the section of their own
         rows = [f for f in findings if f["status"] == status]
         if not rows:
             continue
@@ -148,8 +150,8 @@ def build_report(store: Store, job_id: str, lang: str = "de", model_name: str = 
     ops = [f for f in findings if f["status"] in ("hypothesis", "open")]
     out += [f"- {f['id']}: {_cell(txt(f['statement_en'], f['statement_de']))}" for f in ops] or [f"- {t['none']}"]
 
-    out += ["", f"## {t['method']}", "", f"| {t['task']} | {t['status']} | origin | {t['duration']} | reason |", "|---|---|---|---|---|"]
-    out += [f"| {x['id']} {_cell(x['title'])} | {x['status']} | {x['origin']} | {_dur(x['duration_ms'])} | {_cell(x['reason'])[:100]} |" for x in tasks]
+    out += ["", f"## {t['method']}", "", f"| {t['task']} | {t['status']} | origin | {t['self_eval']} | {t['duration']} | reason |", "|---|---|---|---|---|---|"]
+    out += [f"| {x['id']} {_cell(x['title'])} | {x['status']} | {x['origin']} | {({True: t['reached'], False: t['not_reached']}.get(x['params'].get('goal_reached'), t['not_rated']))} | {_dur(x['duration_ms'])} | {_cell(x['reason'])[:100]} |" for x in tasks]
     guard = store.list_guard_events(job_id)
     out += ["", f"**{t['guard']}:** {len(guard)}"]
     out += [f"- {g['stage']}/{g['rule']} ({g['severity']}, {g['action']}): `{_cell(g['snippet'])[:100]}`" for g in guard[:20]]

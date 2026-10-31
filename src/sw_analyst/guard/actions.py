@@ -254,12 +254,15 @@ def _validate_annotation(a: Any, i: int) -> dict:
 def _validate_subtask(s: Any, i: int) -> dict:
     if not isinstance(s, dict):
         raise _Bad("subtask %d must be an object" % i)
-    _keys(s, {"title", "goal", "reason"}, "subtask %d" % i)
-    return {
+    _keys(s, {"title", "goal", "reason", "done_when"}, "subtask %d" % i)
+    out = {
         "title": _str(s.get("title"), "subtask %d title" % i, 120, required_nonblank=True),
         "goal": _str(s.get("goal"), "subtask %d goal" % i, 500, required_nonblank=True),
         "reason": _str(s.get("reason"), "subtask %d reason" % i, 500, required_nonblank=True),
     }
+    if s.get("done_when") is not None:
+        out["done_when"] = _str(s["done_when"], "subtask %d done_when" % i, 300)
+    return out
 
 
 def _list(v: Any, what: str, maxn: int) -> list:

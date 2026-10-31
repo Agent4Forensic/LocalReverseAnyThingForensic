@@ -5,6 +5,7 @@ its reason, so the dashboard and the report can show what was done, why and how 
 """
 from __future__ import annotations
 
+import json
 import re
 import time
 import traceback
@@ -26,6 +27,7 @@ MAX_ARTIFACT_TASKS = 6
 MAX_LLM_ERRORS = 3
 MAX_FOLLOWUPS_JOB = 8         # model-derived tasks per job; without a cap "verify it again" eats the whole budget
 MAX_EVALUATED_DEPTH = 1       # follow-ups of follow-ups are not evaluated again
+MAX_OPEN_POINTS_JOB = 12
 BUDGET_RESERVE_FROM = 0.75    # from here on the rest of the budget belongs to target questions, then synthesis
 # Derived files of these types get their own task. Text and data stay with the task that decoded them.
 RECURSE_TYPES = {"pe", "elf", "apk", "jar", "zip", "dex", "pdf", "macho", "ole2",
@@ -161,7 +163,8 @@ class JobEngine:
             self.store.add_task(job_id, title=st["title"], goal=st["goal"], kind="analyze", origin="recipe",
                                 priority=int(st.get("priority", 200)), parent_id=grp["id"],
                                 reason=f"required step '{st['id']}' of recipe '{recipe['id']}'",
-                                params={"tools_hint": st.get("tools_hint", []), "guide": st.get("guide", ""), "depth": 0})
+                                params={"tools_hint": st.get("tools_hint", []), "guide": st.get("guide", ""), "depth": 0,
+                                        "done_when": st.get("done_when", "")})
         standard = "\n".join(f"- {q}" for q in recipe.get("required_questions", [])) or "(none)"
         self.store.add_task(job_id, title="Synthesis: findings, contradictions, standard questions",
                             goal=SYNTHESIS_GOAL.format(questions=standard), kind="analyze", origin="recipe", priority=850,
@@ -198,12 +201,14 @@ class JobEngine:
     def _task_budget_full(self, job_id: str) -> bool:
         return self._counted_tasks(job_id) >= self.store.get_job(job_id)["spec"]["budget_max_tasks"]
 
+    def _budget_used(self, job_id: str, t_job: float) -> float:
+        spec = self.store.get_job(job_id)["spec"]
+        return max(self.store.count_steps(job_id) / spec["budget_max_steps"],
+                   (time.monotonic() - t_job) / 60 / spec["budget_max_minutes"])
+
     def _keep_reserve(self, job_id: str, t_job: float) -> None:
         """Target questions must get an answer or a reason, so optional work gives way before the budget ends."""
-        spec = self.store.get_job(job_id)["spec"]
-        used = max(self.store.count_steps(job_id) / spec["budget_max_steps"],
-                   (time.monotonic() - t_job) / 60 / spec["budget_max_minutes"])
-        if used < BUDGET_RESERVE_FROM:
+        if self._budget_used(job_id, t_job) < BUDGET_RESERVE_FROM:
             return
         pending = [t for t in self.store.queue(job_id) if t["status"] == "pending"]
         questions_wait = any(t["kind"] == "question" for t in pending)
@@ -234,6 +239,7 @@ class JobEngine:
         known_ids = {t["id"] for t in self.store.list_tasks(job_id)}
         offload_checked = False
         llm_errors = 0
+        goal_planned = False
         while True:
             if self.store.get_job(job_id)["cancel_requested"]:
                 return "cancelled"
@@ -248,7 +254,14 @@ class JobEngine:
                 self.store.log(job_id, f"stopping: {why_stop}", level="warn")
                 return "partial"
             if not task:
+                if not why_stop and self._reopen_questions(job_id):
+                    continue
                 return "done"
+            # The recipe is done: plan what the job goal still needs before the synthesis or the first question.
+            if not goal_planned and (task["params"].get("synthesis") or task["kind"] == "question"):
+                goal_planned = True
+                if self._plan_from_goal(job_id, task, t_job):
+                    continue
             self._run_task(job_id, task)
             # A dead model server fails every task the same way; stop instead of marking the whole queue as failed.
             if (self.store.get_task(task["id"])["summary_en"] or "").find("LLM error") >= 0:
@@ -272,6 +285,29 @@ class JobEngine:
                 ids_now = {t["id"] for t in self.store.list_tasks(job_id)}
             known_ids = ids_now
 
+    def _plan_from_goal(self, job_id: str, task: dict, t_job: float) -> bool:
+        if self._budget_used(job_id, t_job) >= BUDGET_RESERVE_FROM:
+            return False
+        tasks = self.store.list_tasks(job_id)
+        subs = self.agents.split(self.store.get_job(job_id), task["id"], self.runner.known_findings_text(job_id),
+                                 self.runner.open_points_text(job_id), [t["title"] for t in tasks if t["kind"] != "group"])
+        self._add_subtasks(job_id, task, subs, "planner", 0)
+        return len(self.store.list_tasks(job_id)) > len(tasks)
+
+    def _reopen_questions(self, job_id: str) -> bool:
+        """A question left open gets one more try once later work confirmed something new."""
+        confirmed = len(self.store.list_findings(job_id, "confirmed"))
+        reopened = False
+        for t in self.store.list_tasks(job_id):
+            p = t["params"]
+            if (t["kind"] == "question" and t["status"] == "done" and "confirmed_at_answer" in p and not p.get("reopened")
+                    and confirmed > p["confirmed_at_answer"]
+                    and self.store.get_answer(job_id, p["question_id"])["status"] == "unresolved"):
+                self.store.update_task(t["id"], status="pending", params_json=json.dumps({**p, "reopened": True}))
+                self.store.log(job_id, f"question task {t['id']} reopened: new confirmed findings", task=t["id"])
+                reopened = True
+        return reopened
+
     def _run_task(self, job_id: str, task: dict) -> None:
         job = self.store.get_job(job_id)
         t0 = time.monotonic()
@@ -284,7 +320,7 @@ class JobEngine:
             self.store.update_task(task["id"], status="blocked", finished_at=utcnow(), duration_ms=ms,
                                    summary_en=f"blocked by prompt guard: {outcome.error}")
             self.store.add_finding(job_id, task["id"],
-                                   f"The analysed data contained instructions aimed at the AI; processing of task "
+                                   f"GUARD: the analysed data contained instructions aimed at the AI; processing of task "
                                    f"{task['id']} was stopped by the prompt guard ({outcome.error}).",
                                    "open", [], [], "")
             return
@@ -304,39 +340,65 @@ class JobEngine:
         self._add_subtasks(job_id, task, outcome.subtasks, "split", depth)
         if task["kind"] == "question":
             self._apply_answer(job_id, task, outcome)
-        if task["params"].get("synthesis") or depth > MAX_EVALUATED_DEPTH:
+        synthesis = task["params"].get("synthesis")
+        # A reopened question has no later try, so follow-ups could not reach its answer.
+        if task["params"].get("reopened") or (depth > MAX_EVALUATED_DEPTH and not synthesis):
             return
         ev = self.agents.evaluate(job, task, outcome.summary, outcome.finding_ids,
-                                  [t["title"] for t in self.store.queue(job_id)], self.runner.known_findings_text(job_id))
+                                  [t["title"] for t in self.store.queue(job_id)], self.runner.known_findings_text(job_id),
+                                  self.runner.open_points_text(job_id))
         if ev["assessment"]:
             self.store.log(job_id, f"evaluation {task['id']}: {ev['assessment']}", gaps=ev["gaps"],
                            goal_reached=ev["goal_reached"])
-        self._add_subtasks(job_id, task, ev["followups"], "evaluator", depth)
+        self._record_evaluation(job_id, task["id"], ev)
+        # The synthesis gets one gap round; its follow-ups are not evaluated again.
+        self._add_subtasks(job_id, task, ev["followups"], "evaluator", MAX_EVALUATED_DEPTH if synthesis else depth)
+
+    def _record_evaluation(self, job_id: str, task_id: str, ev: dict) -> None:
+        if ev["goal_reached"] is None and not ev["assessment"] and not ev["gaps"]:
+            return
+        t = self.store.get_task(task_id)
+        self.store.update_task(task_id, params_json=json.dumps({**t["params"], "goal_reached": ev["goal_reached"]}))
+        points = ev["gaps"] or ([f"Goal of task {task_id} not reached: {ev['assessment']}"]
+                                if ev["goal_reached"] is False and ev["assessment"] else [])
+        findings = self.store.list_findings(job_id)
+        known = {f["statement_en"] for f in findings}
+        open_count = sum(1 for f in findings if f["status"] == "open")
+        for point in points:
+            if point in known or self._injected(job_id, task_id, point):
+                continue
+            if open_count >= MAX_OPEN_POINTS_JOB:
+                self.store.log(job_id, f"open point limit reached, not recorded: {point}", level="warn")
+                continue
+            self.store.add_finding(job_id, task_id, point, "open", [], [], "")
+            open_count += 1
+            known.add(point)
+        self._translate_new(job_id, task_id)
 
     def _add_subtasks(self, job_id: str, parent: dict, subs: list[dict], origin: str, depth: int) -> None:
         if depth >= MAX_DEPTH:
             return
         for s in subs:
             title = s["title"]
+            if self._injected(job_id, parent["id"], title, s["goal"], s.get("reason") or "", s.get("done_when") or ""):
+                continue
             if self.store.has_similar_task(job_id, _norm_title(title)):
                 self.store.log(job_id, f"duplicate task ignored: {title}", level="debug")
                 continue
-            if self._task_budget_full(job_id) or self._followups_used(job_id) >= MAX_FOLLOWUPS_JOB:
+            if self._task_budget_full(job_id) or (origin != "planner" and self._followups_used(job_id) >= MAX_FOLLOWUPS_JOB):
                 self.store.log(job_id, f"follow-up limit reached, not added: {title}", level="warn")
-                continue
-            if self._injected(job_id, parent["id"], title, s["goal"], s.get("reason") or ""):
                 continue
             # Behind all recipe steps (100-199): "parent - 1" let follow-ups starve the recipe and the target questions.
             self.store.add_task(job_id, title=title, goal=s["goal"], kind="analyze", origin=origin,
                                 priority=min(max(parent["priority"] + 1, 200), 790), parent_id=parent["id"],
                                 reason=s.get("reason") or f"derived from {parent['id']}",
-                                params={"depth": depth + 1})
+                                params={"depth": depth + 1, "done_when": s.get("done_when") or ""})
 
     def _injected(self, job_id: str, task_id: str | None, *texts: str) -> bool:
         """Goals written by the model reach later prompts as instructions. Sample text must not travel that way."""
-        hits = [d for d in scan("\n".join(texts)) if d.severity == "high"]
+        hits = [d for d in scan("\n".join(texts)) if d.severity in ("medium", "high")]
         for d in hits:
-            self.store.add_guard_event(job_id, task_id, "plan", d.rule, "high", "dropped", d.snippet)
+            self.store.add_guard_event(job_id, task_id, "plan", d.rule, d.severity, "dropped", d.snippet)
         return bool(hits)
 
     def _prioritize(self, job_id: str, t_job: float) -> None:
@@ -353,10 +415,10 @@ class JobEngine:
         for n in res["new_tasks"]:
             if (not self.store.has_similar_task(job_id, _norm_title(n["title"])) and not self._task_budget_full(job_id)
                     and self._followups_used(job_id) < MAX_FOLLOWUPS_JOB
-                    and not self._injected(job_id, None, n["title"], n["goal"], n["reason"])):
+                    and not self._injected(job_id, None, n["title"], n["goal"], n["reason"], n["done_when"])):
                 self.store.add_task(job_id, title=n["title"], goal=n["goal"], kind="analyze", origin="prioritizer",
                                     priority=n["priority"], reason=n["reason"] or "suggested by prioritizer",
-                                    params={"depth": 1})
+                                    params={"depth": 1, "done_when": n["done_when"]})
 
     # ---- answers ---------------------------------------------------------------------------------------------
     def _apply_answer(self, job_id: str, task: dict, outcome: TaskOutcome) -> None:
@@ -391,6 +453,10 @@ class JobEngine:
         self.store.update_answer(job_id, qid, answer_en=text if status == "answered" else "", answer_de=answer_de,
                                  status=status, finding_ids=outcome.confirmed_ids, evaluation_en=evaluation,
                                  evaluation_de=self._tr(job_id, evaluation, "translate evaluation", "de"), match=match)
+        if status == "unresolved":
+            fresh = self.store.get_task(task["id"])
+            self.store.update_task(task["id"], params_json=json.dumps(
+                {**fresh["params"], "confirmed_at_answer": len(self.store.list_findings(job_id, "confirmed"))}))
 
     # ---- translation of results ----------------------------------------------------------------------------
     def _translate_new(self, job_id: str, task_id: str) -> None:
@@ -426,6 +492,7 @@ class JobEngine:
         answers = self.store.list_answers(job_id)
         work = [t for t in self.store.list_tasks(job_id) if t["kind"] != "group" and t["origin"] != "triage"]
         finished = [t for t in work if t["status"] == "done"]
+        evaluated = [t["params"]["goal_reached"] for t in work if t["params"].get("goal_reached") is not None]
         if status in ("done", "partial") and work and not finished:
             status = "failed"              # nothing was analysed, e.g. the model was unreachable
         elif status == "done" and (len(finished) < len(work) or any(a["status"] != "answered" for a in answers)):
@@ -436,7 +503,8 @@ class JobEngine:
                    f"{len(answers)} questions answered; {len(self.store.list_findings(job_id, 'confirmed'))} confirmed findings. "
                    f"Coverage: {len(finished)} of {len(work)} analysis tasks done, "
                    f"{sum(1 for t in work if t['origin'] == 'artifact' and t['status'] == 'done')} artifacts analysed, "
-                   f"{sum(1 for t in work if t['status'] == 'skipped')} skipped for budget.")
+                   f"{sum(1 for t in work if t['status'] == 'skipped')} skipped for budget. "
+                   f"Goals reached by the model's own assessment in {sum(evaluated)} of {len(evaluated)} evaluated tasks.")
         self.store.update_job(job_id, status=status, finished_at=utcnow(),
                               duration_ms=int((time.monotonic() - t_job) * 1000), summary_en=summary,
                               summary_de=self._tr(job_id, summary, "translate job summary", "de"))
