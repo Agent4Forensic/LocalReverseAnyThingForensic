@@ -202,8 +202,7 @@
         S('evaluate', 'Erwartung vergleichen', 'Regex-Vergleich (CTF-Testmodus)', 'Erwartete Antwort prüfen', null, 're:base64.*rot13', 'Kein Treffer', 20)
       ] }
   };
-  var ORDER_STATIC = ['T001', 'T002', 'T003', 'T008', 'T004', 'T005', 'T006', 'T009', 'T007', 'T010', 'T011'];
-
+  
   /* ---------- Prompts ---------- */
   var PROMPTS = [
     ['translate_input', '1.0.0', 'Nutzereingaben DE nach EN übersetzen, Platzhalter für Code, IDs und Hashes schützen.', 'Translate the user text from German to English. Keep placeholders such as {{P1}} unchanged.'],
@@ -288,8 +287,7 @@
     };
     job.tasks.push(t);
     job.steps[id] = [];
-    if (!silent) emit(job, 'task', taskView(job, t, false), tsMs, silent);
-    else emit(job, 'task', taskView(job, t, false), tsMs, true);
+    emit(job, 'task', taskView(job, t, false), tsMs, silent);
     return t;
   }
   function startTask(job, t, tsMs, silent) {
@@ -412,8 +410,6 @@
 
   function buildScenario(job, stage) {
     var cursor = job.startedMs;
-    var order = stage === 'done' ? ORDER_STATIC : ORDER_STATIC.slice(0, 7); /* bis einschliesslich T006 */
-    var stopAt = stage === 'done' ? null : 'T006';
     ['T001', 'T002', 'T003'].forEach(function (id) { cursor = seedTask(job, id, cursor) + 150; });
     cursor = seedTask(job, 'T008', cursor) + 150;
     cursor = seedTask(job, 'T004', cursor) + 150;
@@ -423,14 +419,12 @@
       job.finishedMs = cursor;
     } else {
       /* T006 laeuft, erster Schritt ist bereits erledigt; Rest der Aufgaben ist angelegt. */
-      var t = addTask(job, 'T006', cursor, true);
+      var t = taskById(job, 'T006');
       startTask(job, t, cursor, true);
       applyStep(job, t, PLAN.T006.steps[0], cursor + 200, true);
       ['T007', 'T010', 'T011'].forEach(function (id) { addTask(job, id, cursor, true); });
       job.simulated = true;
     }
-    void order;
-    void stopAt;
   }
 
   function demoSpec(title, withQuestions) {
@@ -465,7 +459,7 @@
     buildScenario(j2, 'done');
 
     var j3 = newJob('job-0003', 'CTF-Test: Mehrfach kodiertes Skript', 'running', NOW0 - 3 * 60e3, demoSpec('CTF-Test: Mehrfach kodiertes Skript', true), 'crackme.py');
-    j3.startedMs = NOW0 - 80000;
+    j3.startedMs = NOW0 - 24000;
     buildScenario(j3, 'running');
 
     var j4 = newJob('job-0004', 'Zweiter Auftrag (wartet)', 'queued', NOW0 - 20000, demoSpec('Zweiter Auftrag (wartet)', true), 'notes_export.txt');
@@ -491,7 +485,6 @@
       var idx = job.steps[running.id].length;
       if (idx < p.steps.length) {
         applyStep(job, running, p.steps[idx], now, false);
-        notify(job, { seq: 0, type: 'noop', data: {} });
       } else {
         finishTask(job, running, now, false);
       }
@@ -734,7 +727,7 @@
     var job = m && JOBS[m[1]];
     var closed = false;
     var sub = function (env) {
-      if (!closed && env.type !== 'noop') handlers.onEvent(clone(env));
+      if (!closed) handlers.onEvent(clone(env));
     };
     window.setTimeout(function () {
       if (closed) return;
@@ -756,6 +749,6 @@
     };
   }
 
-  init();
+  if (SW.api && SW.api.isMock) init();
   SW.mock = { request: request, openStream: openStream };
 })();
