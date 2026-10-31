@@ -54,8 +54,8 @@ MAX_BUNDLE_BYTES = 256 * 1024 * 1024
 MAX_ENTRIES = 2000
 MAX_TOTAL_BYTES = 1024 * 1024 * 1024          # sum of the uncompressed entries
 MAX_MANIFEST_BYTES = 4 * 1024 * 1024
-MAX_MEMORY_ENTRY = 256 * 1024 * 1024          # job.json, audit.jsonl and the reports are read into memory
-ACTIVE = ("queued", "running")
+MAX_MEMORY_ENTRY = 64 * 1024 * 1024           # job.json, audit.jsonl and the reports are read into memory and parsed
+ACTIVE = ("queued", "running", "uploading")
 LANGS = ("de", "en")
 DB_NAME = "sw_analyst.db"
 
@@ -262,6 +262,8 @@ def export_bundle(store: Store, gateway: Any, job_id: str, *, model: str, app_ve
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
         def put(name: str, data: bytes) -> None:
+            if len(data) > MAX_MEMORY_ENTRY:    # the import refuses larger entries, so never write one
+                raise BundleError(413, "too_large", f"{name} exceeds {MAX_MEMORY_ENTRY // 2**20} MiB")
             zf.writestr(_zinfo(name, stamp), data)
             files[name] = {"sha256": sha256_hex(data), "size": len(data)}
 

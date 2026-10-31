@@ -29,6 +29,8 @@ GHIDRA_TOOLS = {"list_functions", "disassemble", "decompile", "xrefs", "basic_bl
 TRIAGE_TOOLS = {"capa_scan", "floss_decode", "yara_scan"}
 JADX_TOOLS = {"jadx_decompile"}
 ALL_TOOLS = GHIDRA_TOOLS | TRIAGE_TOOLS | JADX_TOOLS
+MAX_CACHE_BYTES = 160 * 1024 * 1024   # a cached result is read into memory; jadx results are the largest (128 MiB text)
+RUN_SLOTS = threading.BoundedSemaphore(1)   # one container run at a time across every gateway of the process
 
 
 def _hex_addr(value: Any) -> int:
@@ -44,46 +46,59 @@ class ContainerTools:
         self._loaded: tuple[str, Any] = ("", None)   # the last parsed result; Ghidra exports can be large
         # A sample that hangs Ghidra must not cost 10 minutes on every call. In memory: a restart may try again.
         self._failed: dict[str, str] = {}
-        # Worker and dashboard may ask for the same file at once: one container run, then both read the cache.
-        self._lock = threading.Lock()
+        self._lock = threading.Lock()                      # guards _loaded and _file_locks
+        self._file_locks: dict[str, threading.Lock] = {}
 
     # ---- batch result ---------------------------------------------------------------------------------------
     def _result(self, ctx: _Ctx, op: str, logical: Any, parse=None) -> tuple[Any, str, str]:
-        """Returns (parsed result, logical name, version). Runs the container only on the first call per file."""
-        with self._lock:
-            return self._result_locked(ctx, op, logical, parse)
+        """Returns (parsed result, logical name, version). Runs the container only on the first call per file.
 
-    def _result_locked(self, ctx: _Ctx, op: str, logical: Any, parse=None) -> tuple[Any, str, str]:
+        One lock per result file: worker and dashboard asking for the same file wait for one run, then both read
+        the cache. Container runs of all gateways (also those of imports) share one slot, because each can take
+        several GB of the 24 GB budget (ADR-0000). Cache reads never wait for a run."""
         data, name = ctx.read_all(logical)
         sha = hashlib.sha256(data).hexdigest()
         version = self.runner.version(op)
-        cache_dir = ctx.root / "tool-cache"
-        path = cache_dir / f"{op}-{version.rsplit(':', 1)[-1]}-{sha}.json"
+        path = ctx.root / "tool-cache" / f"{op}-{version.rsplit(':', 1)[-1]}-{sha}.json"
         key = str(path)
-        if self._loaded[0] == key:
-            return self._loaded[1], name, version
-        if path.is_file():
-            parsed = json.loads(path.read_text(encoding="utf-8"))
-        else:
-            if key in self._failed:
-                raise ToolError(self._failed[key])
-            try:
-                raw = self.runner.run(op, data)
-            except ContainerError as exc:
-                if exc.final:
-                    self._failed[key] = str(exc)
-                raise ToolError(str(exc)) from None
-            try:
-                parsed = parse(raw) if parse else json.loads(raw)
-            except (ValueError, UnicodeDecodeError, tarfile.TarError):
-                self._failed[key] = f"Tool '{op}' produced output that could not be read"
-                raise ToolError(self._failed[key]) from None
-            cache_dir.mkdir(exist_ok=True)
-            tmp = path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(parsed), encoding="utf-8")
-            os.replace(tmp, path)
-        self._loaded = (key, parsed)
+        with self._lock:
+            if self._loaded[0] == key:
+                return self._loaded[1], name, version
+            file_lock = self._file_locks.setdefault(key, threading.Lock())
+        with file_lock:
+            parsed = self._cached_or_run(op, data, path, key, parse)
+        with self._lock:
+            self._loaded = (key, parsed)
         return parsed, name, version
+
+    def _cached_or_run(self, op: str, data: bytes, path, key: str, parse) -> Any:
+        if path.is_file():
+            # A cache file can come from an imported bundle: same size cap as container output, then parse.
+            if path.stat().st_size > MAX_CACHE_BYTES:
+                raise ToolError(f"Cached result of '{op}' is larger than {MAX_CACHE_BYTES // 2**20} MiB; refused")
+            try:
+                return json.loads(path.read_text(encoding="utf-8"))
+            except (ValueError, UnicodeDecodeError):
+                raise ToolError(f"Cached result of '{op}' could not be read") from None
+        if key in self._failed:
+            raise ToolError(self._failed[key])
+        try:
+            with RUN_SLOTS:
+                raw = self.runner.run(op, data)
+        except ContainerError as exc:
+            if exc.final:
+                self._failed[key] = str(exc)
+            raise ToolError(str(exc)) from None
+        try:
+            parsed = parse(raw) if parse else json.loads(raw)
+        except (ValueError, UnicodeDecodeError, tarfile.TarError):
+            self._failed[key] = f"Tool '{op}' produced output that could not be read"
+            raise ToolError(self._failed[key]) from None
+        path.parent.mkdir(exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(parsed), encoding="utf-8")
+        os.replace(tmp, path)
+        return parsed
 
     # ---- Ghidra ---------------------------------------------------------------------------------------------
     def ghidra_export(self, ctx: _Ctx, path: str) -> tuple[dict, str, str]:

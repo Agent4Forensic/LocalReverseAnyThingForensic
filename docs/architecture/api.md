@@ -4,6 +4,8 @@ Basis: `http://127.0.0.1:8765`. Alle Pfade unter `/api`. JSON, UTF-8. Zeitstempe
 
 Inhalte aus dem Sample (Zeilen, Strings, Zitate) sind unvertrauenswürdig und müssen im Frontend ausschließlich als Text (`textContent`) angezeigt werden, nie als HTML.
 
+Sicherheitsregeln für alle `/api`-Routen: nur `Host` 127.0.0.1/localhost; Anfragen mit `Sec-Fetch-Site` außer `same-origin`/`none` oder mit fremdem `Origin` erhalten 403 (auch GET, wegen Export und Ghidra-Start); POST braucht den eigenen `Origin`; Upload-Routen brauchen `Content-Length` (sonst 411).
+
 ## System
 - `GET /api/system` → `{version, worker:{state:"idle"|"running", job_id|null}, llm:{reachable:bool, model, base_url}, guard:{active:true, rules:int, version}, gateway:{kind:"dev", tools:int, ghidra:bool, container_tools:[…]}, storage:{data_dir, inside_project:bool}, queue_length:int}`
 

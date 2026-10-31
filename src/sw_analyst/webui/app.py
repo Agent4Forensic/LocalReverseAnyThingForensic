@@ -9,12 +9,13 @@ import asyncio
 import json
 import math
 import re
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, PlainTextResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
@@ -39,10 +40,13 @@ CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' 
        "base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
 _FN_LIMIT = 2000          # functions listed in the file view
 _ROW_LIMIT = 4000         # instructions per function (the Ghidra export stops there as well)
+MAX_OFFSET = 2 ** 40      # query bounds: a huge int must give 422, not a ValueError deep in seek()
+MAX_LINE = 2 ** 31
+MAX_SEQ = 2 ** 53
 
 
 class QuestionIn(BaseModel):
-    id: str | None = None
+    id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,20}$")
     text: str = Field(min_length=1, max_length=2000)
     expected: str | None = Field(default=None, max_length=500)
 
@@ -69,7 +73,9 @@ def _err(status: int, code: str, msg: str) -> HTTPException:
 
 def safe_sample_name(raw: str | None) -> str:
     """Last path element under both separators, whatever the host OS is (a Linux host keeps '\\' otherwise)."""
-    name = re.split(r"[\\/]", raw or "")[-1].strip().replace("\x00", "")
+    name = re.split(r"[\\/]", raw or "")[-1]
+    # control and format characters (NUL, CR, RTLO and other bidi overrides) would spoof the name in the dashboard
+    name = "".join(c for c in name if unicodedata.category(c) not in ("Cc", "Cf")).strip()
     if name in ("", ".", ".."):
         name = "sample"
     return name[:120]
@@ -98,17 +104,33 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
     data_dir = Path(data_dir) if data_dir else store.db_path.parent
     examples = examples or Examples(registry_file=data_dir / "examples.json")
     app = FastAPI(title="sw-analyst", docs_url=None, redoc_url=None, openapi_url=None)
+    import_slot = asyncio.Lock()
 
     @app.middleware("http")
     async def security(request: Request, call_next):
+        # Cross-site requests: some GET routes have side effects (export writes a copy and an audit event,
+        # inspect/functions starts Ghidra). Browsers mark every request with Sec-Fetch-Site; only the dashboard
+        # itself (same-origin) or a typed URL (none) may reach /api. Clients without the header (scripts,
+        # stop.ps1, tests) still pass the Host check below.
+        if request.url.path.startswith("/api/"):
+            site = request.headers.get("sec-fetch-site")
+            origin = request.headers.get("origin")
+            if (site and site not in ("same-origin", "none")) or (origin and origin not in allowed_origins):
+                return JSONResponse({"error": {"code": "forbidden_origin", "message": "cross-site request refused"}},
+                                    status_code=403)
         if request.method not in ("GET", "HEAD", "OPTIONS"):
             origin = request.headers.get("origin")
             if origin not in allowed_origins:
                 return JSONResponse({"error": {"code": "forbidden_origin", "message": "invalid Origin"}}, status_code=403)
-            # Refuse oversized uploads before Starlette spools them to disk (F-20).
+            # Refuse oversized uploads before Starlette spools them to disk (F-20). Without Content-Length
+            # (chunked) the size is unknown until everything is spooled, so upload routes require it.
             limit = MAX_BUNDLE if request.url.path == "/api/imports" else MAX_SAMPLE
+            raw_len = request.headers.get("content-length")
+            if raw_len is None and request.url.path in ("/api/jobs", "/api/imports"):
+                return JSONResponse({"error": {"code": "length_required", "message": "Content-Length is required"}},
+                                    status_code=411)
             try:
-                declared = int(request.headers.get("content-length") or 0)
+                declared = int(raw_len or 0)
             except ValueError:
                 declared = 0
             if declared > limit + 1024 * 1024:
@@ -327,7 +349,8 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
             return []
 
     @app.get("/api/jobs/{job_id}/files/content")
-    def file_content(job_id: str, path: str, start: int = 1, end: int = 400):
+    def file_content(job_id: str, path: str, start: int = Query(1, ge=1, le=MAX_LINE),
+                     end: int = Query(400, ge=1, le=MAX_LINE)):
         """Contract: {path, total_lines, start, end, binary, encoding, lines:[{n, text}], annotations}.
         Binary files come as hex lines (16 bytes each), so line n covers offset (n-1)*16."""
         ref = resolve(job_id)
@@ -407,13 +430,16 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
                       "Einmalig bauen mit scripts\\start.ps1 -BuildTools, danach den Server neu starten.")
         location = (f"data/imports/…/jobs/{ref.rid}/{path}" if ref.imported
                     else f"{_rel(data_dir)}/jobs/{ref.rid}/{path}")
+        tool = ("Ghidra (Container, offline); bei importierten Analysen kann das Ergebnis aus dem Cache des Pakets "
+                "stammen" if ref.imported else "Ghidra (Container, offline)")
         return {"path": path, "size": entry["size"], "sha256": entry["sha256"], "kind": kind,
                 "location": location, "is_sample": path == "sample",
-                "code": {"available": ghidra, "reason": reason, "tool": "Ghidra (Container, offline)"},
+                "code": {"available": ghidra, "reason": reason, "tool": tool},
                 "files": [{"path": f["path"], "size": f["size"]} for f in ref.gateway.list_files(ref.rid)]}
 
     @app.get("/api/jobs/{job_id}/inspect/hex")
-    def inspect_hex(job_id: str, path: str = "sample", offset: int = 0, length: int = 1024):
+    def inspect_hex(job_id: str, path: str = "sample", offset: int = Query(0, ge=0, le=MAX_OFFSET),
+                    length: int = Query(1024, ge=1, le=10 ** 9)):
         ref = resolve(job_id)
         _file_entry(ref, path)
         length = max(16, min(length, insp.MAX_HEX_BYTES))
@@ -505,7 +531,7 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
 
     # ---- log, timeline, guard, audit ---------------------------------------------------------------------
     @app.get("/api/jobs/{job_id}/log")
-    def log(job_id: str, after: int = 0, level: str = "info"):
+    def log(job_id: str, after: int = Query(0, ge=0, le=MAX_SEQ), level: str = "info"):
         ref = resolve(job_id)
         ev = ref.store.events_after(ref.rid, after, 500, level, ("log",))
         last = ref.store.events_after(ref.rid, after, 5000, None)
@@ -532,10 +558,10 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
 
     # ---- live stream -------------------------------------------------------------------------------------
     @app.get("/api/jobs/{job_id}/stream")
-    async def stream(job_id: str, request: Request, after: int = 0):
+    async def stream(job_id: str, request: Request, after: int = Query(0, ge=0, le=MAX_SEQ)):
         ref = resolve(job_id)
         last_id = request.headers.get("last-event-id")
-        cursor = int(last_id) if last_id and last_id.isdigit() else after
+        cursor = int(last_id) if last_id and last_id.isdigit() and len(last_id) <= 15 else after
 
         async def gen():
             nonlocal cursor
@@ -617,7 +643,7 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
 
     # ---- export and import of a finished analysis --------------------------------------------------------
     @app.get("/api/jobs/{job_id}/export")
-    def export(job_id: str, include_files: int = 0):
+    def export(job_id: str, include_files: int = Query(0, ge=0, le=1)):
         ref = resolve(job_id)
         from sw_analyst.webui.bundle import BundleError, export_bundle
         try:
@@ -633,7 +659,7 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
             tmp = copy.with_name(copy.name + ".partial")
             tmp.write_bytes(data)
             tmp.replace(copy)
-            copy_rel = _rel(copy)
+            copy_rel = f"exports/{filename}"          # relative to the data folder; ASCII by construction
         except OSError:
             copy_rel = ""
         if not ref.imported:
@@ -653,10 +679,13 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
             data += chunk
             if len(data) > MAX_BUNDLE:
                 raise _err(413, "too_large", f"bundle larger than {MAX_BUNDLE // 2**20} MiB")
-        try:
-            res = await asyncio.to_thread(imports.import_bundle, bytes(data))
-        except BundleError as e:
-            raise _err(e.status, e.code, e.message)
+        if import_slot.locked():
+            raise _err(409, "busy", "another import is running; try again when it is done")
+        async with import_slot:                    # one import at a time: each can hold several hundred MiB
+            try:
+                res = await asyncio.to_thread(imports.import_bundle, bytes(data))
+            except BundleError as e:
+                raise _err(e.status, e.code, e.message)
         return res
 
     @app.get("/api/imports/{job_id}")
@@ -676,10 +705,11 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
 
 
 def _rel(p: Path) -> str:
+    """Path for API responses, headers and the audit log: relative to the project, never an absolute host path."""
     try:
         return Path(p).resolve().relative_to(PROJECT_ROOT).as_posix()
     except ValueError:
-        return str(p)
+        return "<Datenordner außerhalb des Projekts>/" + Path(p).name
 
 
 def _inside(p: Path) -> bool:

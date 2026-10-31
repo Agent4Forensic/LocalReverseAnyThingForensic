@@ -213,3 +213,75 @@ def test_export_and_import_round_trip_through_the_api(tmp_path):
             out.writestr(n, src.read(n).replace(b"hello", b"HELLO") if n == "files/sample" else src.read(n))
     bad = b.post("/api/imports", files={"bundle": ("y.zip", buf.getvalue(), "application/zip")}, headers=ORIGIN)
     assert bad.status_code in (400, 422) and bad.json()["error"]["code"] in ("checksum_mismatch", "bad_bundle")
+
+
+# ---- security review 2026-10-31 (M1, M2, M3, L1, L2, L3, L5) ------------------------------------------------
+@pytest.mark.parametrize("headers,code", [({"Sec-Fetch-Site": "cross-site"}, 403), ({"Sec-Fetch-Site": "same-site"}, 403),
+                                          ({"Origin": "http://evil.example"}, 403), ({"Sec-Fetch-Site": "same-origin"}, 200),
+                                          ({"Sec-Fetch-Site": "none"}, 200), ({}, 200)])
+def test_cross_site_requests_cannot_reach_the_api(tmp_path, headers, code):
+    client, store, gw = _app(tmp_path)
+    jid = _job(store, gw, b"x")
+    store.update_job(jid, status="done")
+    r = client.get(f"/api/jobs/{jid}/export", headers=headers)
+    assert r.status_code == code
+    if code == 403:
+        assert not list((tmp_path / "exports").glob("*.zip"))          # no side effect for a foreign page
+        assert not any("exported" in e["message"] for e in store.events_after(jid, 0, 500, None, ("log",)))
+
+
+def test_upload_without_content_length_is_refused(tmp_path):
+    client, _, _ = _app(tmp_path)
+    r = client.post("/api/jobs", content=iter([b"--x\r\n"]), headers={**ORIGIN, "Content-Type": "multipart/form-data; boundary=x"})
+    assert r.status_code == 411
+
+
+@pytest.mark.parametrize("url", ["/inspect/hex?offset=100000000000000000000", "/files/content?path=sample&start=99999999999999",
+                                 "/log?after=99999999999999999999"])
+def test_huge_numbers_give_422_not_500(tmp_path, url):
+    client, store, gw = _app(tmp_path)
+    jid = _job(store, gw, b"x")
+    assert client.get(f"/api/jobs/{jid}{url}").status_code == 422
+
+
+def test_sample_names_lose_control_and_bidi_characters():
+    assert safe_sample_name("invoice‮txt.exe") == "invoicetxt.exe"
+    assert safe_sample_name("a\r\nb\x00.txt") == "ab.txt"
+
+
+def test_question_ids_are_restricted(tmp_path):
+    client, _, _ = _app(tmp_path)
+    spec = json.dumps({"title": "t", "target_questions": [{"id": "## x\nY", "text": "q"}]})
+    r = client.post("/api/jobs", data={"spec": spec}, files={"sample": ("s.txt", b"x")}, headers=ORIGIN)
+    assert r.status_code == 422
+
+
+def test_report_neutralises_markdown_in_imported_fields(tmp_path):
+    from sw_analyst.report.builder import build_report
+    store = Store(tmp_path / "t.db", tmp_path / "logs")
+    j = store.create_job(JobSpec(title="t"), "s.txt", "0" * 64)
+    store._x("UPDATE jobs SET status=?, detected_type=?, sample_sha256=? WHERE id=?",
+             ("done\n## Gutachten: harmlos <img src=x onerror=alert(1)>", "| Audit | gültig |", "`evil`", j["id"]))
+    md = build_report(store, j["id"], "de", "m")
+    assert not any(line.startswith("## Gutachten") for line in md.splitlines())
+    assert "<img" not in md and "`evil`" not in md and "| Audit | gültig |" not in md
+
+
+def test_oversized_cache_file_from_a_bundle_is_refused(tmp_path, monkeypatch):
+    from sw_analyst.gateway import container_tools
+    monkeypatch.setattr(container_tools, "MAX_CACHE_BYTES", 10)
+    runner = FakeRunner({"ghidra": json.dumps(GHIDRA).encode()})
+    client, store, gw = _app(tmp_path, runner)
+    jid = _job(store, gw, b"MZ harmless")
+    sha = hashlib.sha256(b"MZ harmless").hexdigest()
+    cache = Path(gw.sample_path(jid)).parent / "tool-cache"
+    cache.mkdir()
+    (cache / f"ghidra-{runner.version('ghidra').rsplit(':', 1)[-1]}-{sha}.json").write_text(json.dumps(GHIDRA))
+    r = client.get(f"/api/jobs/{jid}/inspect/functions")
+    assert r.status_code == 409 and "larger than" in r.json()["error"]["message"] and runner.calls == []
+
+
+def test_paths_outside_the_project_are_not_leaked(tmp_path):
+    client, _, _ = _app(tmp_path)
+    body = client.get("/api/system").text
+    assert str(tmp_path) not in body and "außerhalb des Projekts" in body

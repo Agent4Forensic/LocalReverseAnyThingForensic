@@ -28,7 +28,8 @@
       var offset = 0;
       var fnData = null;
       var fnSel = null;
-      var gen = 0;
+      var hexGen = 0;   /* getrennte Zaehler: Blaettern im Hex darf eine laufende Funktionsabfrage nicht verwerfen */
+      var fnGen = 0;
 
       var sumHost = h('div');
       var hexHost = h('div');
@@ -60,11 +61,11 @@
 
       /* ---------- Hex ---------- */
       function loadHex(off) {
-        var my = ++gen;
+        var my = ++hexGen;
         offset = Math.max(0, off);
         SW.dom.fill(hexHost, ui.section('Hex', ui.loading('Hexdump wird geladen …')));
         api.get(base + '/inspect/hex', { path: path, offset: offset, length: PAGE }).then(function (d) {
-          if (dead || my !== gen) return;
+          if (dead || my !== hexGen) return;
           paintHex(d);
         }, function (err) { if (!dead) SW.dom.fill(hexHost, ui.section('Hex', ui.errorBox(err.message))); });
       }
@@ -131,16 +132,16 @@
             h('div', { cls: 'fv-code' },
               h('section', { cls: 'card', 'aria-label': 'Funktionen' }, h('div', { cls: 'card-h' }, h('h2', { text: 'Funktionen' })), h('div', { cls: 'card-b tight' }, fnListHost)),
               fnBodyHost)),
-          h('span', { cls: 'small muted', text: 'Ghidra im Offline-Container' })));
+          h('span', { cls: 'small muted', text: (info && info.code && info.code.tool) || 'Ghidra im Offline-Container' })));
         paintFnList();
       }
       function selectFn(name) {
         fnSel = name;
         paintFnList();
-        var my = ++gen;
+        var my = ++fnGen;
         SW.dom.fill(fnBodyHost, ui.loading('Funktion ' + name + ' wird geladen …'));
         api.get(base + '/inspect/function', { path: path, function: name }).then(function (f) {
-          if (dead || my !== gen) return;
+          if (dead || my !== fnGen) return;
           paintFn(f);
         }, function (err) { if (!dead) SW.dom.fill(fnBodyHost, ui.errorBox(err.message)); });
       }

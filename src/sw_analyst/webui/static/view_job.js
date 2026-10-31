@@ -175,7 +175,7 @@
     function importChecks(imp) {
       var c = imp.checks || {};
       var parts = [];
-      parts.push('Prüfsummen ' + (c.checksums_ok === false ? 'FEHLER' : 'ok'));
+      parts.push('Prüfsummen aller ' + (c.entries_verified || 0) + ' Einträge ok');
       parts.push('Audit-Kette ' + (c.audit_valid === false ? 'gebrochen' : 'gültig') + (c.audit_entries ? ' (' + c.audit_entries + ' Einträge)' : ''));
       if (c.report_reproducible !== undefined) parts.push('Bericht ' + (c.report_reproducible ? 'bytegleich reproduziert' : 'weicht vom exportierten Bericht ab'));
       if (imp.bundle_sha256) parts.push('Paket-SHA-256 ' + imp.bundle_sha256);

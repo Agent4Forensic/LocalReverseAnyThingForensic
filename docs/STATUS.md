@@ -173,7 +173,15 @@ Bestätigt (Tests und Browserlauf gegen das echte Backend mit Skript-Modell, kei
 - [x] Neustart mitten im Lauf (`kill -9`): Auftrag `failed` mit Endzeit, hängende Aufgaben und Schritte geschlossen, Audit-Kette gültig, alle Daten erhalten.
 - [x] Behoben aus dem Review: F-09 (Worker überlebt Engine-Fehler), F-10 (Status `uploading` bis Sample geschrieben), F-17 (`stop.ps1` Origin aus `-Port`), F-18 (fehlende Skripte), F-20 (Upload-Limit vor dem Spoolen per `Content-Length`).
 - [x] Weitere Funde: Live-Logzeilen kamen ohne Stufe und Text an (`store.js`), Live-Aktivität verwarf Ereignisse während einer Abfrage, Laufzeit im Kopf zeigte „0 ms“, Spaltenköpfe „origin“/„reason“ im deutschen Bericht, `requirements-dev.lock` ohne `python-multipart`, Dateiname `..\..\x` behielt unter Linux die Pfadteile, `parse_jadx_tar` unter Python 3.12+.
-- [x] Tests: 1023 grün, 10 übersprungen (Docker-Images, Windows), 38 bekannte xfails. Neu: `test_dashboard_api.py` (23), `test_bundle.py` (51), `test_worker_recovery.py` (3).
+- [x] Tests: 1039 grün, 10 übersprungen (Docker-Images, Windows), 37 bekannte xfails. Neu: `test_dashboard_api.py` (38), `test_bundle.py` (51), `test_worker_recovery.py` (3). Zwei bisher strikte xfails aufgelöst (Code-Viewer-Vertrag, Bidi-Zeichen im Sample-Namen).
+- [x] Security-Review des Änderungsstands (eigener Schritt, unabhängiger Agent, 2026-10-31): keine kritischen oder hohen Funde, nichts führt Sample-Bytes aus. Behoben mit Test:
+  - M1: GET-Routen mit Nebenwirkung (Export, Ghidra-Start) waren von fremden Seiten auslösbar. Jetzt weist `/api` Anfragen mit `Sec-Fetch-Site` außer `same-origin`/`none` und fremdem `Origin` ab.
+  - M2: Markdown-Injection über Felder importierter Zeilen in den Bericht. Jetzt läuft jedes Feld durch `_tok`/`_hex`/`_cell`, Fragen-IDs sind begrenzt. Bei normalen Werten bleibt der Bericht bytegleich.
+  - M3 teilweise: Cache-Dateien aus Paketen haben eine Größengrenze, das Dashboard nennt die mögliche Herkunft aus dem Paket.
+  - M4 teilweise: Einträge im Speicher höchstens 64 MiB (Export prüft dasselbe), ein Import gleichzeitig.
+  - M5: Sperre je Ergebnisdatei statt global, ein gemeinsamer Container-Slot für alle Gateways (RAM-Budget).
+  - L1 (411 ohne `Content-Length`), L2 (Zahlengrenzen, 422 statt 500), L3 (keine absoluten Pfade in API, Header und Audit), L5 (`uploading` beim Export aktiv, getrennte Zähler im Datei-Tab, Prüfanzeige beim Import, Steuer- und Bidi-Zeichen im Dateinamen).
+- [ ] Offen aus dem Review: M3 Rest (Ghidra-Cache eines Imports landet im Importordner und gilt als Ergebnis; Signatur oder Ignorieren des Paket-Caches entscheiden), M4 Rest (Zeilenobergrenzen je Tabelle, Prüfung der Eintragszahl vor `infolist`), L4 (importierter Store wird vor `query_only` schreibend geöffnet), `examples._load()` baut alle Proben bei jedem Aufruf (nur Leistung).
 
 Offen:
 - [ ] Lauf mit echtem Modell (Ollama) und echtem Ghidra-Image auf Jans Rechner: in der Cloud gab es weder Ollama noch Docker. Der Ghidra-Pfad ist mit einem Ersatz getestet, der dieselbe Exportform liefert.

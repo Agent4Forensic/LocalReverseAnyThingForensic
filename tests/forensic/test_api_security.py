@@ -279,8 +279,6 @@ def test_hostile_file_name_never_reaches_the_file_system(env, tmp_path, name):
     assert [f["path"] for f in client.get(f"/api/jobs/{job['id']}/files").json()] == ["sample"]
 
 
-@pytest.mark.xfail(strict=True, reason="webui/app.py:125 keeps bidi/control characters in sample_name; the name is "
-                                       "shown in UI and report and can spoof the file extension (low severity)")
 def test_sample_name_has_no_bidi_or_control_characters(env):
     # httpx percent-encodes CR/LF/NUL in file names, so only the bidi override can reach the server.
     client, _, _ = env
