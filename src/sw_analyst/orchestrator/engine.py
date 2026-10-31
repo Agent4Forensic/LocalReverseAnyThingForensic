@@ -48,8 +48,7 @@ class JobEngine:
         except Exception as e:  # noqa: BLE001 - a job must end in a stored state, never crash the worker
             self.store.log(job_id, f"job crashed: {e}", level="error", trace=traceback.format_exc()[-1500:])
             status = "failed"
-        self._finalize(job_id, status, t_job)
-        return status
+        return self._finalize(job_id, status, t_job)
 
     # ---- translation of inputs ----------------------------------------------------------------------
     def _tr(self, job_id: str, text: str, what: str, direction: str = "en") -> str:
@@ -280,7 +279,7 @@ class JobEngine:
             if new != g["status"]:
                 self.store.update_task(g["id"], status=new)
 
-    def _finalize(self, job_id: str, status: str, t_job: float) -> None:
+    def _finalize(self, job_id: str, status: str, t_job: float) -> str:
         for a in self.store.list_answers(job_id):
             if a["status"] == "pending":
                 self.store.update_answer(job_id, a["question_id"], status="unresolved",
@@ -298,3 +297,4 @@ class JobEngine:
                               duration_ms=int((time.monotonic() - t_job) * 1000), summary_en=summary,
                               summary_de=self._tr(job_id, summary, "translate job summary", "de"))
         self.store.log(job_id, f"job finished: {status}", summary=summary)
+        return status

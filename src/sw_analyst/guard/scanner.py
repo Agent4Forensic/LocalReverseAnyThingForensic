@@ -689,13 +689,18 @@ def _run_rules(nm: _Norm, orig: str) -> list[Detection]:
                 idx = array("i")
                 for k, (a, b) in enumerate(parts):
                     idx.extend([k] * (b - a))
+                highs = [(d.start, d.end) for d in out if d.severity == "high"]
+                nsq = 0
                 for m in _SQUASH_RX.finditer(sq):
                     ka, kb = idx[m.start()], idx[m.end() - 1]
                     oa = nm.a.st[parts[ka][0]]
                     ob = nm.a.en[parts[kb][1] - 1]
-                    if any(d.severity == "high" and d.start < ob and oa < d.end for d in out):
+                    if any(hs < ob and oa < he for hs, he in highs):
                         continue
                     out.append(_mk("ovr_squashed", "override", "high", orig, oa, ob))
+                    nsq += 1
+                    if nsq >= _MAX_PER_RULE:
+                        break
     return out
 
 
@@ -766,7 +771,7 @@ def _decode_blob_text(raw: bytes) -> Optional[str]:
 
 
 _B64_RX = re.compile(
-    r"(?<![A-Za-z0-9+/=_-])[A-Za-z0-9+/_-]{16,}(?:[ \t]*\r?\n[ \t]*[A-Za-z0-9+/_-]{4,})*={0,2}"
+    r"(?<![A-Za-z0-9+/_-])[A-Za-z0-9+/_-]{16,}(?:[ \t]*\r?\n[ \t]*[A-Za-z0-9+/_-]{4,})*={0,2}"
     r"(?![A-Za-z0-9+/_-])"
 )
 _HEX_RX = re.compile(
