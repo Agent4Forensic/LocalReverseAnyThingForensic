@@ -207,9 +207,10 @@ Lücken:
 - [x] `goal_reached` und `gaps` werden ausgewertet: Selbstbewertung in den Task-Parametern und im Bericht, Lücken als Findings mit Status `open` (`_record_evaluation`).
 - [x] Nach der Synthese entsteht eine Lückenrunde, deren Folgeaufgaben nicht erneut bewertet werden.
 - [x] Der Planer ergänzt nach dem Rezept höchstens 4 Aufgaben aus dem Job-Ziel (`_plan_from_goal`). Jede Aufgabe trägt ein Abnahmekriterium `done_when`.
-- [ ] Vor und nach den Änderungen Challenges 01 bis 04 messen (Basislinie läuft).
+- [ ] Vor und nach den Änderungen Challenges 01 bis 04 messen. Erster Lauf nur teilweise gültig: Ab 22:14:52 fiel Ollama weg, zeitgleich lief `scripts/start.ps1` (Bereinigung um 22:14:57). Gültig sind Basislauf 01 (PASS) und 02 (FAIL, Budget). Basislauf 03 und 04 sowie alle Nachher-Läufe sind zu wiederholen. Die Wiederholung ab 22:20 brach beim ersten Lauf ab: `start.ps1` lief erneut und beendete beim Stopp um 22:22:50 den von ihm selbst gestarteten Server. Die Messung braucht etwa 60 Minuten ohne `start.ps1`.
 - [ ] Messergebnis in ADR-0007, `docs/STATUS.md` und `docs/roadmap.html` eintragen, Bestätigtes und Offenes getrennt, dann nach `main` nachmergen.
-- [ ] `/claude-security` über den gemergten Stand laufen lassen. Vor dem Merge von `feat/workflow-optimization` (2026-10-31) lief nur ein manuelles Security-Review des Diffs.
+- [ ] `/claude-security` über den gemergten Stand laufen lassen. Vor dem Merge von `feat/workflow-optimization` (2026-10-31) lief nur ein manuelles Security-Review des Diffs. Ein Versuch am 2026-10-31 startete nicht, weil der Sitzung das Workflow-Werkzeug fehlte (`/config`, Dynamic workflows).
+- [ ] `scripts/start.ps1` prüfen: Der um 21:51 fremd gestartete Server endete um 22:14:52, die Bereinigung lief um 22:14:57, ein Beendigen durch das Skript ist nicht belegt (siehe auch F-19). Um 22:19:00 meldete es "nothing listens on port 11435", obwohl der Port antwortete.
 - [ ] Bericht-Tabellen: echten Markdown-Sanitizer statt des Leerzeichens nach `<` einbauen (`shortcut` in `report/builder.py`, `_cell`).
 
 Sicherheitsreview des Änderungsstands (2026-10-31):
@@ -237,9 +238,9 @@ Bewusst nicht umgesetzt: engere Verankerung von Folgeaufgaben (`agents.py`), Ver
 Quelle: `docs/review/code-review/SUMMARY.md` (Stellen, Modelle, Nachweis je Fund). Jeder Fund wird zuerst mit einem Test reproduziert, danach behoben. Behoben ist bisher nichts. Arbeit in einem eigenen Git-Worktree, nicht im geteilten Arbeitsbaum. Engine, Runner, Agents und Builder erst nach Abschluss der anderen Sitzungen.
 
 ### Entscheidungen von Jan (offen)
-- [!] Push von `main` und `feat/workflow-optimization`: `main` ist lokal gemergt und nicht gepusht. Die Commits `71bb4d3` und `794a6df` enthalten im Verlauf einen lokalen Laufwerkspfad ohne Benutzernamen. Im aktuellen Stand ist er ersetzt (`3d0548c`). Ein Umschreiben würde `feat/static-tools` und `feat/model-equipment` brechen. Empfehlung: pushen, weil der Pfad wenig verrät; danach lässt er sich aus dem Verlauf auf GitHub nur schwer entfernen.
+- [x] Push von `main`: `origin/main` steht auf `d80987a` und enthält `feat/workflow-optimization` und `feat/model-equipment`. Die Freigabe von Jan ist nur von der Sitzung gemeldet, die gepusht hat. Die Commits `71bb4d3` und `794a6df` enthalten im Verlauf einen lokalen Laufwerkspfad ohne Benutzernamen, im aktuellen Stand ist er ersetzt (`3d0548c`).
 - [!] Freigabe von ADR-0006 bestätigen: Die Freigabe für Paket A und B steht nur im uncommitteten ADR-Text von `feat/static-tools`, sie ist von der anderen Sitzung eingetragen und hier nicht geprüft.
-- [ ] `feat/static-tools`, `feat/model-equipment` und `feat/dashboard-start` sind nicht nach `main` gemergt. Sie brauchen je einen abgeschlossenen Stand, grüne Tests und ein Security-Review.
+- [ ] `feat/static-tools` und `feat/dashboard-start` sind nicht nach `main` gemergt. Sie brauchen je einen abgeschlossenen Stand, grüne Tests und ein Security-Review.
 - [!] Freigabe, die hohen Funde jetzt zu beheben (Worktree, Reihenfolge unten).
 - [!] ADR-Nummer doppelt: Der Worktree `feat/dashboard-start` enthält uncommittet `docs/adr/0006-dashboard-urls-beispiele-budget.md`, im Repo ist 0006 die Werkzeug-Allowlist. Vor dem Merge umnummerieren. Auch `webui/app.py` und `view_job.js` sind dort geändert, Konflikte beim Merge sind möglich.
 - [!] F-07 und F-08 (verankerter Kopf-Hash, atomares Anhängen im Audit-Log): braucht ein ADR und die ausdrückliche Freigabe (CLAUDE.md Verbot 3).
