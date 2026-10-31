@@ -27,7 +27,7 @@ T = {
         "question": "Frage", "answer": "Antwort", "expected": "Erwartet", "match": "Abgleich", "yes": "übereinstimmend",
         "no": "abweichend", "na": "kein Sollwert", "unresolved": "NICHT KLÄRBAR", "answered": "beantwortet",
         "confirmed": "bestätigt", "hypothesis": "Hypothese", "open_s": "offen", "rejected": "verworfen",
-        "self_eval": "Ziel (Selbstbewertung des Modells)", "reached": "erreicht", "not_reached": "nicht erreicht", "not_rated": "nicht bewertet", "done_when": "Abnahmekriterium",
+        "self_eval": "Ziel (Selbstbewertung des Modells)", "reached": "erreicht", "not_reached": "nicht erreicht", "not_rated": "nicht bewertet", "done_when": "Abnahmekriterium", "origin": "Herkunft", "reason": "Begründung",
         "untranslated": "[EN]", "limits": "Grenzen: rein statische Analyse, offline, lokales Modell. Aussagen ohne Beleg wurden verworfen oder als Hypothese geführt; offene Punkte sind keine Aussagen und haben keinen Beleg.",
     },
     "en": {
@@ -43,7 +43,7 @@ T = {
         "question": "Question", "answer": "Answer", "expected": "Expected", "match": "Comparison", "yes": "matches",
         "no": "differs", "na": "no expected value", "unresolved": "NOT DETERMINABLE", "answered": "answered",
         "confirmed": "confirmed", "hypothesis": "hypothesis", "open_s": "open", "rejected": "rejected",
-        "self_eval": "Goal (model's self-assessment)", "reached": "reached", "not_reached": "not reached", "not_rated": "not rated", "done_when": "Acceptance criterion",
+        "self_eval": "Goal (model's self-assessment)", "reached": "reached", "not_reached": "not reached", "not_rated": "not rated", "done_when": "Acceptance criterion", "origin": "origin", "reason": "reason",
         "untranslated": "", "limits": "Limits: static analysis only, offline, local model. Statements without evidence were rejected or kept as hypotheses; open points are not statements and have no evidence.",
     },
 }
@@ -156,7 +156,7 @@ def build_report(store: Store, job_id: str, lang: str = "de", model_name: str = 
     ops = [f for f in findings if f["status"] in ("hypothesis", "open")]
     out += [f"- {f['id']}: {_cell(txt(f['statement_en'], f['statement_de']))}" for f in ops] or [f"- {t['none']}"]
 
-    out += ["", f"## {t['method']}", "", f"| {t['task']} | {t['status']} | origin | {t['self_eval']} | {t['duration']} | reason | {t['done_when']} |", "|---|---|---|---|---|---|---|"]
+    out += ["", f"## {t['method']}", "", f"| {t['task']} | {t['status']} | {t['origin']} | {t['self_eval']} | {t['duration']} | {t['reason']} | {t['done_when']} |", "|---|---|---|---|---|---|---|"]
     out += [f"| {x['id']} {_cell(x['title'])} | {x['status']} | {x['origin']} | {({True: t['reached'], False: t['not_reached']}.get(x['params'].get('goal_reached'), t['not_rated']))} | {_dur(x['duration_ms'])} | {_cell(x['reason'])[:100]} | {_cell(x['params'].get('done_when'))[:100]} |" for x in tasks]
     guard = store.list_guard_events(job_id)
     out += ["", f"**{t['guard']}:** {len(guard)}"]

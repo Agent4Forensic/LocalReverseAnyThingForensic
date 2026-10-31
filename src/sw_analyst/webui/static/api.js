@@ -54,9 +54,10 @@
     return new ApiError(0, 'network', 'Server nicht erreichbar');
   }
 
-  function request(method, path, query, body, wantText) {
+  function request(method, path, query, body, wantText, contentType) {
     if (isMock) return SW.mock.request(method, path, query || {}, body, wantText);
     var opts = { method: method, headers: { Accept: wantText ? 'text/markdown, text/plain' : 'application/json' }, credentials: 'same-origin' };
+    if (contentType) opts.headers['Content-Type'] = contentType;
     if (body) opts.body = body;
     return fetch(buildUrl(path, query), opts).then(
       function (resp) {
@@ -112,6 +113,13 @@
     },
     post: function (path, body) {
       return request('POST', path, null, body || null, false);
+    },
+    postJson: function (path, obj) {
+      return request('POST', path, null, JSON.stringify(obj || {}), false, 'application/json');
+    },
+    /* Same-origin download link (export). Only paths under /api, built from encoded parts. */
+    href: function (path, query) {
+      return buildUrl(path, query);
     },
     openStream: openStream
   };

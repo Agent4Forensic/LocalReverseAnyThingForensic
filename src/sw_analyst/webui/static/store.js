@@ -121,6 +121,7 @@
     return api.get('/jobs/' + st.id).then(function (d) {
       if (st.destroyed) return;
       st.summary = d.summary;
+      st.importInfo = d['import'] || null;
       st.spec = d.spec;
       st.progress = d.progress;
       st.totals = d.totals;
@@ -271,7 +272,8 @@
         scheduleAudit(st);
         break;
       case 'log':
-        if (addLog(st, { seq: env.seq, ts: d.ts || env.ts, level: d.level, type: d.type, message: d.message, data: d.data })) emit('log');
+        /* Stufe und Text stehen im Umschlag des Ereignisses (api.md, Live-Stream), env.data ist nur die Nutzlast. */
+        if (addLog(st, { seq: env.seq, ts: env.ts, level: env.level || 'info', type: env.type, message: env.message || '', data: d })) emit('log');
         break;
       default:
         break;

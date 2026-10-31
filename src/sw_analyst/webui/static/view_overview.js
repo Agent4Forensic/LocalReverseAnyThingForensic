@@ -31,6 +31,8 @@
       tile('server', 'Sprachmodell', llm.reachable ? 'Erreichbar' : 'Nicht erreichbar', (llm.model || '–') + ' · ' + (llm.base_url || '–'), llm.reachable ? 'ok' : 'err'),
       tile('shieldcheck', 'Prompt-Schutz', g.active ? 'Aktiv' : 'Inaktiv', (g.rules || 0) + ' Regeln · v' + (g.version || '–'), g.active ? 'ok' : 'err'),
       tile('terminal', 'Werkzeug-Gateway', gw.kind || '–', (gw.tools || 0) + ' freigegebene Werkzeuge', null),
+      tile('code', 'Assembler / Pseudocode', gw.ghidra ? 'Ghidra bereit' : 'Ghidra fehlt', gw.ghidra ? 'Offline-Container geladen' : 'Docker starten oder scripts\\start.ps1 -BuildTools', gw.ghidra ? 'ok' : 'warn'),
+      sys.storage ? tile('server', 'Datenablage', sys.storage.data_dir || '–', sys.storage.inside_project ? 'im Projektordner (Virenschutz-Ausnahme)' : 'außerhalb des Projektordners', sys.storage.inside_project ? 'ok' : 'warn') : null,
       tile('queue', 'Warteschlange', String(sys.queue_length || 0), 'wartende Aufträge', null),
       tile('info', 'Version', sys.version || '–', 'sw-analyst', null)
     );
@@ -38,9 +40,11 @@
 
   function jobRow(j) {
     return h('tr', null,
-      h('td', null, h('a', { href: '#/job/' + encodeURIComponent(j.id) + '/activity', text: j.title }), h('div', { cls: 'mono small muted', text: j.id })),
+      h('td', null, h('a', { href: '#/job/' + encodeURIComponent(j.id) + '/activity', text: j.title }),
+        h('div', { cls: 'mono small muted' }, j.id, j.imported ? ' ' : null, j.imported ? h('span', { cls: 'tag tone-info', text: 'importiert' }) : null)),
       h('td', null, fmt.badge(j.status)),
       h('td', null, h('span', { text: j.sample_name || '–' }), h('div', { cls: 'mono small muted', text: fmt.shortHash(j.sample_sha256, 16) })),
+      h('td', { cls: 'num nowrap', text: j.sample_size === null || j.sample_size === undefined ? '–' : fmt.bytes(j.sample_size) }),
       h('td', { text: [j.detected_type, j.recipe].filter(Boolean).join(' / ') || '–' }),
       h('td', { cls: 'nowrap', text: fmt.dateTime(j.created_at) }),
       h('td', { cls: 'num nowrap', text: j.finished_at || j.started_at ? fmt.duration(j.duration_ms) : '–' })
@@ -97,7 +101,7 @@
       SW.dom.fill(listHost, !store.state.jobsLoaded ? ui.loading() : jobs.length
         ? h('div', { cls: 'tbl-wrap' }, h('table', { cls: 'tbl' },
             h('caption', { cls: 'sr-only', text: 'Aufträge, neueste zuerst' }),
-            h('thead', null, h('tr', null, ['Auftrag', 'Status', 'Sample', 'Typ / Rezept', 'Angelegt', 'Dauer'].map(function (c, i) { return h('th', { scope: 'col', cls: i === 5 ? 'num' : '', text: c }); }))),
+            h('thead', null, h('tr', null, ['Auftrag', 'Status', 'Sample', 'Größe', 'Typ / Rezept', 'Angelegt', 'Dauer'].map(function (c, i) { return h('th', { scope: 'col', cls: i === 3 || i === 6 ? 'num' : '', text: c }); }))),
             h('tbody', null, jobs.map(jobRow))))
         : ui.empty('Keine Aufträge', filter === 'all' ? 'Mit „Neuer Auftrag“ legen Sie die erste Analyse an.' : 'Kein Auftrag passt zum Filter.', 'list'));
     }
@@ -108,9 +112,33 @@
     });
     paintStatus(); paintCurrent(); paintList();
 
+    var importMsg = h('div', { role: 'status' });
+    var importInput = h('input', { type: 'file', accept: '.zip,application/zip', cls: 'sr-only', tabindex: '-1', 'aria-label': 'Exportierte Analyse (ZIP) wählen' });
+    var importBtn = h('button', { type: 'button', cls: 'btn', on: { click: function () { importInput.click(); } } }, icon('upload'), 'Analyse importieren');
+    importInput.addEventListener('change', function () {
+      var f = importInput.files[0];
+      if (!f) return;
+      var fd = new FormData();
+      fd.append('bundle', f, f.name);
+      importBtn.disabled = true;
+      SW.dom.fill(importMsg, ui.loading('Paket wird geprüft (Prüfsummen, Audit-Kette, Bericht) …'));
+      api.post('/imports', fd).then(function (r) {
+        importBtn.disabled = false;
+        importInput.value = '';
+        store.refreshGlobal();
+        SW.dom.fill(importMsg, h('div', { cls: 'notice tone-ok' }, icon('checkcircle'), h('p', null, (r.duplicate ? 'Bereits importiert: ' : 'Importiert und geprüft: '), h('a', { href: '#/job/' + encodeURIComponent(r.job_id) + '/report', text: r.job_id }))));
+      }, function (err) {
+        importBtn.disabled = false;
+        importInput.value = '';
+        SW.dom.fill(importMsg, ui.errorBox('Import abgelehnt: ' + err.message));
+      });
+    });
     var el = h('div', { cls: 'stack' },
       h('div', { cls: 'page-h' }, h('div', { cls: 'grow' }, h('h1', { text: 'Übersicht' }), h('p', { cls: 'page-sub', text: 'Systemzustand, laufende Analyse und alle Aufträge.' })),
+        importBtn, importInput,
+        h('a', { cls: 'btn', href: '#/examples' }, icon('list'), 'Beispiele'),
         h('a', { cls: 'btn primary', href: '#/new' }, icon('plus'), 'Neuer Auftrag')),
+      importMsg,
       ui.section('Systemstatus', statusHost),
       ui.section('Aktueller Auftrag', currentHost),
       ui.section('Aufträge', listHost, ui.seg('Filter', [['all', 'Alle'], ['active', 'Aktiv'], ['done', 'Fertig'], ['bad', 'Fehler']], filter, function (v) { filter = v; paintList(); }))

@@ -58,6 +58,9 @@ CREATE TABLE IF NOT EXISTS translations (
   direction TEXT, text_sha256 TEXT, translated TEXT, PRIMARY KEY (direction, text_sha256));
 """
 
+# tables that hold the rows of one job (export/import); counters and translations are per installation
+EXPORT_TABLES = ("jobs", "tasks", "steps", "evidence", "findings", "annotations", "answers", "events", "guard_events")
+
 _JSON_COLS = {"spec_json", "params_json", "source_ref_json", "injection_flags_json",
               "evidence_ids_json", "quotes_json", "finding_ids_json", "data_json"}
 
@@ -130,13 +133,14 @@ class Store:
         self.emit(job_id, "log", data, level=level, message=message)
 
     # ---- jobs ------------------------------------------------------------------------------
-    def create_job(self, spec: JobSpec, sample_name: str, sample_sha256: str) -> dict:
+    def create_job(self, spec: JobSpec, sample_name: str, sample_sha256: str, status: str = "queued") -> dict:
+        """status 'uploading' keeps the worker away until the caller has stored the sample (F-10)."""
         n = self._next("job")
         job_id = f"J-{n:04d}"
         self._x("INSERT INTO jobs(id,title,description,context_info,focus,spec_json,sample_name,sample_sha256,"
                 "status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
                 (job_id, spec.title, spec.description, spec.context_info, spec.focus,
-                 spec.model_dump_json(), sample_name, sample_sha256, "queued", utcnow()))
+                 spec.model_dump_json(), sample_name, sample_sha256, status, utcnow()))
         for q in spec.target_questions:
             self._x("INSERT INTO answers(job_id,question_id,text_orig,text_en,expected) VALUES(?,?,?,?,?)",
                     (job_id, q.id, q.text_orig, q.text_en, q.expected))
@@ -400,6 +404,65 @@ class Store:
                       "COALESCE(SUM(duration_ms),0) AS ms FROM steps WHERE job_id=?", (job_id,))
         return {"steps": r["steps"], "tool_calls": r["tools"] or 0, "llm_calls": r["llm"] or 0,
                 "duration_ms": r["ms"]}
+
+    # ---- export / import of one job (sw_analyst.webui.bundle) --------------------------------
+    def export_rows(self, job_id: str) -> dict[str, list[dict]]:
+        """Raw rows of one job from every job table; JSON columns stay the stored strings. Read-only."""
+        out: dict[str, list[dict]] = {}
+        with self._lock:      # one consistent snapshot against writers of this store
+            for table in EXPORT_TABLES:
+                key = "id" if table == "jobs" else "job_id"
+                cur = self._db.execute(f"SELECT * FROM {table} WHERE {key}=? ORDER BY rowid", (job_id,))
+                out[table] = [dict(r) for r in cur.fetchall()]
+        return out
+
+    def import_rows(self, rows: dict[str, list[dict]]) -> None:
+        """Insert rows from export_rows() into this separate store, unchanged and in one transaction.
+
+        Table and column names come only from the schema (PRAGMA table_info), unknown names raise ValueError,
+        values must be NULL, int, float or str. No events and no audit entries: the imported audit file is copied
+        byte-exact and an emit here would extend it.
+        """
+        if not isinstance(rows, dict):
+            raise ValueError("rows must map table names to row lists")
+        with self._lock:
+            allowed = {t: {c["name"] for c in self._db.execute(f"PRAGMA table_info({t})").fetchall()}
+                       for t in EXPORT_TABLES}
+            plan: list[tuple[str, tuple]] = []
+            for table, items in rows.items():
+                if table not in allowed:
+                    raise ValueError(f"unknown table {str(table)[:40]!r}")
+                if not isinstance(items, list):
+                    raise ValueError(f"rows of {table} must be a list")
+                for row in items:
+                    if not isinstance(row, dict) or not row:
+                        raise ValueError(f"a row of {table} is not a non-empty object")
+                    for col, val in row.items():
+                        if col not in allowed[table]:
+                            raise ValueError(f"unknown column {table}.{str(col)[:40]!r}")
+                        if val is not None and type(val) not in (int, float, str):
+                            raise ValueError(f"unsupported value type in {table}.{col}")
+                        if type(val) is int and not -2 ** 63 <= val < 2 ** 63:
+                            raise ValueError(f"integer out of range in {table}.{col}")
+                    cols = list(row)      # every name checked against the schema above
+                    plan.append((f"INSERT INTO {table}({','.join(cols)}) VALUES({','.join('?' * len(cols))})",
+                                 tuple(row[c] for c in cols)))
+            self._db.execute("BEGIN")
+            try:
+                for sql, args in plan:
+                    self._db.execute(sql, args)
+                self._db.execute("COMMIT")
+            except (sqlite3.Error, ValueError, OverflowError) as exc:   # ValueError: e.g. a lone surrogate in a str
+                try:
+                    self._db.execute("ROLLBACK")
+                except sqlite3.Error:
+                    pass      # SQLite already rolled back
+                raise ValueError(f"rows could not be inserted ({type(exc).__name__})") from None
+
+    def make_read_only(self) -> None:
+        """Refuse every later write on this connection (imported jobs): an emit fails before it touches the audit."""
+        with self._lock:
+            self._db.execute("PRAGMA query_only=ON")
 
     def close(self) -> None:
         with self._lock:
