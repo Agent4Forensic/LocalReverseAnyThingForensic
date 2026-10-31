@@ -254,12 +254,15 @@ def _validate_annotation(a: Any, i: int) -> dict:
 def _validate_subtask(s: Any, i: int) -> dict:
     if not isinstance(s, dict):
         raise _Bad("subtask %d must be an object" % i)
-    _keys(s, {"title", "goal", "reason"}, "subtask %d" % i)
-    return {
+    _keys(s, {"title", "goal", "reason", "done_when"}, "subtask %d" % i)
+    out = {
         "title": _str(s.get("title"), "subtask %d title" % i, 120, required_nonblank=True),
         "goal": _str(s.get("goal"), "subtask %d goal" % i, 500, required_nonblank=True),
         "reason": _str(s.get("reason"), "subtask %d reason" % i, 500, required_nonblank=True),
     }
+    if s.get("done_when") is not None:
+        out["done_when"] = _str(s["done_when"], "subtask %d done_when" % i, 300)
+    return out
 
 
 def _list(v: Any, what: str, maxn: int) -> list:
@@ -290,6 +293,45 @@ def _validate_finish(obj: dict) -> dict:
         _keys(ans, {"text"}, "answer")
         out["answer"] = {"text": _str(ans.get("text"), "answer text", 4000, required_nonblank=True)}
     return out
+
+
+_SCHEMA_TYPES = {"int": "integer", "integer": "integer", "str": "string", "string": "string",
+                 "bool": "boolean", "boolean": "boolean", "float": "number", "number": "number"}
+
+
+def action_json_schema(tools: list) -> dict:
+    """JSON schema for the model's reply. It only steers the model: validate_action stays the trust boundary."""
+    def obj(props: dict, *required: str) -> dict:
+        return {"type": "object", "properties": props, "required": list(required), "additionalProperties": False}
+
+    def arg(spec: dict) -> dict:
+        s: dict = {"type": _SCHEMA_TYPES.get(str(spec.get("type", "string")).lower(), "string")}
+        if "min" in spec:
+            s["minimum"] = spec["min"]
+        if "max" in spec:
+            s["maximum"] = spec["max"]
+        return s
+
+    text = {"type": "string"}
+    actions = [obj({"action": {"const": "tool"}, "tool": {"const": t.name},
+                    "args": obj({k: arg(v) for k, v in t.params.items()},
+                                *[k for k, v in t.params.items() if v.get("required")]),
+                    "why": text}, "action", "tool", "args", "why") for t in tools]
+    # quote always required: a hypothesis without a quote stays expressible as "", confirmed findings need it anyway
+    evidence = obj({"id": {"type": "string", "pattern": "^EV-[0-9]{6}$"}, "quote": text}, "id", "quote")
+    finding = obj({"statement": text, "status": {"enum": ["confirmed", "hypothesis"]},
+                   "evidence": {"type": "array", "items": evidence, "minItems": 1}}, "statement", "status", "evidence")
+    annotation = obj({"file": text, "line_start": {"type": "integer", "minimum": 1},
+                      "line_end": {"type": "integer", "minimum": 1}, "text": text,
+                      "evidence_id": {"type": "string", "pattern": "^EV-[0-9]{6}$"},
+                      "kind": {"enum": sorted(_ANN_KINDS)}}, "file", "line_start", "line_end", "text")
+    subtask = obj({"title": text, "goal": text, "reason": text, "done_when": text}, "title", "goal", "reason")
+    actions.append(obj({"action": {"const": "finish"}, "summary": text,
+                        "findings": {"type": "array", "items": finding},
+                        "annotations": {"type": "array", "items": annotation},
+                        "subtasks": {"type": "array", "items": subtask},
+                        "answer": obj({"text": text}, "text")}, "action", "summary", "findings"))
+    return {"anyOf": actions}
 
 
 def validate_action(raw: str, tools: list) -> ActionResult:

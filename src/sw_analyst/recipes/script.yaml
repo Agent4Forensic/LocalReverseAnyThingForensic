@@ -5,24 +5,28 @@ steps:
   - id: detect_obfuscation
     title: Identify language and obfuscation indicators
     goal: Determine the script language and list obfuscation indicators (encoded blobs, string concatenation, char-code building, eval-like calls, XOR/compression loops) with line numbers.
+    done_when: Findings state the script language and each obfuscation indicator with its line number, or report none in the sample file, or name the limit that prevented detection.
     guide: Call script_detect, then read_lines around the indicators it names. Note which decoding the script itself uses (FromBase64String, GZipStream, atob, chr chains), it tells you the next method.
     priority: 100
     tools_hint: [script_detect, read_lines, grep]
   - id: decode_layers
     title: Decode embedded layers statically
     goal: Decode each encoded layer with decode_layer (never execute), inspect each result, and continue until readable plain text or a binary payload is reached. Record every layer with its derived file and hash.
+    done_when: Each decoded layer has a finding quoting its derived file and SHA-256, and a finding states plain text or payload reached, no layer in the sample, or the layer the decoder cannot handle.
     guide: Find the byte offset of the blob - strings_extract reports offsets, and read_lines does not. Call decode_layer with offset and length of the blob only, not the whole file, using the method the script uses. The result is saved as derived/layerNN.bin; pass that path to the next call. Repeat in this one task. Method auto lists candidates when unsure. Each step is one finding with the SHA-256 quoted. Stop at readable text or a file with magic. Character-code or string-concatenation layers have no decoder, describe them and name them as a gap.
     priority: 120
     tools_hint: [strings_extract, decode_layer, read_lines, identify_type]
   - id: behaviour
     title: Describe behaviour of the decoded script
     goal: From the final readable layer describe what the script does (download, execute, persist, exfiltrate, encrypt) citing exact lines.
+    done_when: Findings describe each behaviour with quoted lines from the final readable layer, or report none in that named layer file, or name the limit when no readable layer exists.
     guide: Read the innermost derived/layerNN.bin with read_lines. Follow the data - where a value is set and where it is used. Quote both. Behaviour counts as confirmed only when the quoted line shows the call with its argument. Never run or simulate it in your head beyond what the lines show.
     priority: 140
     tools_hint: [read_lines, grep]
   - id: indicators
     title: Collect indicators of compromise
     goal: Collect URLs, domains, IPs, file and registry paths, mutex names, commands and keys from all layers, each with evidence.
+    done_when: Findings list each URL, domain, IP, path, mutex, command and key with evidence and source layer, or report none in the named files, or name the tool limit.
     guide: grep each derived layer and the sample for URLs, paths and registry keys. Say which layer each indicator comes from.
     priority: 160
     tools_hint: [grep, strings_extract]

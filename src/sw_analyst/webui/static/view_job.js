@@ -149,7 +149,7 @@
           p ? h('div', { cls: 'jh-prog' }, ui.bar(p.percent, s.status === 'done' ? 'ok' : ''), h('span', { cls: 'small muted nowrap', text: p.done + '/' + p.tasks_total + ' Aufgaben · ' + (p.running ? p.running + ' läuft · ' : '') + (p.pending || 0) + ' offen' + (p.failed ? ' · ' + p.failed + ' fehlgeschlagen' : '') })) : null,
           h('span', { cls: 'small muted', text: 'Typ ' + (s.detected_type || '–') + ' / Rezept ' + (s.recipe || '–') }),
           h('span', { cls: 'small muted', text: 'Dauer ' + (s.started_at ? fmt.duration(s.duration_ms) : '–') }),
-          st.totals ? h('span', { cls: 'small muted', text: st.totals.steps + ' Schritte · ' + st.totals.tool_calls + ' Werkzeug- · ' + st.totals.llm_calls + ' Modellaufrufe' }) : null,
+          st.totals ? h('span', { cls: 'small muted', text: st.totals.steps + ' Schritte · ' + st.totals.tool_calls + ' Werkzeugaufrufe · ' + st.totals.llm_calls + ' Modellaufrufe' }) : null,
           h('span', { cls: 'small conn-pill tone-' + (st.conn === 'live' ? 'ok' : st.conn === 'offline' ? 'err' : 'warn') }, h('span', { cls: 'dot', 'aria-hidden': 'true' }), connLabel))
       );
     }
@@ -371,7 +371,7 @@
                   h('td', { text: fmt.ORIGIN[r.origin] || r.origin || '–' }),
                   h('td', null, fmt.badge(r.status)),
                   h('td', { cls: 'num mono', text: String(r.priority) }),
-                  h('td', { cls: 'qreason', text: r.reason || '–' }));
+                  h('td', { cls: 'qreason' }, r.reason || '–', r.done_when ? h('div', { cls: 'small muted', text: 'Fertig, wenn: ' + r.done_when }) : null));
               })))));
       }
       host.appendChild(h('div', { cls: 'stack' },

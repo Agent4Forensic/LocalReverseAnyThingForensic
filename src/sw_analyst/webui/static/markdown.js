@@ -74,8 +74,18 @@
   function splitRow(line) {
     var s = line.trim();
     if (s.charAt(0) === '|') s = s.slice(1);
-    if (s.charAt(s.length - 1) === '|') s = s.slice(0, -1);
-    return s.split('|').map(function (c) {
+    /* report/builder.py schreibt "\|" für einen Strich in der Zelle und verdoppelt Backslashes davor. */
+    var cells = [''], last = 0, re = /(\\*)\|/g, m;
+    while ((m = re.exec(s))) {
+      var n = m[1].length;
+      cells[cells.length - 1] += s.slice(last, m.index) + m[1].slice(0, n >> 1);
+      if (n % 2) cells[cells.length - 1] += '|';
+      else cells.push('');
+      last = re.lastIndex;
+    }
+    cells[cells.length - 1] += s.slice(last);
+    if (cells.length > 1 && cells[cells.length - 1] === '') cells.pop();
+    return cells.map(function (c) {
       return c.trim();
     });
   }
@@ -216,5 +226,5 @@
     return root;
   }
 
-  SW.markdown = { render: render };
+  SW.markdown = { render: render, splitRow: splitRow };
 })();

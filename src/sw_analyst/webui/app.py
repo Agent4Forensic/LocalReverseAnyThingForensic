@@ -83,6 +83,9 @@ def example_view(c: dict) -> dict:
             "questions": list(c["questions"])}
 
 
+SPA_ROUTES = ("new", "prompts", "job")  # first path segment of the client routes in static/app.js parseRoute()
+
+
 class _SpaFiles(StaticFiles):
     """Static files plus index.html for client-side routes (/job/..., /new), so URLs need no '#'."""
 
@@ -91,7 +94,10 @@ class _SpaFiles(StaticFiles):
             return await super().get_response(path, scope)
         except StarletteHTTPException as e:
             rel = path.replace(chr(92), "/")  # Starlette hands over OS separators (backslash on Windows)
-            if e.status_code == 404 and not rel.startswith("api/") and "." not in rel.rsplit("/", 1)[-1]:
+            # Only the client routes of app.js fall back to index.html. Everything else (api, docs, traversal
+            # paths that the client normalised) stays 404 (tests/forensic/test_api_security.py).
+            if (e.status_code == 404 and rel.split("/")[0] in SPA_ROUTES
+                    and "." not in rel.rsplit("/", 1)[-1]):
                 return await super().get_response("index.html", scope)
             raise
 
@@ -223,7 +229,8 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
     def queue(job_id: str):
         need_job(job_id)
         return [{"task_id": t["id"], "title": t["title"], "origin": t["origin"], "status": t["status"],
-                 "priority": t["priority"], "reason": t["reason"], "position": i + 1}
+                 "priority": t["priority"], "reason": t["reason"], "done_when": t["params"].get("done_when") or "",
+                 "position": i + 1}
                 for i, t in enumerate(store.queue(job_id))]
 
     @app.get("/api/jobs/{job_id}/tasks/{task_id}")

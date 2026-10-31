@@ -263,6 +263,7 @@
     split: 'Zerlegung',
     evaluator: 'Selbstbewertung',
     prioritizer: 'Priorisierer',
+    planner: 'Planer',
     user: 'Nutzer'
   };
 

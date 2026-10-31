@@ -29,8 +29,8 @@ Stand: 2026-10-31 · Legende: `[x]` erledigt und geprüft · `[~]` begonnen · `
 ### P4 Laufzeit-Infrastruktur
 - [x] Docker Desktop läuft (Engine 29.8.2), GPU-Durchreichung getestet (nvidia-smi im Container, `--network none`)
 - [!] `.wslconfig` von 20 auf 24 GB: erfordert `wsl --shutdown` und beendet laufende WSL-Dienste (Kali, anderer Docker-Stack). Freigabe von Jan nötig. Siehe B1.
-- [ ] Ollama-Server starten, Umgebung setzen (`OLLAMA_MAX_LOADED_MODELS=1`, `OLLAMA_KEEP_ALIVE`, Flash Attention, KV-Cache-Quantisierung)
-- [ ] Modellauswahl automatisiert (Skript prüft VRAM/RAM, wählt Modell, Benchmark mit synthetischen Beispielen)
+- [x] Ollama-Server starten, Umgebung setzen: `infra/start-ollama.ps1` (Port 11435, Loopback, Flash Attention, KV-Cache q8_0, `MAX_LOADED_MODELS=1`, `KEEP_ALIVE`); `qwen3:8b` und `qwen3:14b` installiert
+- [~] Modellauswahl automatisiert: `infra/select-model.ps1` wählt nach freiem VRAM (Stufen A/B/C). Benchmark mit synthetischen Beispielen: `tests/bench/run_live.py` und `example/` (Stand der Messung siehe Modellabschnitt M0 bis M7)
 - [ ] Embedding-Modell wählen und testen
 - [!] Hyper-V: Dienst `vmms` läuft, Admin-Rechte fehlen für VM-Anlage. Admin-Skript wird erzeugt (Phase 1).
 
@@ -39,12 +39,12 @@ Stand: 2026-10-31 · Legende: `[x]` erledigt und geprüft · `[~]` begonnen · `
 - [~] REA: von Jan freigegeben (nur statisch, ohne Live-Teile). Tiefenaudit fertig (6.8.0, Pin, Familien- und Tool-Allowlist, Auflagen in dev-environment.md). Einbau ins Docker-Image und manuelles Quellcode-Review stehen aus.
 - [ ] jadx, apktool, capa, YARA, FLOSS, radare2, binwalk, pefile, lief, androguard im Image
 - [~] Ghidra-MCP: Empfehlung pyghidra-mcp v0.2.7 (kleinste Angriffsfläche, keine Code-Ausführung); ADR folgt nach Funktionstest
-- [ ] Alle Downloads mit SHA-256 in `docs/dev-environment.md`
+- [~] Alle Downloads mit SHA-256 in `docs/dev-environment.md`: erfasst, Lücken stehen unter „Weitere Tests aus dem Plan“
 
 ### P6 Abschluss Voraussetzungen
 - [x] Verifikationsskript `infra/verify-prereqs.ps1` (Lauf: 24 PASS, 2 FAIL: VRAM, Ollama-Server; 2 WARN: freier RAM, graphify-out)
-- [ ] Kompakte Doku `docs/README.md` (Überblick, Entscheidungen, Runbook Kurzform)
-- [ ] graphify-Lauf über das Repo, `graphify-out/` vorhanden
+- [x] Kompakte Doku `docs/README.md` (Dokumentenkarte, Entscheidungen, Begriffe), dazu `docs/runbooks/betrieb.md` und `docs/security/sicherheitsmodell.md` (2026-10-31)
+- [x] graphify-Lauf über das Repo, `graphify-out/` vorhanden
 - [ ] Freigabe von Jan für Phase 0
 
 ## Blocker und offene Fragen an Jan
@@ -55,12 +55,12 @@ Stand: 2026-10-31 · Legende: `[x]` erledigt und geprüft · `[~]` begonnen · `
 - B3: Admin-Rechte für Hyper-V-Einrichtung: Du führst das erzeugte Skript selbst aus (bestätigt in Auswahl, Termin offen).
 
 ## Aktuelle Arbeit (feat/core-chain)
-- [~] Kern: Datenmodell, Gateway-/LLM-Vertrag, Audit-Log (Hash-Kette), SQLite-Store, Ollama-/Fake-Client geschrieben; Tests stehen aus
-- [~] Agenten parallel: Frontend, Dev-Gateway, Prompt-Schutz, Übersetzung+Defanging (in Arbeit)
-- [~] Blueprint (docs/blueprint/, 15 Dateien, Fable 5.1, 4 Agenten) in Arbeit; Themenliste des Berichts von Jan liegt vor (Übergabe+Hashes, Erkennung je Schritt, logischer Aufbau mit Nachweis, Zielfragen/CTF)
-- [~] Audit morluto/rea (Tool-Inventar, npm gegen Repo) läuft
-- [~] Orchestrator: geschrieben sind Prompt-Registry, Rezepte (generic/script/exe/apk), JSON-Hilfen, Prüfer (verifier.py) und Task-Runner (runner.py, ungetestet, braucht das Paket guard). FEHLT: Evaluator, Priorisierer, Planer/Engine, Worker, Report-Builder, API-App, Wiring, Tests, CTF-Test, Prompts je Aufgabentyp, API, Bericht, Wiring, CTF-Tests
-- [ ] graphify-Lauf über das Repo (nach Abgabe der Agenten)
+- [x] Kern: Datenmodell, Gateway-/LLM-Vertrag, Audit-Log (Hash-Kette), SQLite-Store, Ollama-/Fake-Client mit Tests (korrigiert 2026-10-31)
+- [x] Dev-Gateway, Prompt-Schutz, Übersetzung und Defanging liegen mit Tests vor (korrigiert 2026-10-31). Frontend: siehe „Dashboard-Lücken“.
+- [x] Blueprint (docs/blueprint/, Dateien 00 bis 15) liegt vor (korrigiert 2026-10-31)
+- [x] Audit morluto/rea fertig, Auflagen in `docs/dev-environment.md` (korrigiert 2026-10-31)
+- [x] Orchestrator: Prompt-Registry, Rezepte, Prüfer, Task-Runner, Evaluator, Priorisierer, Planer, Engine, Worker, Report-Builder, API und CTF-Tests liegen vor (korrigiert 2026-10-31, der Eintrag war veraltet)
+- [x] graphify-Lauf über das Repo; `graphify-out/` liegt vor, Post-Commit-Hook hält den Graphen aktuell
 
 ## Hinweis Limit (2026-10-31)
 Sitzung wegen Nutzungslimit beendet. Der Frontend-Agent wurde gestoppt (vorhanden: api.js, dom.js, markdown.js, theme.js, mock.js; es fehlen index.html, app.js, styles.css und der Asset-Test). Hintergrund-Agenten (Dev-Gateway, Dev-Gateway, Prompt-Schutz, Übersetzung, 4 Blueprint-Agenten, REA-Audit, graphify-Extraktion) laufen eventuell weiter und schreiben Dateien. Ergebnisse prüfen: `git status`, dann Tests (`.venv\Scripts\python.exe -m pytest`). graphify: Chunk-Datei `graphify-out/.graphify_chunk_01.json` abwarten, dann Schritte 3 Part C bis 9 des Skills ausführen (AST-Ergebnis liegt in `graphify-out/.graphify_ast.json`).
@@ -83,7 +83,7 @@ Danach (Priorität 2, in dieser Reihenfolge): P1-Anpassungen aus `docs/review/pl
 
 ## Strukturierte Code-Review durch alle Modelle (von Jan beauftragt, 2026-10-31)
 Ziel: Jedes verfügbare Modell prüft denselben Code nach demselben Raster. Unterschiedliche Modelle finden unterschiedliche Fehler; der Abgleich zeigt, was mehrfach bestätigt ist und was nur ein Modell sieht. Annahme: "alle Modelle" = die Claude-Modelle Fable 5.1, Opus 5.5, Sonnet 5.5, Haiku 5.5. Falls auch die lokalen Ollama-Modelle gemeint sind, bitte melden (anderer Ablauf, siehe Risiken).
-Stand: **offen**. Voraussetzung: Security-Review und Tag `v0.1.0` (siehe R7) bleiben davon getrennt (CLAUDE.md Arbeitsweise 9).
+Stand: **Prüfung abgeschlossen, Behebung offen** (siehe „Behebung der Review-Funde“). Reihenfolge: erst dieses Code-Review mit Behebung, danach der Security-Review (eigener Schritt, CLAUDE.md Arbeitsweise 9) und der Tag `v0.1.0` (siehe R7 und Abnahme unten).
 
 ### 1. Umfang (feste Pakete, je Paket ein Auftrag je Modell)
 | Paket | Pfad | Zeilen (ca.) | Schwerpunkt |
@@ -126,9 +126,9 @@ Jedes Modell prüft **blind** (kein Zugriff auf die Ergebnisse der anderen), dan
 6. Behebung in `fix/review-<paket>`, je Paket ein Merge nach grünen Tests. Offene Funde mit Begründung nach `docs/STATUS.md`.
 
 ### 5. Abnahme
-- [ ] Alle 9 Pakete von mindestens 2 Modellen geprüft (Pakete B, C, D von allen 4)
-- [ ] `SUMMARY.md` mit Fund-x-Modell-Tabelle, Funde getrennt in bestätigt, einzeln, verworfen (mit Grund)
-- [ ] Alle kritischen und hohen bestätigten Funde behoben, je mit Test
+- [x] Alle 9 Pakete von mindestens 2 Modellen geprüft (2026-10-31, 11 Berichte, 289 Funde, Haiku nur G, H, I wie vorgesehen)
+- [x] `docs/review/code-review/SUMMARY.md` mit Fund-x-Modell-Tabelle, Funde getrennt in bestätigt (23, davon 1 kritisch, 12 hoch), einzeln, verworfen (mit Grund)
+- [ ] Alle kritischen und hohen bestätigten Funde behoben, je mit Test (F-01 bis F-13 in SUMMARY.md, noch nichts behoben; F-07 und F-08 brauchen ADR und Freigabe von Jan)
 - [ ] Tests grün, Ergebnis in `docs/STATUS.md` und im Dev-Vault
 - [ ] Danach erst Security-Review (`/claude-security`) und Tag `v0.1.0`
 
@@ -142,7 +142,7 @@ Jedes Modell prüft **blind** (kein Zugriff auf die Ergebnisse der anderen), dan
 - [x] **`README.md` im Repo-Root** (erstellt 2026-10-31; Screenshots und Flussdiagramm-Datei folgen) (fehlt, GitHub zeigt bisher keine Startseite). Inhalt: Zweck und Nicht-Ziele (nur statische Analyse, keine echte Malware im Repo), Architektur in einem Bild (Kette: Triage, Rezept, Queue, Task-Runner, Guard, Prüfer, Antworten, Bericht), Voraussetzungen (Windows 11, Python 3.11, Docker, NVIDIA-GPU, 24 GB RAM-Limit), Schnellstart (`scripts\start.ps1`, `stop.ps1`, Schalter `-NoCleanup`, `-Offline`, `-Update`), Sicherheitsmodell (Isolation, Gateway-Allowlist, Prompt-Schutz, Audit-Kette), Verweise auf `PROJEKTPLAN.md`, `docs/STATUS.md`, `docs/blueprint/`, Teststand, Lizenz. Belegt nur, was läuft; Offenes steht unter "Status". Screenshots des Dashboards erst nach dem ersten echten Lauf.
 
 ## Flussdiagramm der umgesetzten Workflows (von Jan beauftragt, 2026-10-31)
-- [ ] **Abstraktes Flussdiagramm** (`docs/architecture/workflows.md`, Mermaid, auch als Bild im README): nur was tatsächlich umgesetzt ist, je Workflow ein Diagramm auf hoher Ebene. Vorgesehen: (1) Start/Stopp (CLEAN, CHECK, INSTALL, UPDATE, OLLAMA, MODEL, APP, Statusschleife, Stopp mit Cleanup), (2) Job-Lebenszyklus (Auftrag, Triage, Rezept, Aufgaben-Queue, Task-Runner mit Werkzeug-Schleife, Prüfer, Bewerter, Priorisierer, Antworten, Übersetzung, Bericht), (3) Schutzschichten (Guard vor und nach jedem Modellaufruf, Gateway-Jail, Audit-Kette), (4) Datenfluss Sample bis Bericht mit Hashes und Evidence. Nicht Umgesetztes (Ghidra, Wissensdatenbank, dynamische Analyse) wird gestrichelt und als "offen" markiert. Quellen: `docs/architecture/chain.md`, `scripts/start.ps1`, `orchestrator/*`; graphify-Abfragen vorab, damit das Bild dem Code entspricht und nicht dem Plan.
+- [x] **Abstraktes Flussdiagramm** (erstellt 2026-10-31: `docs/architecture/workflows.md`, 4 Diagramme, im README verlinkt; Bild-Export für das README steht aus) (`docs/architecture/workflows.md`, Mermaid, auch als Bild im README): nur was tatsächlich umgesetzt ist, je Workflow ein Diagramm auf hoher Ebene. Vorgesehen: (1) Start/Stopp (CLEAN, CHECK, INSTALL, UPDATE, OLLAMA, MODEL, APP, Statusschleife, Stopp mit Cleanup), (2) Job-Lebenszyklus (Auftrag, Triage, Rezept, Aufgaben-Queue, Task-Runner mit Werkzeug-Schleife, Prüfer, Bewerter, Priorisierer, Antworten, Übersetzung, Bericht), (3) Schutzschichten (Guard vor und nach jedem Modellaufruf, Gateway-Jail, Audit-Kette), (4) Datenfluss Sample bis Bericht mit Hashes und Evidence. Nicht Umgesetztes (Ghidra, Wissensdatenbank, dynamische Analyse) wird gestrichelt und als "offen" markiert. Quellen: `docs/architecture/chain.md`, `scripts/start.ps1`, `orchestrator/*`; graphify-Abfragen vorab, damit das Bild dem Code entspricht und nicht dem Plan.
 
 ## Dashboard-Lücken (Stand 2026-10-31 20:15, per Screenshot geprüft)
 - [x] App startete nicht: `python-multipart` fehlte (Upload-Route). Gepinnt auf 0.0.32 (Apache-2.0, 0.0.33 vom selben Tag bewusst übersprungen), Test `tests/unit/test_webui_boot.py` sichert den Start ab.
@@ -185,7 +185,7 @@ Risiken: Modellnamen aus der Recherche (`gemma4`, `ornith`, `flint`, `qwen3.8`) 
 
 - [x] Dashboard Startseite und Auftragsmaske (ADR-0006, Branch `feat/dashboard-start`): saubere Pfad-URLs statt `#/`, Übersicht mit aktuellem Auftrag und Kennzahlen (Laufzeit, Aufgaben, Schritte, Werkzeug- und Modellaufrufe, Befunde, Zielfragen) oder Angebot zum Anlegen, Maske mit Beispielauswahl aus `example/` (alles vorausgefüllt, nur eines wählbar), kein Budget mehr (Obergrenzen automatisch). Geprüft: 9 Web-Tests, Gesamtlauf Unit und Security grün, 18 Browser-Prüfungen (Edge headless). Offen: `index.html` lädt `mock_v2.js`, `view_log.js`, `view_diagrams.js`, die im Repository nie vorhanden waren (3 × 404); `styles.css` enthält keine Stile für die Auftragsansicht (Tabs, Aufgabenbaum, Code), nur für Shell, Übersicht, Maske und Prompts; `example/` ist in `feat/workflow-optimization` noch nicht versioniert.
 ## Tests (von Jan beauftragt, 2026-10-31)
-- [ ] **Detaillierte Tests für die forensische Absicherung der Kette.** Plan in `docs/testing/forensic-test-plan.md` mit 8 Blöcken (Chain of Custody, Belegprüfung, Prompt-Injection, Isolation und Jail, Determinismus, Übersetzung und Bericht, Ground-Truth-Korpus, Umsetzung). Vorhanden: 202 Unit-, 160 Sicherheits-, 4 E2E-Tests. Offen sind unter anderem Audit-Manipulationstest, Artefakt-Hash-Abgleich, Netz-Sperr-Test, API-Sicherheitstests, Reproduzierbarkeit des Berichts, Hold-out-Set für den Guard, Live-Modell-Tests und der Ground-Truth-Korpus.
+- [~] **Detaillierte Tests für die forensische Absicherung der Kette.** Neu 2026-10-31: `tests/forensic/test_chain_of_custody.py` (16 Tests: C4 Audit-Manipulation mit Zeilenposition, G1 bis G3 Belegprüfung, C8 Berichts-Reproduzierbarkeit, I4 nur Loopback-Endpunkt); Plan-Status in `forensic-test-plan.md` nachgezogen. Plan in `docs/testing/forensic-test-plan.md` mit 8 Blöcken (Chain of Custody, Belegprüfung, Prompt-Injection, Isolation und Jail, Determinismus, Übersetzung und Bericht, Ground-Truth-Korpus, Umsetzung). Vorhanden: 202 Unit-, 160 Sicherheits-, 4 E2E-Tests. Offen sind unter anderem Audit-Manipulationstest, Artefakt-Hash-Abgleich, Netz-Sperr-Test, API-Sicherheitstests, Reproduzierbarkeit des Berichts, Hold-out-Set für den Guard, Live-Modell-Tests und der Ground-Truth-Korpus.
 
 ## Backlog (von Jan beauftragt, braucht ADR und Freigabe)
 - [ ] **Dynamische Analyse** (ADR-0005, Entwurf): widerspricht Nicht-Ziel 1 des Plans und ist nach CLAUDE.md Verbot 3 nur mit ADR und ausdrücklicher Freigabe umsetzbar. Voraussetzungen: Hyper-V-VM ohne Netzwerkkarte, Snapshot/Rollback, simuliertes Netz, Opt-in pro Job, Audit, Gateway-Tools (`capture_trace`, `emulate_function`), Berichtsregel "niedrigere Konfidenz bis statisch bestätigt". Blueprint-Datei `10-dynamic-analysis.md` beschreibt die Methodik als Wissen.
@@ -193,3 +193,93 @@ Risiken: Modellnamen aus der Recherche (`gemma4`, `ornith`, `flint`, `qwen3.8`) 
 
 ## Phasen 0–12 (laut PROJEKTPLAN.md Abschnitt 7)
 Alle offen. Beginn erst nach Abschluss von Phase P und Freigabe.
+
+## Beispielfälle zum Evaluieren (von Jan beauftragt, 2026-10-31)
+- [x] `example/` mit `start_eval.ps1` (Menü zur Auswahl der Challenge), 4 Challenges mit Beschreibung und Ziel (`example/challenges/*/challenge.json`), Proben-Generatoren (`example/samples.py`) und automatischer Prüfung: `run_eval.py` sucht die Flagge im finalen Bericht (PASS/FAIL, Exit-Code). Anleitung: `example/README.md`.
+- [~] Echtlauf: Challenge 01 mit `qwen3:8b` bestanden (2,4 min, Status partial, Audit gültig, auf noch nicht committetem `src/`-Stand, daher kein Vergleichswert). Challenges 02 bis 04 ungetestet, weil eine zweite Sitzung die Ollama-Warteschlange belegte.
+- [x] `example/` committet auf `feat/workflow-optimization` (d2ca81e), nicht gepusht, nicht in `main`.
+
+## Prüfung iterativer Analyseprozess (2026-10-31, umgesetzt nach ADR-0007)
+Bestätigt: Die Schleife aus Aufgabe, Bewertung, Folgeaufgaben und Priorisierung läuft, die Belegprüfung der Findings ist mechanisch. Die Punkte unten sind mit einem geskripteten Modell getestet (`tests/unit/test_workflow.py`).
+
+Lücken:
+- [x] Unbeantwortete Zielfrage läuft einmal neu, wenn neue bestätigte Findings vorliegen (`_reopen_questions`).
+- [x] Hypothesen und offene Punkte erreichen spätere Analyseaufgaben, Evaluator und Planer (`open_points_text`). Zielfragen sehen sie bewusst nicht.
+- [x] `goal_reached` und `gaps` werden ausgewertet: Selbstbewertung in den Task-Parametern und im Bericht, Lücken als Findings mit Status `open` (`_record_evaluation`).
+- [x] Nach der Synthese entsteht eine Lückenrunde, deren Folgeaufgaben nicht erneut bewertet werden.
+- [x] Der Planer ergänzt nach dem Rezept höchstens 4 Aufgaben aus dem Job-Ziel (`_plan_from_goal`). Jede Aufgabe trägt ein Abnahmekriterium `done_when`.
+- [ ] Vor und nach den Änderungen Challenges 01 bis 04 messen. Erster Lauf nur teilweise gültig: Ab 22:14:52 fiel Ollama weg, zeitgleich lief `scripts/start.ps1` (Bereinigung um 22:14:57). Gültig sind Basislauf 01 (PASS) und 02 (FAIL, Budget). Basislauf 03 und 04 sowie alle Nachher-Läufe sind zu wiederholen. Die Wiederholung ab 22:20 brach beim ersten Lauf ab: `start.ps1` lief erneut und beendete beim Stopp um 22:22:50 den von ihm selbst gestarteten Server. Die Messung braucht etwa 60 Minuten ohne `start.ps1`.
+- [ ] Messergebnis in ADR-0007, `docs/STATUS.md` und `docs/roadmap.html` eintragen, Bestätigtes und Offenes getrennt, dann nach `main` nachmergen.
+- [ ] `/claude-security` über den gemergten Stand laufen lassen. Vor dem Merge von `feat/workflow-optimization` (2026-10-31) lief nur ein manuelles Security-Review des Diffs. Ein Versuch am 2026-10-31 startete nicht, weil der Sitzung das Workflow-Werkzeug fehlte (`/config`, Dynamic workflows).
+- [ ] `scripts/start.ps1` prüfen: Der um 21:51 fremd gestartete Server endete um 22:14:52, die Bereinigung lief um 22:14:57, ein Beendigen durch das Skript ist nicht belegt (siehe auch F-19). Um 22:19:00 meldete es "nothing listens on port 11435", obwohl der Port antwortete.
+- [ ] Bericht-Tabellen: echten Markdown-Sanitizer statt des Leerzeichens nach `<` einbauen (`shortcut` in `report/builder.py`, `_cell`).
+
+Sicherheitsreview des Änderungsstands (2026-10-31):
+- [x] Modelltext hatte im Prompt Anweisungsrang: Titel, Ziel, Begründung und `done_when` modellgeschriebener Aufgaben stehen jetzt im Datenblock, `_injected` greift ab mittlerer Schwere.
+- [x] Unbelegte Werte konnten als Antwort erscheinen: `{hypotheses}` aus dem Zielfragen-Prompt entfernt, Indikatoren einer Antwort müssen in einem Beleg stehen.
+- [x] Offener Punkt konnte mit fremdem Zitat `confirmed` werden: Indikatoren der Aussage müssen im Zitat stehen.
+- [x] Notizen über geblockte Aufgaben kamen als Arbeitsauftrag zurück: Präfix `GUARD:`, nicht mehr in `open_points_text`.
+- [x] Modellgeschriebene Ziele senkten den Tool-Schutz: sie zählen im `TaskGuard` nicht mehr als Aufgabentext (`guard_task_text`).
+- [x] Bericht: `open` nur noch unter „Offene Fragen und Hypothesen“, `goal_reached` als Selbstbewertung des Modells benannt.
+- [x] `done_when` steht jetzt im Bericht (Methodik-Tabelle) und in der Queue (`f76190f`). Tabellenzeilen halten Striche, Backslashes und Zeilenumbrüche aus Modelltext aus, Bericht und Dashboard lesen dieselbe Zelle (`c2308fc`).
+- [x] `_cell` neutralisiert rohes HTML mit einem Leerzeichen nach `<` (`f76190f`). Bekannte Grenze: `List<String>` liest sich im Bericht als `List< String>`, der exakte Text bleibt in der Evidence.
+- [x] Geklärt: `translate/pipeline.py:198` maskiert vor dem Modell nur Token (`protect`), keine Anweisungen; in `translate/` läuft kein Scanner. Das Übersetzungsmodell hat keine Werkzeuge, sein Ergebnis landet nur in den `_de`-Feldern. Restrisiko: Sample-Text in einer Aussage könnte die deutsche Fassung verfälschen, die englische bleibt daneben erhalten. Die Rückübersetzungsprüfung T3 ist dafür vorgesehen und offen.
+- [!] `.claude/settings.json` enthält 7 neue `enabledPlugins` ohne Eintrag in `docs/dev-environment.md` (Verbot 8), bleibt uncommittet, Entscheidung bei Jan.
+
+Bewusst nicht umgesetzt: engere Verankerung von Folgeaufgaben (`agents.py`), Verankerung neuer Aufgaben des Priorisierers, numerische Bewertung durch das Modell. Ungültiges `done_when` weist die `finish`-Aktion weiter ab, wie jedes andere ungültige Feld auch: das Modell bekommt den Grund und kann korrigieren.
+
+## Weitere Tests aus dem Plan (2026-10-31)
+- [x] I3 Netz-Sperr-Test, C1 bis C3 Artefakt-Hash-Abgleich (`tests/forensic/test_network_isolation.py`, `test_artifact_hashes.py`: 14 grün, 2 xfail).
+- [x] I6, I7 API-Sicherheitstests (`tests/forensic/test_api_security.py`: 173 grün, 6 xfail).
+- [x] S2 Guard-Hold-out (`tests/security/test_guard_holdout.py`, `injection_holdout.json`, Bericht `docs/review/guard-holdout-result.md`): Recall 62,4 % statt 145/145 im Tuning-Korpus, 32 Fälle als xfail.
+- [x] Download-Pins in `docs/dev-environment.md` erfasst; Lücken dort benannt (Ghidra und REA in `manifest.json` noch "pending", Ollama-Client 0.35.1 gegen Pin 0.40.13, JDK 17 gegen 21).
+- Testlauf gesamt (2026-10-31, `c2308fc`): 787 grün, 40 xfail (strict). Testplan: C1 und C2 vollständig, C3 teilweise (Artefakt-Hash im Bericht fehlt, F-15), 22 von 52 Prüfungen vollständig.
+
+## Behebung der Review-Funde (von Jan beauftragt, 2026-10-31)
+Quelle: `docs/review/code-review/SUMMARY.md` (Stellen, Modelle, Nachweis je Fund). Jeder Fund wird zuerst mit einem Test reproduziert, danach behoben. Behoben ist bisher nichts. Arbeit in einem eigenen Git-Worktree, nicht im geteilten Arbeitsbaum. Engine, Runner, Agents und Builder erst nach Abschluss der anderen Sitzungen.
+
+### Entscheidungen von Jan (offen)
+- [x] Push von `main`: `origin/main` steht auf `d80987a` und enthält `feat/workflow-optimization` und `feat/model-equipment`. Die Freigabe von Jan ist nur von der Sitzung gemeldet, die gepusht hat. Die Commits `71bb4d3` und `794a6df` enthalten im Verlauf einen lokalen Laufwerkspfad ohne Benutzernamen, im aktuellen Stand ist er ersetzt (`3d0548c`).
+- [!] Freigabe von ADR-0006 bestätigen: Die Freigabe für Paket A und B steht nur im uncommitteten ADR-Text von `feat/static-tools`, sie ist von der anderen Sitzung eingetragen und hier nicht geprüft.
+- [ ] `feat/static-tools` und `feat/dashboard-start` sind nicht nach `main` gemergt. Sie brauchen je einen abgeschlossenen Stand, grüne Tests und ein Security-Review.
+- [!] Freigabe, die hohen Funde jetzt zu beheben (Worktree, Reihenfolge unten).
+- [!] ADR-Nummer doppelt: Der Worktree `feat/dashboard-start` enthält uncommittet `docs/adr/0006-dashboard-urls-beispiele-budget.md`, im Repo ist 0006 die Werkzeug-Allowlist. Vor dem Merge umnummerieren. Auch `webui/app.py` und `view_job.js` sind dort geändert, Konflikte beim Merge sind möglich.
+- [!] F-07 und F-08 (verankerter Kopf-Hash, atomares Anhängen im Audit-Log): braucht ein ADR und die ausdrückliche Freigabe (CLAUDE.md Verbot 3).
+- [!] REA-Commit klären: `docs/dev-environment.md` nennt zwei Commits (60149282fcfc mit Datum 2026-11-01, 160d821ac9a0). Das Datum liegt nach dem Stand.
+- [!] Modell-Pins mit Digest (F-13): Die Digests lassen sich nur mit einem Netzzugriff beim Pull ermitteln. Freigabe und Vorgehen klären.
+
+### Belegzwang (zuerst)
+- [ ] F-01 kritisch: `grep` gibt das Modell-Muster in der Ausgabe zurück, daraus entsteht ein `confirmed`-Beleg (`dev_gateway.py:712,724`, `verifier.py:51,78`). Test über den vollen Weg (Gateway, Verifier, Antwort), dann Muster aus der Evidence-Prüfung ausnehmen oder nicht echoen.
+- [ ] F-02 Zitat muss zur Aussage passen; `MIN_QUOTE` von 4 auf den im Prompt versprochenen Wert (`verifier.py:16,49-58`).
+- [ ] F-03 Antwortprüfung: Werte jeder Antwort an Belege binden, nicht nur `WORD{...}` (`engine.py:436`, `runner.py:252`). Wartet auf die andere Sitzung.
+- [ ] F-04 IOC-Liste aus geprüften Zitaten, nicht aus dem Aussagetext (`builder.py:139-143`). Wartet auf die andere Sitzung.
+
+### Ressourcen und Robustheit
+- [ ] F-05 ReDoS im Regex-Wächter plus harter Timeout für `grep` (`regex_guard.py:143-155`, `dev_gateway.py:701-705`, `runner.py:207,221`).
+- [ ] F-06 Kostendeckel für PE-Sektionsentropie, quadratische Regeln in `scripts.py`, Obergrenze für ZIP-Einträge.
+- [ ] F-09 Worker: `except` mit Fehlerstatus, Race zwischen Abbruch und Übernahme (`worker.py:33-41`).
+- [ ] F-10 Job erst nach dem Schreiben des Samples auf `queued` setzen (`app.py:126-127`).
+- [ ] F-20 Upload-Limit vor dem Spoolen durchsetzen (`app.py:111`).
+- [ ] F-21 Ungültige `expected`-Regex abfangen (`engine.py:446`).
+- [ ] F-23 Abbruch und Zeitbudget auch innerhalb eines Tasks prüfen (`engine.py:231`).
+
+### Audit-Kette (braucht Freigabe, siehe oben)
+- [ ] F-07 Kopf-Hash außerhalb der Datei verankern; Kommentar in `test_chain_of_custody.py:57-58` korrigieren.
+- [ ] F-08 Atomares Anhängen; `emit` darf Schreibfehler nicht verschlucken; Feld `hash` und Nicht-Objekt-Zeilen in `verify_file` behandeln.
+
+### Guard
+- [ ] F-11 Tripwire: nicht als Abbruchhebel nutzbar machen (eine ungültige Antwort blockiert den Task, Toolnamen im Sample sperren `finish`) (`taskguard.py:92,97,131-138`).
+- [ ] F-12 Scanner-Lücken schließen (Homoglyphen `scanner.py:52`, Kontraktionen, Verdikt-Erzwingung, weitere Sprachen, zerrissene Phrasen). Danach ein frisches drittes Hold-out-Set, das Set `injection_holdout.json` ist nach Sichtung verbraucht.
+
+### Bericht und Betrieb
+- [ ] F-13 Modelle mit Digest pinnen (`start.ps1:233-234`, `manifest.json:32-37`).
+- [ ] F-14 Defanging: `ws://`, `tcp://`, `smb://`, `file://`, UNC, weitere TLDs, IDN, Backticks, `javascript:`.
+- [ ] F-15 Hash-Spalte im Bericht (Artefakt-Hash statt Ausgabe-Hash), Prompt-Hashes und Modell aus dem Job speichern (`builder.py:97-102`).
+- [ ] F-16 Übersetzung: `done_reason == "length"` prüfen, Modell in den Cache-Schlüssel (`pipeline.py:204-273`).
+- [ ] F-17 `stop.ps1`: Origin aus `-Port` ableiten (`stop.ps1:90`).
+- [ ] F-18 `index.html`: fehlende Skripte entfernen oder anlegen, Asset-Test auf Existenz erweitern.
+- [ ] F-19 Cleanup: Junctions prüfen, nur eigene Prozesse beenden; echten Test statt Teilstring-Test (`cleanup.ps1:44-54`, `test_scripts.py`).
+- [ ] F-22 `source_ref.length` bei UTF-16 korrigieren.
+- [ ] Einzelfunde aus `SUMMARY.md` bewerten (HostGuard außerhalb Windows, `create_job` transaktional, `/log`-Begrenzung, SSE, `markdown.js` und `\|`, `<think>`-Tags, Letzter Turn ohne `finish`, `_FENCE`-Regex, Annotationen ohne Beleg, `sha256_hex`, Code-Viewer-Vertrag, `list_files`-Cache).
+- [ ] Danach: Tests grün, strikte xfails der neuen Tests auflösen, Ergebnis hier und im Dev-Vault festhalten, dann `/claude-security` und Tag `v0.1.0`.
+

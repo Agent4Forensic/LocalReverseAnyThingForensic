@@ -120,6 +120,17 @@ footer{color:var(--mute);font-size:12.5px;padding-top:36px}
  <li>Prüfer<small>Zitat muss wörtlich vorkommen</small></li>
  <li>Bewerter<small>Lücken, Folgeaufgaben</small></li>
 </ol></div>
+
+<div class="card" style="margin-top:12px"><h3>Iterative Schleife eines Jobs (ADR-0007)</h3>
+<ol class="steps">
+ <li>Rezept<small>Mindestabdeckung, jeder Schritt mit <code>done_when</code></small></li>
+ <li>Planer<small>einmal, höchstens 4 Aufgaben aus dem Job-Ziel</small></li>
+ <li>Synthese<small>Befunde als Ganzes, wird bewertet</small></li>
+ <li>Lückenrunde<small>Folgeaufgaben, nicht erneut bewertet</small></li>
+ <li>Zielfragen<small>nur aus bestätigten Findings</small></li>
+ <li>Zweiter Versuch<small>einmal je Frage, nur bei neuen Belegen</small></li>
+</ol>
+<p class="sub" style="margin:8px 0 0">Selbstbewertung und Lücken des Modells stehen im Bericht und gelten nie als Beleg. Hypothesen und offene Punkte erreichen spätere Analyseaufgaben als Datenblock, aber keine Zielfrage. <span id="loopEffect"></span></p></div>
 </section>
 
 <section id="pfade">
@@ -205,7 +216,8 @@ var TOOLS=[
  ["binwalk","open","Parser","Eingebettete Dateien und Signaturen finden","4"],
  ["exiftool / file","open","Parser","Metadaten und Magic-Typ als Gegenprobe","1"],
  ["Prüfer","done","Plattform","Zitat muss wörtlich in der Evidence stehen","6"],
- ["Bewerter","done","Plattform","Lücken und Folgeaufgaben je Ergebnis","6"],
+ ["Planer","done","Plattform","Ergänzt nach dem Rezept höchstens 4 Aufgaben aus dem Job-Ziel, mit Abnahmekriterium","6"],
+ ["Bewerter","done","Plattform","Selbstbewertung, Lücken und Folgeaufgaben je Ergebnis und für die Synthese","6"],
  ["Priorisierer","done","Plattform","Queue nach Informationsgewinn ordnen","6"],
  ["Berichtsgenerator","done","Plattform","Markdown-Bericht mit Evidence-IDs","7"],
  ["Defanging","done","Plattform","IOCs im Bericht entschärfen","7"],
@@ -223,7 +235,7 @@ var PHASES=[
  {n:3,t:"Tiefenanalyse",act:"Ghidra einmal je Artefakt analysieren, Einstieg und höchstbewertete Funktionen dekompilieren, Callees, Konstanten und Xrefs sichten, je Funktion 3 bis 6 Zeilen Zusammenfassung. APK: DEX mit jadx lesen.",tools:["Ghidra","REA (statisch)","jadx","radare2","read_lines"],exit:"Abdeckungsziel erreicht (z. B. 90 % der relevanten Funktionen) oder Rest als Teilaufgaben"},
  {n:4,t:"Entpacken",act:"Mechanismus erkennen (Packer-Stub, Skriptebene, verschlüsseltes Asset), Schlüssel, Algorithmus und Offset finden, mit erlaubtem Tool dekodieren. Jedes Artefakt bekommt Hash und Elternverweis und geht zurück in die Triage.",tools:["decode_layer","binwalk","hexdump","zip_read_text","entropy_map"],exit:"Jede Ebene entpackt (Artefakt mit Hash) oder begründet ungelöst"},
  {n:5,t:"Verhalten",act:"Code-Fakten in Fähigkeiten übersetzen: Persistenz, Kommunikation, Injektion, Krypto, Zerstörung, Anti-Analyse. Je Fähigkeit die Kette vom Auslöser bis zum API-Aufruf mit Argumenten belegen. IOCs nur aus bestätigten Findings.",tools:["Ghidra","capa","grep","Wissens-DB"],exit:"Jede behauptete Fähigkeit hat einen erreichbaren Codepfad oder ist Hypothese mit benanntem fehlendem Glied"},
- {n:6,t:"Synthese",act:"Findings nach Status ordnen, Widersprüche lösen, Abdeckung prüfen. Jede Zielfrage wird nur aus bestätigten Findings beantwortet, sonst „ungelöst“ mit Grund.",tools:["Prüfer","Bewerter","Priorisierer"],exit:"Jede Zielfrage beantwortet oder ungelöst"},
+ {n:6,t:"Synthese",act:"Findings nach Status ordnen, Widersprüche lösen, Abdeckung prüfen. Der Planer ergänzt vorher einmal Aufgaben aus dem Job-Ziel, die Synthese löst höchstens eine Lückenrunde aus. Jede Zielfrage wird nur aus bestätigten Findings beantwortet, sonst „ungelöst“ mit Grund, und läuft bei neuen Belegen einmal neu.",tools:["Planer","Prüfer","Bewerter","Priorisierer"],exit:"Jede Zielfrage beantwortet oder ungelöst"},
  {n:7,t:"Bericht",act:"Zusammenfassung, Chain of Custody, Antworten, Findings mit Evidence-ID und Zitat, entschärfte IOCs, offene Fragen, Methodik. Nie Payload-Bytes.",tools:["Berichtsgenerator","Defanging","Übersetzung"],exit:"Bericht erzeugt (Deutsch und Englisch)"}
 ];
 
@@ -256,26 +268,30 @@ var RANK=[
 var RECIPES=[
  {n:"EXE / DLL",f:"exe.yaml",now:[
    ["PE-Header, Sektionen, Packer-Hinweise",["pe_headers","entropy_map"]],
-   ["Imports und Fähigkeits-Hinweise",["pe_headers","grep"]],
-   ["Strings und Indikatoren",["strings_extract","grep"]],
+   ["Imports und Fähigkeits-Hinweise",["pe_headers"]],
+   ["Strings und Indikatoren",["strings_extract"]],
    ["Ressourcen und Overlay",["entropy_map","hexdump","decode_layer"]],
-   ["Krypto-Konstanten und Konfiguration",["grep","hexdump","decode_layer"]]],
+   ["Krypto-Konstanten und Konfiguration",["strings_extract","hexdump","decode_layer"]],
+   ["Entpackte Artefakte: Typ und Hashes ohne KI, Code und Container als eigene Aufgabe (höchstens 6 je Job)",["identify_type","hash_file"]]],
   plan:["Fähigkeiten mit capa","Signaturen mit YARA, Strings mit FLOSS","Funktionsranking und Dekompilierung in Ghidra","Packer-Stubs entpacken, Stage-Map bei mehrstufigen Proben"]},
  {n:"APK",f:"apk.yaml",now:[
    ["Container-Struktur",["zip_list"]],
-   ["Manifest und Berechtigungs-Hinweise",["zip_read_text","strings_extract"]],
-   ["Strings und Endpunkte",["strings_extract","grep"]],
-   ["Nachladen von Code und eingebettete Payloads",["grep","zip_list","entropy_map"]]],
+   ["Manifest und Berechtigungs-Hinweise",["zip_list","zip_read_text"]],
+   ["Strings und Endpunkte",["zip_list","zip_read_text"]],
+   ["Nachladen von Code und eingebettete Payloads",["zip_list","entropy_map"]],
+   ["Entpackte Artefakte: Typ und Hashes ohne KI, Code und Container als eigene Aufgabe (höchstens 6 je Job)",["identify_type","hash_file"]]],
   plan:["Manifest, Komponenten, Zertifikat mit androguard und apktool","DEX-Quelltext mit jadx","Native <code>.so</code> (<code>JNI_OnLoad</code>) in Ghidra","Entschlüsselung von Assets"]},
  {n:"Skript",f:"script.yaml",now:[
    ["Sprache und Verschleierung erkennen",["script_detect","read_lines","grep"]],
-   ["Eingebettete Ebenen statisch dekodieren",["decode_layer","read_lines","grep"]],
+   ["Eingebettete Ebenen statisch dekodieren",["strings_extract","decode_layer","read_lines","identify_type"]],
    ["Verhalten des dekodierten Skripts",["read_lines","grep"]],
-   ["Indikatoren sammeln",["grep","strings_extract"]]],
-  plan:["Familien-Regeln mit YARA","Rekursion auf entpackte Stufen mit Stage-Map"]},
+   ["Indikatoren sammeln",["grep","strings_extract"]],
+   ["Entpackte Artefakte: Typ und Hashes ohne KI, Code und Container als eigene Aufgabe (höchstens 6 je Job)",["identify_type","hash_file"]]],
+  plan:["Familien-Regeln mit YARA","Stage-Map über alle entpackten Stufen"]},
  {n:"Generisch",f:"generic.yaml",now:[
-   ["Struktur und Inhaltsklasse beschreiben",["hexdump","entropy_map","strings_extract"]],
-   ["Indikatoren und auffällige Strings",["strings_extract","grep"]]],
+   ["Struktur und Inhaltsklasse beschreiben",["read_lines","hexdump","entropy_map","strings_extract","decode_layer"]],
+   ["Indikatoren und auffällige Strings",["strings_extract","grep"]],
+   ["Entpackte Artefakte: Typ und Hashes ohne KI, Code und Container als eigene Aufgabe (höchstens 6 je Job)",["identify_type","hash_file"]]],
   plan:["Signatursuche mit binwalk","Format-Parser für unbekannte Container"]}
 ];
 
@@ -283,17 +299,18 @@ var RECIPES=[
 var AREAS=[
  {n:"Voraussetzungen",i:[
   ["Inventur Hardware und Tools","done"],["Plugins und Skills geprüft, Audits mit SHA","done"],["Claude-Code-Einstellungen, Hooks","done"],
-  ["Docker mit GPU-Durchreichung","done"],["Verifikationsskript verify-prereqs","done"],["Ollama-Server und Umgebung","part"],["Modellauswahl automatisiert","part"],
+  ["Docker mit GPU-Durchreichung","done"],["Verifikationsskript verify-prereqs","done"],["Ollama-Server und Umgebung (Port 11435, Loopback)","done"],["Modellauswahl automatisiert","part"],
   ["WSL-Limit 24 GB (braucht wsl --shutdown)","open"],["Hyper-V-VM (Admin-Skript)","open"],["Embedding-Modell","open"]]},
  {n:"Kern",i:[["Datenmodell","done"],["SQLite-Store","done"],["Audit-Log mit Hash-Kette","done"],["LLM-Client Ollama und ScriptedLLM","done"]]},
- {n:"Orchestrator",i:[["Rezepte exe, apk, script, generic","done"],["Engine und Worker","done"],["Task-Runner","done"],["Prüfer (Belegzwang)","done"],["Bewerter und Priorisierer","done"],["Prompt-Registry","done"],["Modell je Aufgabentyp","open"]]},
- {n:"Guard und Gateway",i:[["Scanner und Sanitizer","done"],["Aktions-Validierung","done"],["Dev-Gateway mit 13 statischen Tools","done"],["Ghidra-Adapter","open"],["Disassembler-Tools hinter dem Gateway","open"],["Tools im Docker-Image (jadx, capa, YARA …)","open"]]},
- {n:"Bericht und Übersetzung",i:[["Berichtsgenerator","done"],["Defanging","done"],["Übersetzung DE/EN mit Glossar und Cache","done"],["Diagramme im Bericht","open"]]},
+ {n:"Orchestrator",i:[["Rezepte exe, apk, script, generic","done"],["Engine und Worker","done"],["Task-Runner","done"],["Prüfer (Belegzwang)","done"],["Bewerter und Priorisierer","done"],["Prompt-Registry","done"],["Synthese-Schritt und Budget-Reserve für Zielfragen","done"],["Artefakt-Rekursion (derived/, höchstens 6 je Job)","done"],["HostGuard: RAM, Platz, GPU-Temperatur","done"],["Abbruch bei ausgefallenem Modellserver","done"],["Iterative Schleife nach ADR-0007: Planer, Lückenrunde, zweiter Versuch für Zielfragen, offene Punkte","done"],["Abnahmekriterium done_when im Prompt, im Bericht und in der Queue","done"],["Wirkung der Schleife mit Challenges 01 bis 04 messen","part"],["Modell je Aufgabentyp","open"]]},
+ {n:"Guard und Gateway",i:[["Scanner und Sanitizer","done"],["Aktions-Validierung","done"],["Ziele des Modells vor dem Anlegen gescannt, Wächter","done"],["Dev-Gateway mit 13 statischen Tools","done"],["ADR-0006: Allowlist für statische Werkzeuge","draft"],["Ghidra-Adapter","open"],["Disassembler-Tools hinter dem Gateway","open"],["Tools im Docker-Image (jadx, capa, YARA …)","open"]]},
+ {n:"Bericht und Übersetzung",i:[["Berichtsgenerator","done"],["Defanging","done"],["Übersetzung DE/EN mit Glossar und Cache","done"],["Workflow-Diagramme als Dokument (workflows.md)","done"],["Diagramme im Bericht","open"]]},
  {n:"Web und Dashboard",i:[["API (FastAPI) mit /activity","done"],["Frontend: Übersicht, Auftrag, Code, Bericht","part"],["Tabs Diagramme, Log, Guard","open"],["Layout-Fehler Kopfzeile und Tabs","open"],["Upload im Browser getestet","open"],["Lernpfad und Ablaufpläne (V2)","open"]]},
  {n:"Betrieb",i:[["start.ps1 mit Preflight und Pins","part"],["stop.ps1","part"],["cleanup.ps1 (vor und nach dem Lauf)","done"],["Manifest mit Hashes","done"],["Echter stop.ps1-Lauf","open"]]},
- {n:"Tests",i:[["387 Tests grün (Unit, Sicherheit, E2E, CTF mit Skript-Modell)","done"],["Forensische Blöcke 1 bis 8","open"],["Ground-Truth-Korpus","open"],["Live-Modell-Tests","open"],["Netz-Sperr- und Manipulationstest","open"]]},
- {n:"Wissen und Vault",i:[["Dev-Vault als Markdown","done"],["Wissensdatenbank (Ingest, Index)","open"],["Obsidian-Notiz-Writer","open"]]},
- {n:"Isolation und Dynamik",i:[["REA: Audit und Pin","part"],["Ghidra gepinnt, Image fehlt","part"],["Hyper-V-VM ohne Netzwerkkarte","open"],["Dynamische Analyse (ADR-0005)","draft"]]}
+ {n:"Tests",i:[["787 Tests grün, 40 strikte xfail als belegte offene Funde (Unit, Sicherheit, E2E, forensisch, CTF mit Skript-Modell)","done"],["Beispielfälle mit Flaggen-Prüfung im Bericht (example/)","done"],["Netz-Sperr-Test und API-Sicherheitstests (I3, I6, I7)","done"],["Guard-Hold-out gemessen (S2): Recall 62,4 %","done"],["Forensischer Testplan: 22 von 52 Prüfungen vollständig, Determinismus und Ground Truth offen","part"],["Ground-Truth-Korpus","open"],["Live-Modell-Tests","open"]]},
+ {n:"Code-Review",i:[["Prüfung durch 4 Modelle: 11 Berichte, 289 Funde, 23 bestätigt","done"],["Belegzwang F-01 bis F-04 (F-01 kritisch)","open"],["Ressourcen und Robustheit F-05, F-06, F-09, F-10, F-20, F-21, F-23","open"],["Audit-Kette F-07, F-08 (ADR und Freigabe nötig)","open"],["Guard F-11, F-12","open"],["Bericht und Betrieb F-13 bis F-19, F-22","open"]]},
+ {n:"Wissen und Vault",i:[["Dev-Vault als Markdown (Verzeichnis angelegt, noch leer)","part"],["Wissensdatenbank (Ingest, Index)","open"],["Obsidian-Notiz-Writer","open"]]},
+ {n:"Isolation und Dynamik",i:[["REA: Audit und Pin","part"],["Ghidra gepinnt, Image fehlt","part"],["Hyper-V-VM ohne Netzwerkkarte","open"],["Dynamische Analyse (ADR-0005, Stufenmodell überarbeitet)","draft"]]}
 ];
 
 /* Roadmap-Spuren */
@@ -301,21 +318,30 @@ var LANES=[
  {t:"1 · Zum Laufen bringen",i:[
   ["R1","Arbeitsbaum sichern, nach GitHub","done","main gepusht"],
   ["R2","Modell qwen3:8b ziehen, Smoke-Test, Tempo messen","part","Messwerte nicht dokumentiert"],
-  ["R3","Backend lauffähig (Origin portabel, /activity, Antwortbudget)","part","Antwortbudget offen"],
-  ["R4","Frontend-MVP fertigstellen","part","4 Ansichten vorhanden, Browser-Test fehlt"],
-  ["R5","Erster echter Lauf: CTF-Probe mit Modell","open","braucht R2 bis R4"],
+  ["R3","Backend lauffähig (Origin portabel, /activity, Antwortbudget)","done","REPLY_TOKENS 3000, nach abgeschnittener Antwort 4096; stop.ps1-Origin bleibt F-17"],
+  ["R4","Frontend-MVP fertigstellen","part","Weitere Änderungen liegen uncommittet im Worktree feat/dashboard-start; Browser-Test fehlt"],
+  ["R5","Erster echter Lauf: CTF-Probe mit Modell","part","Challenge 01 bestanden (qwen3:8b), 02 bis 04 und Browser-Lauf offen"],
   ["R6","start und stop scharf testen","open","braucht R2, R3"],
-  ["R7","Abnahme: Security-Review, Tag v0.1.0","open","main ist bereits gemerged, Review steht aus"]]},
+  ["R7","Abnahme: Security-Review, Tag v0.1.0","open","Erst nach Behebung der hohen Review-Funde; feat/workflow-optimization noch nicht in main"]]},
+ {t:"1b · Review-Funde beheben",i:[
+  ["CR","Code-Review durch alle Modelle (9 Pakete)","done","289 Funde, 23 bestätigt: 1 kritisch, 12 hoch; docs/review/code-review/SUMMARY.md"],
+  ["RF1","Belegzwang F-01 bis F-04","open","F-01 kritisch: grep-Muster kann als Beleg zählen; wartet auf Freigabe von Jan"],
+  ["RF2","Ressourcen und Robustheit","open","ReDoS, Kostendeckel, Worker-Race, Upload-Limit"],
+  ["RF3","Audit-Kette F-07, F-08","draft","ADR und ausdrückliche Freigabe nötig"],
+  ["RF4","Guard F-11, F-12","open","Danach frisches Hold-out-Set, das bisherige ist verbraucht"],
+  ["RF5","Bericht und Betrieb F-13 bis F-19, F-22","open","Modell-Digests (F-13) brauchen Freigabe für Netzzugriff"]]},
  {t:"2 · Reverse-Engineering-Tiefe",i:[
+  ["A6","ADR-0006: Allowlist-Erweiterung für statische Werkzeuge","draft","wartet auf Freigabe"],
   ["G","Ghidra-Image und Disassembler hinter dem Gateway","open","ADR und Freigabe nötig"],
   ["T","Tools im Image: jadx, apktool, androguard, capa, YARA, FLOSS, radare2, binwalk","open","Version- und Hash-Pin je Tool"],
   ["P1","Anpassungen aus docs/review/platform-adjustments.md","open","Guard-Schema, Store-Tabellen, Endpunkte"],
-  ["F","Forensische Tests Block 1 und 2","open","Audit-Manipulation, Hash-Abgleich"],
-  ["CR","Code-Review durch alle Modelle (9 Pakete)","open","Plan in STATUS.md"],
-  ["D2","Dashboard V2: Lernpfad, Diagramme","open","Spec: dashboard-v2.md"],
+  ["F","Forensischer Testplan","part","22 von 52 vollständig; Artefakt-Hash im Bericht als xfail, Determinismus und Ground Truth offen"],
+  ["W1","Analyse-Oberfläche: Wellen 0 bis 3 und Gate 1","open","Blöcke in docs/tasks/webui-und-analyse-bloecke.md: Hinweise, Hex, Diagramme, Lernpfad, Ransomware-Sicht"],
+  ["W4","Wellen 4 bis 6: neue Werkzeuge","draft","wartet auf ADR-0006 Paket A und B, ADR-0005 Stufe 2"],
+  ["D2","Dashboard V2: Lernpfad, Diagramme","open","Spec: dashboard-v2.md, umgesetzt über die Wellen oben"],
   ["VM","Hyper-V-VM ohne Netzwerkkarte","open","Admin-Skript nötig"]]},
  {t:"3 · Modell-Messung",i:[
-  ["M0","Basislinie qwen3:8b im Echtlauf","open","braucht R5"],
+  ["M0","Basislinie qwen3:8b im Echtlauf","part","Messung läuft, Ergebnis steht aus"],
   ["M1","Benchmark-Arena run_arena.py","open",""],
   ["M2","Billige Hebel: Schema-Ausgabe, Few-Shot, Denkbudget","open",""],
   ["M3","Stufe 1: qwen3:14b, gemma4:12b, phi4-reasoning:14b, ornith:9b, gpt-oss:20b","open",""],
@@ -325,7 +351,6 @@ var LANES=[
   ["DYN","Dynamische Analyse (ADR-0005)","draft","widerspricht Nicht-Ziel 1, nur mit Freigabe"],
   ["REA","REA-Live-Komponenten (Frida, ADB)","draft","bleiben aus bis ADR-0005"],
   ["KB","Wissensdatenbank und Obsidian-Writer","open","Phasen 0 bis 12 des Plans"],
-  ["FL","Flussdiagramm-Datei docs/architecture/workflows.md","open",""],
   ["LIC","Lizenz festlegen","open",""]]}
 ];
 

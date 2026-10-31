@@ -39,6 +39,7 @@ class TaskOrigin(str, Enum):
     PRIORITIZER = "prioritizer"
     USER = "user"
     ARTIFACT = "artifact"    # derived file that needs its own analysis (recursion)
+    PLANNER = "planner"      # sub-task from the job goal, planned after the recipe.
 
 
 class FindingStatus(str, Enum):

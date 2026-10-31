@@ -84,3 +84,11 @@ def test_clean_urls_serve_the_app_but_unknown_api_and_assets_stay_404(tmp_path):
     c = _client(tmp_path)
     assert "sw-analyst" in c.get("/job/job-0001/activity").text and 'src="/app.js"' in c.get("/new").text
     assert c.get("/api/nope").status_code == 404 and c.get("/missing.js").status_code == 404
+
+
+def test_every_script_in_index_html_is_served(tmp_path):
+    """index.html once loaded three scripts that did not exist (404), so whole tabs were missing."""
+    import re
+    c = _client(tmp_path)
+    srcs = re.findall(r'<script src="(/[^"]+)"', c.get("/").text)
+    assert srcs and all(c.get(s).status_code == 200 for s in srcs)
