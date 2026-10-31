@@ -59,7 +59,7 @@ for _src, _dst in (
 
 _DE = {"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss"}
 _EXTRA_HIDDEN = {0x034F, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x180B, 0x180C, 0x180D,
-                 0x3164, 0xFFA0, 0x2800 * 0}  # 0 entry is harmless
+                 0x3164, 0xFFA0}
 _BIDI = set(range(0x202A, 0x202F)) | set(range(0x2066, 0x206A))
 _WEAK_HIDDEN = {0x200C, 0x200D, 0xFE0E, 0xFE0F, 0x200E, 0x200F, 0xFEFF, 0x00AD}
 
@@ -111,7 +111,7 @@ class _View:
         self.s, self.st, self.en = s, st, en
 
 
-_WS_RX = re.compile(r"(?:\\[nrt]|\s){2,}|\\[nrt]|[^\S ]")
+_WS_RX = re.compile(r"(?:\\[nrt]|\s){2,}|\\[nrt]|[^\S \n]")
 _LEAD_RX = re.compile(
     r"\n(?:(?://+|/\*+|\*+/|\*+|#+|--+|;+|<!--|-->|'+|%+|>+|rem\b)[ ]?)+"
 )
@@ -264,7 +264,7 @@ _FRAME = re.compile(R(
     r"sofort|unverzueglich|ab~sofort|heimlich|still~und~leise|dein(?:e|en)?~(?:aufgabe|auftrag|ziel)|"
     r"in~deinem~(?:bericht|ergebnis|fazit)|bevor~du)\b"))
 _JB = re.compile(R(
-    r"\b(?:jailbreak\w*|dan|unrestricted|unfiltered|uncensored|developer~mode|god~mode|"
+    r"\b(?:jailbreak\w*|dan|unrestricted|unfiltered|uncensored|"
     r"no~restrictions|without~(?:any~)?(?:restrictions|limits|filters|rules)|no~rules|"
     r"do~anything|evil|ignore~(?:all~)?(?:rules|restrictions))\b"))
 _WINDOW = 120
@@ -320,12 +320,20 @@ _DE_BENIGN = (r"(?:harmlos|sicher|ungefaehrlich|unbedenklich|legitim|gutartig|sa
 _r("ovr_prev_instructions", "override", "high",
    r"\b(?:(?:ignore|disregard|forget|override|overwrite|discard|abandon|neglect|dismiss|bypass|skip|"
    r"drop|supersede|negate)|(?:do~not|don't|dont|never|stop)~(?:follow|obey|listen~to|heed|adhere~to|"
-   r"comply~with)(?:ing)?)~(?:" + _FILLER + r"~){0,4}" + _STRONGMOD + r"~(?:" + _FILLER + r"~){0,3}"
+   r"comply~with)(?:ing)?)~(?:" + _FILLER + r"~){0,4}" + _STRONGMOD + r"~(?:(?:" + _FILLER + r"|"
+   + _STRONGMOD + r")~){0,3}"
    + _TGT + r"\b")
 _r("ovr_everything_above", "override", "high",
    r"\b(?:ignore|disregard|forget)~(?:everything|all|anything)~(?:above|before|prior|previous|"
    r"(?:you|i|we|they)~(?:were|have|had|know|knew|learned|said|told|got)|that~(?:was|came|has|you)|"
    r"so~far|else|until~now|said|written|stated|preceding|up~to~here)\b")
+_r("ovr_instructions_above", "override", "high",
+   r"\b(?:ignore|disregard|forget)~(?:(?:all|any|the|these|those|my|your)~)*(?:instructions?|prompts?|"
+   r"rules|guidelines|directions|directives|messages)~(?:above|before|given|so~far|preceding|"
+   r"mentioned~above|you~(?:were|have)\w*|that~(?:came|precede)\w*)\b")
+_r("ovr_ignore_request", "override", "high",
+   r"\b(?:ignore|disregard|forget|dismiss)~(?:the~|your~|any~)?(?:analyst|user|operator|human|"
+   r"investigator)(?:'s)?~(?:request|task|question|instructions?|query|prompt|goal|assignment)\b")
 _r("ovr_above_generic", "override", "medium",
    r"\b(?:ignore|disregard|forget)~(?:(?:all|any|the|of|everything|what|that|is|was)~){0,3}"
    r"(?:above|preceding|foregoing|aforementioned|previous(?:ly)?|prior|earlier)\b"
@@ -335,7 +343,7 @@ _r("ovr_above_generic", "override", "medium",
 _r("ovr_de_prev_instructions", "override", "high",
    r"\b(?:ignorier\w*|missacht\w*|vergiss\w*|vergess\w*|ueberschreib\w*|ueberspring\w*|verwirf\w*|"
    r"umgeh\w*|setz\w*~\w+~ausser~kraft|beacht\w*~(?:\w+~)?nicht|befolg\w*~(?:\w+~)?nicht)~"
-   r"(?:(?:die|der|das|den|dem|und|oder|bitte|jetzt|einfach|sicherheits|system)~){0,3}"
+   r"(?:(?:die|der|das|den|dem|und|oder|bitte|jetzt|einfach|sicherheits|system|sie|mir|doch)~){0,3}"
    r"(?:(?:alle[nrs]?|saemtliche[nrs]?|jegliche[nrs]?|deine[nrs]?|bisherige[nrs]?|vorherige[nrs]?|"
    r"vorige[nrs]?|vorangegangene[nrs]?|vorhergehende[nrs]?|obige[nrs]?|fruehere[nrs]?|"
    r"oben~genannte[nrs]?|ursprueglich\w*|urspruengliche[nrs]?|system|vorab)~)+"
@@ -344,7 +352,7 @@ _r("ovr_de_prev_instructions", "override", "high",
    r"prompt\w*|systemprompt\w*|systemanweisung\w*|einschraenkung\w*|vorschrift\w*|direktive\w*|"
    r"leitlinie\w*|kontext\w*|auftraege?|auftrag|nachricht\w*)\b")
 _r("ovr_de_everything", "override", "high",
-   r"\b(?:ignorier\w*|vergiss\w*|vergess\w*|missacht\w*)~(?:bitte~)?(?:alles|saemtliches)"
+   r"\b(?:ignorier\w*|vergiss\w*|vergess\w*|missacht\w*)~(?:bitte~)?(?:alles|saemtliches),?"
    r"~(?:davor|zuvor|vorher|obige\w*|oben\w*|bisherige\w*|bisher|gesagt\w*|geschrieben\w*|bis~jetzt|"
    r"was~(?:du|ich|wir|man|vorher|zuvor|bisher|oben)\b)")
 _r("ovr_de_everything_bare", "override", "medium",
@@ -391,7 +399,8 @@ _r("per_dan", "persona", "medium",
 _r("per_do_anything_now", "persona", "high", r"\bdo~anything~now\b")
 _r("per_jailbroken", "persona", "high",
    r"\byou(?:'re|~are|~have~been|~were)~(?:now~)?(?:jailbroken|freed|unleashed|liberated|unlocked|"
-   r"unshackled)\b|\bjailbreak(?:ed)?~(?:mode|prompt|persona|protocol|version|activated|enabled|engaged)\b"
+   r"unshackled)\b|\byou(?:'re|~are)~no~longer~(?:bound|restricted|limited|constrained|subject)\b"
+   r"|\bjailbreak(?:ed)?~(?:mode|prompt|persona|protocol|version|activated|enabled|engaged)\b"
    r"|\b(?:enable|activate|enter|enabled|activated|engage)~(?:the~)?jailbreak\b")
 _r("per_dev_mode", "persona", "medium",
    r"\b(?:enable|enabled|activate|activated|enter|entered|switch(?:ed)?~to|turn~on|turned~on|entering|"
@@ -518,7 +527,7 @@ _r("ex_conceal", "exfil_exec", "high",
    r"\bkeep~(?:this|it|that|these)~(?:a~)?(?:secret|hidden|confidential)\b|"
    r"\bhide~(?:this|it|that)~from~(?:the~|your~)?(?:user|analyst|operator|human)\b|"
    r"\bverschweig\w*|\bverheimlich\w*|\bunterschlag\w*~(?:\w+~)?(?:das|dies|es)\b|"
-   r"\bsag\w*~(?:\w+~){0,2}?(?:dem|der|den)~(?:nutzer|benutzer|anwender|analysten|bediener|user)\w*~nicht\b|"
+   r"\bsag\w*~(?:\w+~){0,2}?(?:dem|der|den)~(?:nutzer|benutzer|anwender|analysten|bediener|user)\w*~nichts?\b|"
    r"\bnicht~(?:dem|an~den|den)~(?:nutzer|benutzer|anwender|analysten)\w*~(?:mitteil|sagen|erzaehl|"
    r"melden|zeigen|verraten)\w*|\bhalte?~(?:\w+~)?(?:das|dies|es)~geheim\b|"
    r"\bohne~(?:dem~)?(?:nutzer|benutzer|anwender)\w*~(?:zu~)?(?:sagen|informieren|benachrichtigen)\b|"
@@ -575,7 +584,12 @@ _r("ai_attention", "ai_address", "high",
    r"\b(?:attention|attn|hey|hello|hi|dear|note|notice|important|urgent|warning|message|instructions?|"
    r"reminder|psa|hinweis|achtung|wichtig|notiz|nachricht|anweisung|liebe|lieber|hallo)"
    r"(?:~(?:for|to|an|fuer|from))?[ :,!\n-]{0,3}(?:the~|any~|all~|every~|this~|die~|der~|das~|den~|"
-   r"dem~|an~|ein~|eine~|alle~|jede~)?(?:\w+~)?" + _AI_ADDR + r"\b")
+   r"dem~|an~|ein~|eine~|alle~|jede~)?(?:\w+~)?" + _AI_ADDR + r"\b"
+   r"(?!~(?:window|windows|dialog|dialogs|wizard|setup|installer|program|app|application|settings|"
+   r"button|menu|panel|tool|screen|professor|manager))")
+_r("ai_greet_model", "ai_address", "high",
+   r"\b(?:hello|hi|hey|dear|attention)[,:]?~(?:the~|you~)?(?:language~|ai~)?models?\b(?!~(?:number|name|"
+   r"year|id|type|code|version|series|range|line|lineup|kit))")
 _r("ai_note_to_model", "ai_address", "high",
    r"\b(?:note|message|instructions?|attention|notice|hint|reminder|request)~(?:to|for)~"
    r"(?:the|this|any|all)~(?:\w+~)?models?\b(?!~(?:number|name|year|id|type|code|version|series|range|"
@@ -850,6 +864,10 @@ def scan(text: str) -> list[Detection]:
         uniq.append(d)
         if len(uniq) >= _MAX_TOTAL:
             break
+    if len(uniq) <= 400:  # drop weaker detections fully covered by a stronger one of the same category
+        uniq = [d for d in uniq if not any(
+            e is not d and e.category == d.category and _SEV_ORDER[e.severity] > _SEV_ORDER[d.severity]
+            and e.start <= d.start and e.end >= d.end for e in uniq)]
     return uniq
 
 

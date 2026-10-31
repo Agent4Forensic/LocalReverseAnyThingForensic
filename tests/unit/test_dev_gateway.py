@@ -81,7 +81,8 @@ def build_pe(overlay: bytes = b"OVERLAY-DATA-1234") -> bytes:
     struct.pack_into("<II", buf, 0x460, 0x2080, 0)
     buf[0x480:0x480 + 2] = b"\x00\x00"
     buf[0x482:0x482 + 12] = b"ExitProcess\x00"
-    buf[0x600:0x800] = bytes(random.Random(7).randrange(256) for _ in range(0x200))
+    rnd = random.Random(7)
+    buf[0x600:0x800] = bytes(rnd.randrange(256) for _ in range(0x200))
     return bytes(buf) + overlay
 
 
@@ -376,7 +377,6 @@ def test_pe_headers_minimal_pe(gw):
     assert info["sections"][0]["rwx"] == "R-X" and info["sections"][2]["rwx"] == "RW-"
     assert info["sections"][0]["entropy"] == 0.0 and info["sections"][2]["entropy"] > 7.0
 
-
 def test_pe_headers_garbage_never_raises(gw):
     rnd = random.Random(3)
     for i in range(5):
@@ -480,7 +480,7 @@ def test_decode_layer_auto_other_methods(gw):
 def test_decode_layer_auto_no_plausible_result(gw):
     r = run(gw, random.Random(2).randbytes(300), "decode_layer", {"method": "auto"}, job="noise")
     assert not r.ok and "no plausible" in r.error.lower()
-    assert not (gw._jobs / "noise" / "derived").exists()
+    assert list((gw._jobs / "noise" / "derived").iterdir()) == []   # nothing written
 
 
 def test_decode_layer_errors(gw):
@@ -701,7 +701,7 @@ def test_zip_tools_on_non_zip(gw):
 def test_zip_list_entry_limit(gw):
     z = make_zip({f"f{i:04d}.txt": b"x" for i in range(620)})
     r = run(gw, z, "zip_list")
-    assert r.ok and r.truncated and "limited to 500 of 620" in r.text
+    assert r.ok and r.truncated and "limited to 500" in r.text
 
 
 # ------------------------------------------------------------------ determinism

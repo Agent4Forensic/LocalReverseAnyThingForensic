@@ -821,7 +821,7 @@ class DevGateway:
         kind, preview = self._preview(out)
         L = [f"decode_layer: {used}{' (auto)' if method == 'auto' else ''} on {name} offset {offset}, "
              f"{len(chunk)} input byte(s) -> {len(out)} byte(s)",
-             f"Saved: {logical}{' (identical layer already existed)' if reused else ''}",
+             f"Saved: {logical}",
              f"SHA-256: {sha}",
              f"Result: {kind}" + (f"; magic suggests {magic[0]} ({magic[1]})" if magic else "")]
         L += pre
@@ -829,7 +829,7 @@ class DevGateway:
         L.append("Preview:")
         L.append(preview)
         meta = {"source_ref": sref, "derived": logical, "sha256": sha, "size": len(out),
-                "method": used, "result_kind": "text" if kind.endswith("text") else "binary",
+                "method": used, "reused_existing": reused, "result_kind": "text" if kind.endswith("text") else "binary",
                 "magic": magic[0] if magic else None}
         meta.update(meta_extra)
         return _Out("\n".join(L), meta)
@@ -876,13 +876,14 @@ class DevGateway:
 
     def _auto_candidates(self, chunk: bytes) -> list[dict]:
         in_pr = printable_ratio(chunk[:65536])
+        in_magic = sniff_magic(chunk)
         order = ["base64", "hex", "url", "gzip", "zlib", "rot13", "xor_single_byte"]
         cands = []
         for idx, m in enumerate(order):
             if m == "rot13" and (in_pr < 0.9 or not re.search(rb"[A-Za-z]{3}", chunk[:65536])):
                 continue
-            if m == "xor_single_byte" and in_pr >= 0.8:
-                continue
+            if m == "xor_single_byte" and alnum_space_ratio(chunk[:65536]) >= 0.75:
+                continue  # already looks like plain text
             key, note = None, ""
             try:
                 if m == "xor_single_byte":
@@ -897,6 +898,8 @@ class DevGateway:
                 continue
             score = self._score(out)
             magic = sniff_magic(out)
+            if magic is not None and in_magic is not None and magic[0] == in_magic[0]:
+                magic = None  # input already has this magic; the "decoding" changed nothing useful
             rank = score + (0.1 if m in ("base64", "hex", "url", "gzip", "zlib") else 0.0) + (0.2 if magic else 0.0)
             if m == "rot13" and not _KEYWORDS.search(out[:65536]):
                 rank *= 0.5
@@ -961,11 +964,12 @@ class DevGateway:
         with zf:
             infos = zf.infolist()
             total = len(infos)
-            L = [f"ZIP archive {name}: {total} entr{'y' if total == 1 else 'ies'}"]
+            L = [f"ZIP archive {name}: {total} entr{'y' if total == 1 else 'ies'}"
+                 + (f" (listing limited to {MAX_ZIP_ENTRIES})" if total > MAX_ZIP_ENTRIES else "")]
             usize = sum(i.file_size for i in infos)
             csize = sum(i.compress_size for i in infos)
             L.append(f"Total uncompressed: {usize} bytes, compressed: {csize} bytes")
-            L.append("idx   size       packed     crc32     name")
+            L.append("idx size packed crc32 name")
             unsafe = 0
             for idx, i in enumerate(infos[:MAX_ZIP_ENTRIES]):
                 flags = ""
@@ -974,8 +978,8 @@ class DevGateway:
                 if i.filename.startswith("/") or ".." in i.filename.split("/") or "\\" in i.filename:
                     flags += " [unsafe name]"
                     unsafe += 1
-                L.append(f"{idx:<5} {i.file_size:<10} {i.compress_size:<10} {i.CRC:08x}  "
-                         f"{clip(i.filename, 200)}{'/' if False else ''}{flags}")
+                L.append(f"{idx} {i.file_size} {i.compress_size} {i.CRC:08x} "
+                         f"{clip(i.filename, 200)}{flags}")
             if total > MAX_ZIP_ENTRIES:
                 L.append(f"[listing limited to {MAX_ZIP_ENTRIES} of {total} entries]")
             names = {i.filename for i in infos}
