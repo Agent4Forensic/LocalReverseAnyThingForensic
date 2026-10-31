@@ -11,25 +11,33 @@ steps:
     tools_hint: [zip_list]
   - id: manifest_hints
     title: Manifest and permission hints
-    goal: Read what can be read of AndroidManifest.xml (binary XML may need strings extraction) and list requested permissions, components and entry points with evidence.
-    done_when: Permissions, components and entry points are listed with evidence from AndroidManifest.xml, or a finding names the limit that blocked reading it, such as the missing manifest parser.
-    guide: AndroidManifest.xml is binary XML and zip_read_text refuses it, and compressed members are invisible to strings_extract. Try zip_read_text once; if refused, name a GAP (manifest parser missing) and use only readable members. Do not list permissions you did not see.
+    goal: Decode AndroidManifest.xml and list requested permissions, components with their exported flag and entry points with evidence.
+    done_when: Permissions, components and entry points are listed with evidence from AndroidManifest.xml, or a finding names why apk_manifest could not decode it.
+    guide: Call apk_manifest. It returns package, permissions, components and the decoded XML. Do not list permissions you did not see. Exported components are candidates for follow-up.
     priority: 120
-    tools_hint: [zip_list, zip_read_text]
+    tools_hint: [apk_manifest]
   - id: strings_endpoints
     title: Strings and endpoints
     goal: Extract strings from text members and assets; list URLs, domains, IPs, API keys-like values and command words with offsets.
     done_when: URLs, domains, IPs, key-like values and command words are listed with member and offset, or a finding states none in readable members, and a finding names members the tools could not search.
-    guide: zip_read_text reads text members such as assets/*.json, *.xml, *.txt. DEX members cannot be searched with the current tools, name that as a GAP instead of guessing endpoints.
+    guide: zip_read_text reads text members such as assets/*.json, *.xml, *.txt. For a binary member, save it with zip_extract and use strings_extract on the derived file. If jadx_decompile is offered, its search finds endpoints in code; otherwise DEX contents stay a GAP, do not guess endpoints.
     priority: 140
-    tools_hint: [zip_list, zip_read_text]
+    tools_hint: [zip_list, zip_read_text, zip_extract, strings_extract]
   - id: payload_hints
     title: Dynamic loading and embedded payloads
     goal: Look for dynamic code loading, reflection, encrypted assets and native loaders; describe what is indicated and what is not determinable without a decompiler.
     done_when: Any indications of dynamic loading, encrypted assets and native loaders are listed as hypotheses with member evidence, and a finding names what stays undeterminable without a decompiler.
     guide: Only member names and sizes are available for binary members. Say what they suggest as hypothesis and which decompiler step would settle it.
     priority: 160
-    tools_hint: [zip_list, entropy_map]
+    tools_hint: [zip_list, zip_extract, entropy_map]
+  - id: jadx_code
+    title: Decompiled code
+    goal: Decompile the app, read the entry points named in the manifest and the code behind suspicious permissions, endpoints and dynamic loading.
+    done_when: Each manifest entry point and each suspicious behaviour is backed by a quoted class and line, or a finding names what could not be decompiled.
+    guide: Call jadx_decompile without arguments for the class list (the first call can take minutes), use search for DexClassLoader, Runtime.exec, URLs and permission APIs, then read classes with class_file. Quote class and line. Decompiler output only approximates the code. Code in native libraries is not covered; extract a library with zip_extract, the platform triages it.
+    priority: 170
+    tools_hint: [jadx_decompile]
+    requires_tools: [jadx_decompile]
 required_questions:
   - What does the app do (main function)?
   - Which permissions and components are security relevant?

@@ -4,7 +4,13 @@ Gilt für den Entwicklungsrechner (Windows 11). Echte Proben gehören nicht hier
 
 ## Voraussetzungen
 
-- Windows 11, Python 3.11, Git, PowerShell
+- Windows 11, PowerShell
+- Python 3.11: `winget install --id Python.Python.3.11 --exact`
+- uv (optional, schneller als pip): `winget install --id astral-sh.uv --exact`
+- Git: `winget install --id Git.Git --exact`
+- Docker Desktop (optional, nur für Ghidra, capa, FLOSS, YARA und jadx): `winget install --id Docker.DockerDesktop --exact`, danach starten
+- Werkzeug-Images einmalig bauen (Netz nötig, ca. 3 GB, kann 10 Minuten dauern): `infra\tools\build-images.ps1` oder `scripts\start.ps1 -BuildTools`. Ohne Images oder bei gestopptem Docker läuft die Plattform mit den eigenen Python-Werkzeugen weiter; der Preflight meldet das als Warnung.
+- Testwerkzeuge: `uv pip install --python .venv\Scripts\python.exe --require-hashes -r requirements-dev.lock`
 - Ollama (portabel unter `D:\Tools\sw-analyst`, wird von `start.ps1` aus `infra/manifest.json` installiert, Hash geprüft)
 - NVIDIA-GPU. Die Modellstufe richtet sich nach dem freien VRAM (siehe unten)
 - Kein Administratorrecht im Normalbetrieb
@@ -28,7 +34,7 @@ scripts\start.ps1
 | APP | startet die Anwendung auf `127.0.0.1:8765` und öffnet das Dashboard |
 | WORKER | Statusschleife, zeigt Änderungen des Workers und des Modellservers |
 
-Schalter: `-Model`, `-Port`, `-OllamaPort`, `-NoCleanup`, `-Offline`, `-Update`, `-SkipUpdateCheck`, `-NoBrowser`.
+Schalter: `-Model`, `-Port`, `-OllamaPort`, `-NoCleanup`, `-Offline`, `-Update`, `-SkipUpdateCheck`, `-NoBrowser`, `-BuildTools`.
 
 **Modellstufen** (`infra/select-model.ps1`, nach freiem VRAM): Stufe A ab 11.000 MiB `qwen3:14b`, Stufe B ab 7.000 MiB `qwen3:8b`, sonst Stufe C `qwen3:4b` (langsam, auf Blackwell absturzgefährdet bei Teil-Offload). Mit `-Model` lässt sich ein Tag erzwingen. Die Modellwahl ist noch nicht endgültig ([ADR-0001](../adr/0001-modellwahl.md)).
 
@@ -88,6 +94,7 @@ Läuft ohne Modell und ohne GPU (Skript-Modell, harmlose Proben aus dem Speicher
 | Hash-Abweichung beim Install | Datei wurde gelöscht, nichts installiert. Pin in `infra/manifest.json` und Quelle prüfen, nicht umgehen. |
 | Dashboard-Tabs „Diagramme“, „Log“ fehlen | bekannte Lücke: `index.html` lädt Skripte, die noch nicht existieren (siehe [`../STATUS.md`](../STATUS.md)). |
 | Datei fehlt nach einem Agentenlauf | Virenscanner (G Data) hat sie kurz entfernt. `git ls-files -d` prüfen, Ausnahme ist eingetragen. |
+| `infra/tools/rules/sw_analyst.yar` fehlt in einem Worktree | G Data hält die Regeltexte für einen PowerShell-Downloader, die Ausnahme gilt nur für den Hauptpfad. Images dort nicht bauen und die Löschung nicht committen. |
 
 ## Parallelarbeit im selben Arbeitsbaum
 

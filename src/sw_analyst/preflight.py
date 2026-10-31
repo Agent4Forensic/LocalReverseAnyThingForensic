@@ -198,6 +198,20 @@ def check_docker() -> dict:
     return result("docker", WARN, "Daemon nicht erreichbar (optional)", "Docker Desktop starten, falls Container gebraucht werden")
 
 
+def check_tool_images(manifest: dict) -> list[dict]:
+    """Optional images of ADR-0006 package B. Without Docker there is nothing to ask; check_docker already says so."""
+    probe = _run(["docker", "info", "--format", "{{.ServerVersion}}"], 15) if shutil.which("docker") else None
+    if not probe or probe.returncode != 0:
+        return []
+    out = []
+    for key, tag in manifest.get("tool_images", {}).items():
+        r = _run(["docker", "image", "inspect", "--format", "{{.Id}}", tag], 15)
+        ok = bool(r and r.returncode == 0)
+        out.append(result(f"image:{key}", OK if ok else WARN, f"{tag} {'vorhanden' if ok else 'fehlt (Werkzeuge bleiben aus)'}",
+                          "powershell -File infra\\tools\\build-images.ps1 (einmalig online)"))
+    return out
+
+
 def gpu_free_mib() -> tuple[int, int, str] | None:
     r = _run(["nvidia-smi", "--query-gpu=name,memory.total,memory.used", "--format=csv,noheader,nounits"])
     if not r or r.returncode != 0 or not r.stdout.strip():
@@ -387,6 +401,7 @@ def run_checks(root: str | Path, data_dir: str | Path, app_port: int = 8765, oll
     res = check_platform()
     res += check_lock(root / "requirements.lock")
     res.append(check_docker())
+    res += check_tool_images(manifest)
     res.append(check_gpu())
     res += check_ram()
     res += check_ports({"app": app_port, "ollama": ollama_port}, data_dir / "run",

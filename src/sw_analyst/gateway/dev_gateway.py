@@ -21,6 +21,7 @@ import os
 import re
 import time
 import zipfile
+import zlib
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -29,9 +30,10 @@ from typing import Any, Callable, Optional
 from sw_analyst.common.models import ToolResult, ToolSpec
 from sw_analyst.gateway.base import ToolError
 from sw_analyst.gateway.dev_tools import decoders
+from sw_analyst.gateway.dev_tools.axml import AxmlError, parse_axml
 from sw_analyst.gateway.dev_tools.decoders import DecodeError
 from sw_analyst.gateway.dev_tools.filetype import identify, sniff_magic
-from sw_analyst.gateway.dev_tools.pe import format_pe, parse_pe
+from sw_analyst.gateway.dev_tools.pe import format_pe, parse_pe, parse_resources
 from sw_analyst.gateway.dev_tools.regex_guard import check_pattern
 from sw_analyst.gateway.dev_tools.scripts import (
     detect_language, find_indicators, indicator_description, MAX_INDICATORS)
@@ -39,7 +41,8 @@ from sw_analyst.gateway.dev_tools.util import (
     alnum_space_ratio, clip, decode_text_bytes, entropy_from_counts, hex_bytes, hexdump,
     looks_utf16le, printable_ratio, split_lines)
 
-TOOL_VERSION = "dev-1"
+TOOL_VERSION = "dev-2"
+MAX_KEYS_PER_JOB = 5                         # ADR-0006: keys come from evidence, trying key lists is not allowed
 MAX_SAMPLE_BYTES = 64 * 1024 * 1024
 MAX_OUTPUT_CHARS = 20000
 MAX_READ_LINES = 400
@@ -104,6 +107,7 @@ class _Out:
     truncated: bool = False
     ok: bool = True
     error: str = ""
+    version: str = ""       # container tools report their own version and image id as evidence
 
 
 @dataclass
@@ -245,6 +249,8 @@ class DevGateway:
         self._data_dir = Path(data_dir)
         self._jobs = self._data_dir / "jobs"
         self._hash_cache: dict[tuple, str] = {}
+        # shortcut: in memory, a restart resets the count; persist it when jobs survive restarts
+        self._keys_used: dict[str, set[bytes]] = {}
         self._tools: dict[str, _Tool] = {}
         self._register_tools()
 
@@ -379,10 +385,13 @@ class DevGateway:
             note = f"\n[output truncated at {MAX_OUTPUT_CHARS} characters; narrow the request]"
             text = text[:MAX_OUTPUT_CHARS - len(note)] + note
             trunc = True
+        # Container JSON can carry lone surrogates ("\\ud800"), which would break hashing and storage of the evidence.
+        text = text.encode("utf-8", "replace").decode("utf-8")
+        version = out.version or TOOL_VERSION
         if not out.ok:
-            return ToolResult(ok=False, text=text, tool_version=TOOL_VERSION, meta=out.meta,
-                              error=out.error or "tool failed", truncated=trunc)
-        return ToolResult(ok=True, text=text, tool_version=TOOL_VERSION, meta=out.meta, truncated=trunc)
+            error = (out.error or "tool failed").encode("utf-8", "replace").decode("utf-8")
+            return ToolResult(ok=False, text=text, tool_version=version, meta=out.meta, error=error, truncated=trunc)
+        return ToolResult(ok=True, text=text, tool_version=version, meta=out.meta, truncated=trunc)
 
     @staticmethod
     def _validate_args(tool: _Tool, args: Any, ctx: _Ctx) -> dict:
@@ -488,16 +497,40 @@ class DevGateway:
             "concatenations, download/exec APIs).",
             {"path": _PATH}, self._t_script_detect)
         reg("decode_layer",
-            "Decode data (never executes it) and save the result as derived/layerNN.bin. Methods: base64, hex, "
-            "url, rot13, xor_single_byte, gzip, zlib, auto (tries plausible methods and lists candidates with "
-            "scores). Returns a preview, the SHA-256 and meta.derived.",
+            "Decode data (never executes it) and save the result as derived/layerNN.bin. Methods: base64, base32, "
+            "base85, hex, url, rot13, charcode, xor_single_byte, xor_key, rc4, gzip, zlib, auto (tries plausible "
+            "methods and lists candidates with scores). Returns a preview, the SHA-256 and meta.derived.",
             {"path": _PATH,
-             "method": _p("str", "base64|hex|url|rot13|xor_single_byte|gzip|zlib|auto.", required=True),
+             "method": _p("str", "base64|base32|base85|hex|url|rot13|charcode|xor_single_byte|xor_key|rc4|gzip|zlib|auto.",
+                          required=True),
              "offset": _p("int", "Start offset of the input slice.", default=0, min=0),
              "length": _p("int", "Length of the input slice; 0 = until end (max 8 MiB).", default=0, min=0),
              "key": _p("int", "xor_single_byte only: key 0-255, -1 = pick the best automatically.",
-                       default=-1, min=-1, max=255)},
+                       default=-1, min=-1, max=255),
+             "key_hex": _p("str", "xor_key and rc4 only: key as hex digits, max 64 bytes. It must come from evidence you "
+                                  f"already hold; at most {MAX_KEYS_PER_JOB} different keys per job, do not try key lists.",
+                           default="")},
             self._t_decode_layer)
+        reg("extract_range",
+            "Save a byte range (overlay, resource, embedded file) as derived/layerNN.bin so the platform can triage it. "
+            "Nothing is executed. Returns the SHA-256, the magic and a preview.",
+            {"offset": _p("int", "Start offset in bytes.", required=True, min=0),
+             "length": _p("int", "Number of bytes (max 8 MiB).", required=True, min=1, max=MAX_DECODE_INPUT),
+             "path": _PATH},
+            self._t_extract_range)
+        reg("zip_extract",
+            "Save one member of a ZIP/APK/JAR as derived/layerNN.bin (max 8 MiB, the gateway picks the name). "
+            "Nothing is executed. Returns the SHA-256, the magic and a preview.",
+            {"member": _p("str", "Exact member name as shown by zip_list.", required=True), "path": _PATH},
+            self._t_zip_extract)
+        reg("pe_resources",
+            "List the PE resource tree: type/name/language, file offset, size, entropy and first bytes. "
+            "Use extract_range with the offset and size to look inside a resource.",
+            {"path": _PATH}, self._t_pe_resources)
+        reg("apk_manifest",
+            "Decode the binary AndroidManifest.xml of an APK (or a derived binary XML file) to text and list package, "
+            "permissions and components with their exported flag.",
+            {"path": _PATH}, self._t_apk_manifest)
         reg("pe_headers",
             "Parse PE headers with an own parser: machine, timestamp, subsystem, entry point, image base, "
             "sections (size, flags, entropy), overlay, imports (max 300 functions) and exports.",
@@ -769,7 +802,8 @@ class DevGateway:
             truncated=timed_out or len(hits) > MAX_INDICATORS)
 
     # ------------------------------------------------------------------ tools: decode_layer
-    METHODS = ("base64", "hex", "url", "rot13", "xor_single_byte", "gzip", "zlib", "auto")
+    METHODS = ("base64", "base32", "base85", "hex", "url", "rot13", "charcode", "xor_single_byte", "xor_key", "rc4",
+               "gzip", "zlib", "auto")
 
     def _t_decode_layer(self, ctx: _Ctx, a: dict) -> _Out:
         method = a["method"].strip().lower()
@@ -810,7 +844,10 @@ class DevGateway:
                 meta_extra["xor_key"] = chosen["key"]
         else:
             used = method
-            out, extra, kv = self._apply(method, chunk, a["key"])
+            if method in decoders.KEYED:
+                out, extra, kv = self._apply_keyed(ctx.job_id, method, chunk, a["key_hex"])
+            else:
+                out, extra, kv = self._apply(method, chunk, a["key"])
             meta_extra.update(kv)
         if not out:
             raise ToolError("Decoding produced no data")
@@ -873,6 +910,117 @@ class DevGateway:
             return decoders.SIMPLE[method](chunk), [], {}
         except DecodeError as exc:
             raise ToolError(f"{method} decoding failed: {exc}") from None
+
+    def _apply_keyed(self, job_id: str, method: str, chunk: bytes, key_hex: str) -> tuple[bytes, list[str], dict]:
+        try:
+            key = decoders.parse_key_hex(key_hex)
+        except DecodeError as exc:
+            raise ToolError(f"{method}: {exc}") from None
+        used = self._keys_used.setdefault(job_id, set())
+        if key not in used and len(used) >= MAX_KEYS_PER_JOB:
+            raise ToolError(f"Limit of {MAX_KEYS_PER_JOB} different keys per job reached. Keys must come from evidence; "
+                            "trying key lists is not allowed. Name the missing key as a gap.")
+        used.add(key)
+        return decoders.KEYED[method](chunk, key), [f"Key (hex): {key.hex()}"], {"key_hex": key.hex()}
+
+    def _artifact_out(self, ctx: _Ctx, data: bytes, head: str, sref: dict, extra: Optional[dict] = None) -> _Out:
+        logical, sha, reused = ctx.write_layer(data)
+        magic = sniff_magic(data)
+        kind, preview = self._preview(data)
+        text = "\n".join([head, f"Saved: {logical}", f"SHA-256: {sha}",
+                          f"Result: {kind}" + (f"; magic suggests {magic[0]} ({magic[1]})" if magic else ""),
+                          "Preview:", preview])
+        return _Out(text, {"source_ref": sref, "derived": logical, "sha256": sha, "size": len(data),
+                           "reused_existing": reused, "magic": magic[0] if magic else None, **(extra or {})})
+
+    def _t_extract_range(self, ctx: _Ctx, a: dict) -> _Out:
+        offset, length = a["offset"], a["length"]
+        chunk, size, name = ctx.read_range(a["path"], offset, length)
+        if offset >= size:
+            raise ToolError(f"Offset {offset} is beyond end of file (size {size})")
+        return self._artifact_out(ctx, chunk, f"extract_range: {len(chunk)} byte(s) of {name} at offset 0x{offset:x}",
+                                  {"file": name, "offset": offset, "length": len(chunk)})
+
+    @staticmethod
+    def _check_member(member: str) -> None:
+        if (member.startswith("/") or member.startswith("\\") or "\\" in member or ":" in member
+                or ".." in member.split("/")):
+            raise ToolError("Member name rejected: absolute paths, drive letters, backslashes and '..' "
+                            "are not allowed")
+
+    def _read_member(self, ctx: _Ctx, logical: Any, member: str) -> tuple[bytes, str, zipfile.ZipInfo]:
+        """One archive member in memory. file_size in the archive can lie, so the read itself is bounded."""
+        self._check_member(member)
+        zf, name = self._open_zip(ctx, logical)
+        with zf:
+            try:
+                info = zf.getinfo(member)
+            except KeyError:
+                raise ToolError(f"Member '{clip(member, 100)}' not found in archive; use zip_list") from None
+            if info.is_dir():
+                raise ToolError(f"Member '{clip(member, 100)}' is a directory")
+            if info.flag_bits & 1:
+                raise ToolError(f"Member '{clip(member, 100)}' is encrypted")
+            try:
+                with zf.open(info) as f:
+                    raw = f.read(MAX_DECODE_INPUT + 1)
+            except (zipfile.BadZipFile, NotImplementedError, RuntimeError, OSError, EOFError, ValueError, zlib.error):
+                raise ToolError(f"Member '{clip(member, 100)}' cannot be read (corrupt or unsupported)") from None
+        if len(raw) > MAX_DECODE_INPUT:
+            raise ToolError(f"Member '{clip(member, 100)}' exceeds the {MAX_DECODE_INPUT // (1024 * 1024)} MiB limit "
+                            "(possible decompression bomb)")
+        return raw, name, info
+
+    def _t_zip_extract(self, ctx: _Ctx, a: dict) -> _Out:
+        raw, name, _info = self._read_member(ctx, a["path"], a["member"])
+        if not raw:
+            raise ToolError(f"Member '{clip(a['member'], 100)}' is empty")
+        return self._artifact_out(ctx, raw, f"zip_extract: {name}!{clip(a['member'], 200)}, {len(raw)} byte(s)",
+                                  {"file": name, "member": a["member"]}, {"member": a["member"]})
+
+    def _t_pe_resources(self, ctx: _Ctx, a: dict) -> _Out:
+        data, name = ctx.read_all(a["path"])
+        info = parse_pe(data)
+        sref = {"file": name, "offset": 0, "length": min(len(data), 64)}
+        if not info.get("is_pe"):
+            msg = f"Not a valid PE file: {info.get('error') or 'unknown error'}"
+            return _Out(msg, {"source_ref": sref}, ok=False, error=msg)
+        tree = parse_resources(data, info)
+        res = tree["resources"]
+        L = [f"PE resources of {name}: {len(res)} found"]
+        if res:
+            L.append("path | file offset | size | entropy | first bytes")
+        for r in res:
+            off = "unmapped" if r["file_offset"] is None else f"0x{r['file_offset']:x}"
+            flag = " [extends beyond file]" if r["truncated"] else ""
+            entropy = "n/a" if r["entropy"] is None else f"{r['entropy']:.3f}"
+            L.append(f"{r['path']} | {off} | {r['size']} | {entropy} | {r['head'].hex()}{flag}")
+        L += [f"[warning] {w}" for w in tree["warnings"]]
+        rows = [{k: v for k, v in r.items() if k != "head"} for r in res[:100]]
+        return _Out("\n".join(L), {"source_ref": sref, "count": len(res), "resources": rows})
+
+    def _t_apk_manifest(self, ctx: _Ctx, a: dict) -> _Out:
+        data, name = ctx.read_all(a["path"])
+        if data[:2] == b"PK":
+            raw, _name, _info = self._read_member(ctx, a["path"], "AndroidManifest.xml")
+            sref = {"file": name, "member": "AndroidManifest.xml"}
+        else:
+            raw, sref = data, {"file": name, "offset": 0, "length": len(data)}
+        try:
+            mf = parse_axml(raw)
+        except AxmlError as exc:
+            msg = f"AndroidManifest could not be decoded: {exc}"
+            return _Out(msg, {"source_ref": sref}, ok=False, error=msg)
+        L = [f"Package: {mf['package'] or '(not stated)'}", f"Permissions ({len(mf['permissions'])}):"]
+        L += [f"  {p}" for p in mf["permissions"]]
+        L.append(f"Components ({len(mf['components'])}):")
+        L += [f"  {c['kind']} {c['name']} exported={c['exported'] if c['exported'] is not None else 'unset'}"
+              for c in mf["components"]]
+        L += ["Manifest:", mf["xml"]]
+        if mf["truncated"]:
+            L.append("[manifest is longer than the parser limit: later elements are not listed]")
+        return _Out("\n".join(L), {"source_ref": sref, "package": mf["package"], "permissions": mf["permissions"][:200],
+                                   "components": mf["components"][:200]}, truncated=mf["truncated"])
 
     def _auto_candidates(self, chunk: bytes) -> list[dict]:
         in_pr = printable_ratio(chunk[:65536])
@@ -999,10 +1147,7 @@ class DevGateway:
 
     def _t_zip_read_text(self, ctx: _Ctx, a: dict) -> _Out:
         member, max_chars = a["member"], a["max_chars"]
-        if (member.startswith("/") or member.startswith("\\") or "\\" in member or ":" in member
-                or ".." in member.split("/")):
-            raise ToolError("Member name rejected: absolute paths, drive letters, backslashes and '..' "
-                            "are not allowed")
+        self._check_member(member)
         zf, name = self._open_zip(ctx, a["path"])
         with zf:
             try:

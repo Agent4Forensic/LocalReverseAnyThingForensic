@@ -2,7 +2,7 @@
 
 Lokale, offline lauffähige KI-Plattform zur **statischen** Analyse unbekannter Software (Windows-EXE, Android-APK, Skripte). Sie nimmt eine Datei entgegen, analysiert sie **ohne sie auszuführen** und schreibt einen belegten Bericht. Zielfragen des Nutzers werden garantiert beantwortet, danach wird schrittweise erweitert.
 
-> **Status: Vorabversion (v0.1, in Entwicklung).** Der Kern läuft und ist getestet. Ghidra, Wissensdatenbank, Hyper-V-Isolation und dynamische Analyse sind noch offen (siehe [Umsetzungsstand](#umsetzungsstand)). Aktueller Stand pro Aufgabe: [`docs/STATUS.md`](docs/STATUS.md).
+> **Status: Vorabversion (v0.1, in Entwicklung).** Der Kern läuft und ist getestet. Ghidra, capa, FLOSS, YARA und jadx laufen in offline Containern. Wissensdatenbank, Hyper-V-Isolation und dynamische Analyse sind noch offen (siehe [Umsetzungsstand](#umsetzungsstand)). Aktueller Stand pro Aufgabe: [`docs/STATUS.md`](docs/STATUS.md).
 
 ## Was das Projekt können soll
 
@@ -28,7 +28,8 @@ flowchart LR
     RUN <-->|Prompt / JSON-Aktion| LLM[Ollama<br/>lokales Modell]
     RUN --> G{{Guard<br/>Prompt-Schutz}}
     G --> GW[Gateway<br/>Allowlist, Pfad-Jail]
-    GW --> T[Statische Werkzeuge]
+    GW --> T[Eigene Python-Werkzeuge]
+    GW --> TC[Container ohne Netz<br/>Ghidra, capa, FLOSS, YARA, jadx]
     RUN --> V[Prüfer<br/>Zitat gegen Evidence]
     V --> EV[Bewerter / Priorisierer]
     EV --> Q
@@ -65,12 +66,30 @@ flowchart TD
 | Modell | Ollama (lokal, Port 11435), Modell per `infra/manifest.json` gepinnt; austauschbarer Client, `ScriptedLLM` für Tests |
 | Orchestrator | Engine, Worker, Task-Runner, Prüfer, Rezepte als YAML (`orchestrator/`, `recipes/`) |
 | Sicherheit | Guard (Scanner, Sanitizer, Aktions-Validierung), Gateway mit Allowlist und Pfad-Jail (`guard/`, `gateway/`) |
-| Analyse-Werkzeuge | Dev-Gateway: Dateityp, PE-Parser, Dekoder (Base64/Hex/URL), Entropie, Strings, Muster, Skript-Erkennung |
+| Analyse-Werkzeuge | 17 eigene Python-Werkzeuge im Gateway, dazu 9 Werkzeuge in gepinnten Docker-Images ([Liste](#werkzeuge)) |
 | Bericht | Markdown-Bericht, Defanging, Übersetzung mit Glossar und Cache (`report/`, `translate/`) |
 | Betrieb | PowerShell-Skripte `scripts/start.ps1`, `stop.ps1`, `cleanup.ps1`; Installation nur aus gepinnten, gehashten Quellen |
 | Abhängigkeiten | `requirements.lock` mit `--require-hashes`, Wheelhouse in `vendor/` |
 
-Verzeichnisse: `src/` Code · `tests/` Tests · `docs/` Architektur, ADRs, Blueprint, Sicherheit · `infra/` Manifest und Prüfskripte · `scripts/` Start/Stopp · `example/` Beispielfälle zum Evaluieren.
+Verzeichnisse: `src/` Code · `tests/` Tests · `docs/` Architektur, ADRs, Blueprint, Sicherheit · `infra/` Manifest, Prüfskripte, Werkzeug-Images · `scripts/` Start/Stopp · `example/` Beispielfälle zum Evaluieren.
+
+## Werkzeuge
+
+Das Modell erreicht nur diese Allowlist ([ADR-0006](docs/adr/0006-statische-werkzeuge-allowlist.md)). Alle Werkzeuge lesen nur, keines startet die Probe.
+
+| Bereich | Werkzeuge | Läuft |
+|---|---|---|
+| Datei | `sample_info`, `hash_file`, `identify_type`, `entropy_map`, `strings_extract`, `hexdump`, `read_lines`, `grep` | Python |
+| Skripte, Dekodieren | `script_detect`, `decode_layer` (Base64, Base32, Base85, Hex, URL, ROT13, Zeichencodes, XOR, RC4, gzip, zlib), `extract_range` | Python |
+| PE | `pe_headers`, `pe_resources` | Python |
+| ZIP, APK | `zip_list`, `zip_read_text`, `zip_extract`, `apk_manifest` | Python |
+| Code | `list_functions`, `disassemble`, `decompile`, `xrefs`, `basic_blocks` | Container: Ghidra 12.1.4 |
+| Fähigkeiten, Strings | `capa_scan`, `yara_scan`, `floss_decode` | Container: capa 10.0.0, yara-x 1.22.1, FLOSS 3.2.0 |
+| Android-Code | `jadx_decompile` | Container: jadx 1.5.6 |
+
+Treffer von capa und YARA gelten als Hypothese, bis Code sie belegt. Ohne Docker oder ohne gebaute Images fehlen die Container-Werkzeuge in der Allowlist, und die Plattform läuft mit den Python-Werkzeugen weiter.
+
+**MCP:** Das Gateway ist eine interne Allowlist in Python, kein MCP-Server. Deshalb gibt es keine `.mcp.json`, und Fremdwerkzeuge sind bewusst nicht direkt für KI-Clients eingetragen, weil sie sonst am Gateway vorbei auf dem Host liefen. Noch nicht eingebunden: REA (zurückgestellt), apktool, radare2, binwalk.
 
 ## Sicherheitsmodell
 
@@ -80,13 +99,14 @@ Verzeichnisse: `src/` Code · `tests/` Tests · `docs/` Architektur, ADRs, Bluep
 4. **Belegzwang.** Antworten beruhen nur auf `confirmed` Findings.
 5. **Audit-Kette.** Jeder Aufruf wird hash-verkettet protokolliert; Manipulation ist prüfbar.
 6. **Aufräumen.** Start und Stopp entfernen nur eigene Prozesse, Scratch-Dateien und mit `sw-analyst` gelabelte Docker-Objekte.
-7. **Geplant:** echte Proben nur in einer Hyper-V-VM ohne Netzwerkkarte, Werkzeuge in Docker (`--network none`, read-only, `--cap-drop ALL`).
+7. **Container.** Fremdwerkzeuge laufen mit `--network none`, read-only, `--cap-drop ALL`, ohne Root und ohne Hostmount, mit Speicher-, CPU- und Prozesslimit. Die Probe kommt über stdin in ein `noexec`-tmpfs. Kein Modelltext erreicht den Container.
+8. **Geplant:** echte Proben nur in einer Hyper-V-VM ohne Netzwerkkarte. Die Container auf dem Entwicklungsrechner ersetzen sie nicht, dort sind nur harmlose Proben erlaubt.
 
 Restrisiko: Eine VM-Flucht lässt sich nie ganz ausschließen. Echte Schadsoftware gehört auf einen dedizierten Rechner ohne Anbindung an Produktivnetze. Details: [`PROJEKTPLAN.md`](PROJEKTPLAN.md) Abschnitt 2.
 
 ## Umsetzungsstand
 
-Belegt durch Tests (469 Tests, alle grün: Unit, Sicherheit, forensische Kettenprüfung, CTF-Kette mit Skript-Modell). Der erste Lauf mit echtem Modell im Browser steht noch aus.
+Belegt durch Tests (999 Tests, alle grün: Unit, Sicherheit, forensische Kettenprüfung, CTF-Kette mit Skript-Modell). Der erste Lauf mit echtem Modell im Browser steht noch aus.
 
 ```mermaid
 flowchart LR
@@ -100,29 +120,35 @@ flowchart LR
     E[Start/Stopp/Cleanup]:::done
     F[Dashboard-MVP]:::part
     G[Echter Modelllauf<br/>CTF-Probe]:::part
-    H[Ghidra, REA,<br/>Disassembler]:::open
+    H[Ghidra, capa, FLOSS,<br/>YARA, jadx im Container]:::done
+    L[REA, apktool,<br/>radare2, binwalk]:::open
     I[Wissensdatenbank,<br/>Obsidian-Vault]:::open
     J[Hyper-V-Isolation]:::open
     K[Dynamische Analyse<br/>ADR nötig]:::open
     A --> B --> C --> D
     B --> E
     D --> F --> G
-    G -.-> H
+    C --> H
+    H -.-> L
     G -.-> I
     G -.-> J -.-> K
 ```
 
 | Stand | Inhalt |
 |---|---|
-| Fertig | Kern, Orchestrator, Guard, Dev-Gateway, Bericht und Defanging, Übersetzung, Start/Stopp/Cleanup, Tests |
-| Teilweise | Dashboard (Ansichten Übersicht, Auftrag, Code, Bericht; Tabs Diagramme/Log/Guard und Layout offen), erster echter Modelllauf, Ghidra-/REA-Audit ohne Image |
-| Offen | Ghidra-Image und Disassembler-Tools, Wissensdatenbank, Obsidian-Vault-Writer, Hyper-V-VM, forensische Testblöcke, Modell-Benchmark |
+| Fertig | Kern, Orchestrator, Guard, Dev-Gateway, Container-Werkzeuge (ADR-0006), Bericht und Defanging, Übersetzung, Start/Stopp/Cleanup, Tests |
+| Teilweise | Dashboard (Ansichten Übersicht, Auftrag, Code, Bericht; Tabs Diagramme/Log/Guard und Layout offen), erster echter Modelllauf; Container-Werkzeuge sind einzeln getestet, aber noch nicht in einem Modelllauf gemessen |
+| Offen | REA (zurückgestellt), apktool, radare2, binwalk, Wissensdatenbank, Obsidian-Vault-Writer, Hyper-V-VM, forensische Testblöcke, Modell-Benchmark |
 | Nur Entwurf | Dynamische Analyse (braucht ADR-0005 und ausdrückliche Freigabe) |
 
 ## Voraussetzungen
 
-- Windows 11, Python 3.11, Git
-- Docker Desktop (für spätere Werkzeug-Container), Ollama
+- Windows 11
+- Python 3.11: `winget install --id Python.Python.3.11 --exact`
+- uv (optional, schneller als pip): `winget install --id astral-sh.uv --exact`
+- Git: `winget install --id Git.Git --exact`
+- Docker Desktop (optional, nur für die Container-Werkzeuge): `winget install --id Docker.DockerDesktop --exact`
+- Ollama installiert `start.ps1` selbst in der gepinnten Version mit Hash-Prüfung
 - NVIDIA-GPU mit 16 GB VRAM (Entwicklung auf RTX 5060 Ti), Limit 24 GB RAM für WSL/Docker/Modelle zusammen
 - Kein Administratorrecht für den Normalbetrieb (Hyper-V-Einrichtung später schon)
 
@@ -133,8 +159,16 @@ scripts\start.ps1          # prüft, installiert aus Pins, startet Ollama und Ap
 scripts\stop.ps1           # beendet alles und räumt eigene Reste auf
 ```
 
-Schalter `start.ps1`: `-NoCleanup`, `-Offline`, `-Update`, `-SkipUpdateCheck`, `-NoBrowser`, `-Model`, `-Port`, `-OllamaPort`.
-Tests: `.venv\Scripts\python.exe -m pytest`. Beispielfälle mit automatischer Prüfung des Berichts: `example\start_eval.ps1` (Menü, siehe [`example/README.md`](example/README.md)).
+Was `start.ps1` selbst installiert: `.venv` mit `requirements.lock`, Ollama und das Chat-Modell. Das Embedding-Modell nennt es nur, weil erst die geplante Wissensdatenbank es braucht. Für fehlende Programme, die es nicht selbst installieren kann, nennt es im Log den Befehl. `infra\verify-prereqs.ps1` prüft alle Voraussetzungen, ohne etwas zu ändern.
+
+Container-Werkzeuge einmalig bauen (Docker muss laufen, Netz nötig, ca. 3 GB, bis zu 10 Minuten):
+
+```powershell
+scripts\start.ps1 -BuildTools     # oder allein: infra\tools\build-images.ps1
+```
+
+Schalter `start.ps1`: `-NoCleanup`, `-Offline`, `-Update`, `-SkipUpdateCheck`, `-NoBrowser`, `-BuildTools`, `-Model`, `-Port`, `-OllamaPort`.
+Tests: einmalig `uv pip install --python .venv\Scripts\python.exe --require-hashes -r requirements-dev.lock`, dann `.venv\Scripts\python.exe -m pytest`. Die Tests der echten Images werden ohne Docker übersprungen. Beispielfälle mit automatischer Prüfung des Berichts: `example\start_eval.ps1` (Menü, siehe [`example/README.md`](example/README.md)).
 
 ## Weiterlesen
 

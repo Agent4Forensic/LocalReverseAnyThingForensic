@@ -9,10 +9,13 @@ function Add-Result([string]$Name, [string]$State, [string]$Detail) {
 }
 
 function Test-Cmd([string]$Name) { return [bool](Get-Command $Name -ErrorAction SilentlyContinue) }
+$installHint = @{ git = 'winget install --id Git.Git --exact'; python = 'winget install --id Python.Python.3.11 --exact'
+    uv = 'winget install --id astral-sh.uv --exact'; docker = 'winget install --id Docker.DockerDesktop --exact'
+    ollama = 'scripts\start.ps1 installs the pinned version under D:\Tools\sw-analyst (not in PATH, that is fine)' }
 
 # --- Tools
 foreach ($c in 'git', 'python', 'node', 'docker', 'ollama', 'java', 'uv', 'graphify', 'claude') {
-    if (Test-Cmd $c) { Add-Result "tool:$c" 'PASS' (Get-Command $c).Source } else { Add-Result "tool:$c" 'FAIL' 'not found in PATH' }
+    if (Test-Cmd $c) { Add-Result "tool:$c" 'PASS' (Get-Command $c).Source } else { Add-Result "tool:$c" 'FAIL' ("not found in PATH" + $(if ($installHint[$c]) { "; $($installHint[$c])" } else { '' })) }
 }
 
 # --- Hardware
@@ -43,7 +46,11 @@ if ($LASTEXITCODE -eq 0) {
     Add-Result 'docker:daemon' 'PASS' 'reachable'
     $rt = docker info --format '{{json .Runtimes}}' 2>$null
     Add-Result 'docker:nvidia-runtime' $(if ($rt -match 'nvidia') { 'PASS' } else { 'FAIL' }) 'runtime list checked'
-} else { Add-Result 'docker:daemon' 'FAIL' 'daemon not reachable' }
+    foreach ($tag in (Get-Content (Join-Path (Split-Path -Parent $PSScriptRoot) 'infra\manifest.json') -Raw | ConvertFrom-Json).tool_images.PSObject.Properties.Value) {
+        docker image inspect $tag 2>$null | Out-Null
+        Add-Result "docker:image:$tag" $(if ($LASTEXITCODE -eq 0) { 'PASS' } else { 'WARN' }) 'build with infra\tools\build-images.ps1'
+    }
+} else { Add-Result 'docker:daemon' 'FAIL' 'daemon not reachable; start Docker Desktop' }
 
 # --- Ollama
 try {

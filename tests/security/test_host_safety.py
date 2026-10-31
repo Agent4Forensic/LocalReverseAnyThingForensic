@@ -14,12 +14,18 @@ from sw_analyst.llm.ollama import OllamaClient
 
 ROOT = Path(sw_analyst.__file__).parent
 ALLOWLIST = {"sample_info", "hash_file", "identify_type", "entropy_map", "strings_extract", "hexdump", "read_lines",
-             "grep", "script_detect", "decode_layer", "pe_headers", "zip_list", "zip_read_text"}
+             "grep", "script_detect", "decode_layer", "pe_headers", "zip_list", "zip_read_text",
+             "extract_range", "zip_extract", "pe_resources", "apk_manifest"}     # ADR-0006 package A
 # Everything the model loop runs through. hostguard, preflight and __main__ are outside: the model cannot call them.
 MODEL_REACHABLE = ["gateway", "guard", "orchestrator", "prompts", "report", "translate", "llm"]
 FORBIDDEN_IMPORTS = {"subprocess", "socket", "ctypes", "multiprocessing", "pty", "shutil", "http", "ftplib", "smtplib",
                      "webbrowser", "winreg", "importlib", "runpy", "pickle", "marshal"}
 FORBIDDEN_CALLS = {"eval", "exec", "compile", "__import__", "system", "popen", "startfile", "spawnv", "execv"}
+
+
+def _allowed_imports(path: Path) -> set[str]:
+    # ADR-0006 package B: the one module that starts anything; test_container_runner.py pins what it can start.
+    return {"subprocess"} if path.relative_to(ROOT).as_posix() == "gateway/container_runner.py" else set()
 
 
 def _modules():
@@ -31,9 +37,9 @@ def _modules():
 def test_model_reachable_code_cannot_start_anything(path):
     for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
         if isinstance(node, ast.Import):
-            assert not {a.name.split(".")[0] for a in node.names} & FORBIDDEN_IMPORTS
+            assert not {a.name.split(".")[0] for a in node.names} & (FORBIDDEN_IMPORTS - _allowed_imports(path))
         elif isinstance(node, ast.ImportFrom):
-            assert (node.module or "").split(".")[0] not in FORBIDDEN_IMPORTS
+            assert (node.module or "").split(".")[0] not in FORBIDDEN_IMPORTS - _allowed_imports(path)
         elif isinstance(node, ast.Call):
             name = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", "")
             if name == "compile":      # re.compile is fine, the builtin is not
