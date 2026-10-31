@@ -76,6 +76,11 @@ class JobSpec(BaseModel):
     budget_max_tasks: int = 60
     budget_max_steps: int = 600
     budget_max_minutes: int = 120
+    # English versions used by the AI (filled by the translation pipeline at job start)
+    title_en: str = ""
+    description_en: str = ""
+    context_info_en: str = ""
+    focus_en: str = ""
 
 
 class ToolSpec(BaseModel):

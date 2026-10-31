@@ -1,0 +1,17 @@
+id: generic
+description: Fallback recipe for unknown or plain-text files.
+detect: {types: [unknown, text]}
+steps:
+  - id: structure
+    title: Describe file structure and content class
+    goal: Establish what kind of data the file contains (text, binary, container) using hexdump, entropy_map and strings_extract, and summarise notable regions with offsets.
+    priority: 100
+    tools_hint: [hexdump, entropy_map, strings_extract]
+  - id: indicators
+    title: Extract indicators and notable strings
+    goal: List URLs, domains, IP addresses, file paths, registry paths, e-mail addresses, commands and credentials-like strings found in the file, each with its offset or line.
+    priority: 110
+    tools_hint: [strings_extract, grep]
+required_questions:
+  - What is this file and what is it used for?
+  - Which indicators of compromise can be derived statically?

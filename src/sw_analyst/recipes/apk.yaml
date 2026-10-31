@@ -1,0 +1,28 @@
+id: apk
+description: Android packages. Static analysis only.
+detect: {types: [apk]}
+steps:
+  - id: container
+    title: APK container structure
+    goal: List archive members, identify classes*.dex, native libraries (lib/<abi>), assets and signature files, and note anomalies (extra dex, encrypted assets, odd names).
+    priority: 100
+    tools_hint: [zip_list]
+  - id: manifest_hints
+    title: Manifest and permission hints
+    goal: Read what can be read of AndroidManifest.xml (binary XML may need strings extraction) and list requested permissions, components and entry points with evidence.
+    priority: 120
+    tools_hint: [zip_read_text, strings_extract]
+  - id: strings_endpoints
+    title: Strings and endpoints
+    goal: Extract strings from dex and assets; list URLs, domains, IPs, API keys-like values and command words with offsets.
+    priority: 140
+    tools_hint: [strings_extract, grep]
+  - id: payload_hints
+    title: Dynamic loading and embedded payloads
+    goal: Look for dynamic code loading, reflection, encrypted assets and native loaders; describe what is indicated and what is not determinable without a decompiler.
+    priority: 160
+    tools_hint: [grep, zip_list, entropy_map]
+required_questions:
+  - What does the app do (main function)?
+  - Which permissions and components are security relevant?
+  - Which endpoints and indicators can be derived statically?

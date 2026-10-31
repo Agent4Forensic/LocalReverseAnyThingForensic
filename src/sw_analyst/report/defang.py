@@ -13,8 +13,7 @@ Rules
   (``e.g.``), hashes, Windows/Unix/registry paths.  A bare domain is only recognised
   when its last label is a known TLD (:data:`DOMAIN_TLDS`); extension-like TLDs
   (``.py``, ``.sh``, ``.zip`` ...) are deliberately not in the list.
-* IPv6 is not defanged (colons are not clickable); it is still reported by nobody
-  here - see ``find_iocs``.
+* IPv6 addresses are neither defanged nor reported (colons are not clickable).
 """
 from __future__ import annotations
 
