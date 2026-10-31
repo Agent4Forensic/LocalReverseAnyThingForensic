@@ -14,7 +14,7 @@ _LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 class OllamaClient:
     def __init__(self, model: str, base_url: str = "http://127.0.0.1:11435", num_ctx: int = 16384,
-                 timeout_s: int = 600):
+                 timeout_s: int = 600, seed: int = 42):
         host = urllib.parse.urlparse(base_url).hostname
         if host not in _LOCAL_HOSTS:
             raise ValueError(f"refusing non-local LLM endpoint: {base_url}")  # offline platform: loopback only
@@ -22,6 +22,7 @@ class OllamaClient:
         self.base_url = base_url.rstrip("/")
         self.num_ctx = num_ctx
         self.timeout_s = timeout_s
+        self.seed = seed      # fixed seed: same prompt, model and version give the same reply (reproducibility)
 
     def _post(self, path: str, body: dict) -> dict:
         req = urllib.request.Request(self.base_url + path, data=json.dumps(body).encode("utf-8"),
@@ -46,7 +47,8 @@ class OllamaClient:
              max_tokens: int = 2048, temperature: float = 0.1) -> LLMResponse:
         body = {"model": self.model, "stream": False,
                 "messages": [m.model_dump() for m in messages],
-                "options": {"temperature": temperature, "num_predict": max_tokens, "num_ctx": self.num_ctx}}
+                "options": {"temperature": temperature, "num_predict": max_tokens, "num_ctx": self.num_ctx,
+                            "seed": self.seed}}
         if json_mode:
             body["format"] = "json"
         body["think"] = think
@@ -64,4 +66,5 @@ class OllamaClient:
                            model=data.get("model", self.model),
                            prompt_tokens=int(data.get("prompt_eval_count", 0) or 0),
                            completion_tokens=int(data.get("eval_count", 0) or 0),
-                           duration_ms=int((time.monotonic() - t0) * 1000))
+                           duration_ms=int((time.monotonic() - t0) * 1000),
+                           done_reason=str(data.get("done_reason", "") or ""))

@@ -1,0 +1,15 @@
+{
+  "id": "03-pe-appended-config",
+  "title": "PE-Datei mit angehängter Konfiguration",
+  "level": "mittel",
+  "description": "Eine minimale, nicht lauffähige PE32-Datei (NOP-Rumpf, ein Import: KERNEL32!ExitProcess). Hinter der letzten Sektion hängt ein Overlay mit Präfix CFG: und einer Base64-kodierten JSON-Konfiguration.",
+  "goal": "Die KI soll mit pe_headers den Import und das Overlay finden, das Overlay mit decode_layer (genau ab dem Blob) dekodieren und den Wert id der Konfiguration belegen.",
+  "tests": "Rezept exe, PE-Parser, Overlay-Erkennung, gezieltes Dekodieren mit Offset und Länge.",
+  "sample": {"name": "bench.exe.bin", "builder": "pe_appended_config"},
+  "job_description": "PE file with appended data.",
+  "questions": [
+    "Which DLL does the file import?",
+    "What is the id value in the configuration appended after the last section?"
+  ],
+  "flag": "BENCH-42"
+}

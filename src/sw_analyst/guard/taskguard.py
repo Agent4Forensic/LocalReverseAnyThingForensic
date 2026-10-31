@@ -17,6 +17,7 @@ from sw_analyst.guard.scanner import GUARD_VERSION, Detection, normalize_text, s
 _SNIP = 200
 _MIN_REPEAT = 16        # normalised characters of a snippet that count as "repeated"
 _MIN_ARG = 6            # shortest string argument compared against snippets
+_ENUM_ARGS = {"method", "encoding"}   # values from a fixed list ("base64"), a match says nothing about origin
 # raw-output categories that signal repeated injection text; fake_action is excluded because
 # every legitimate answer of the model is itself an action JSON
 _REPEAT_CATEGORIES = {"override", "persona", "chat_marker", "ai_address", "encoded", "exfil_exec"}
@@ -136,7 +137,7 @@ class TaskGuard:
                 and not self._in_task(tool):
             return "tool %r" % tool
         for k, v in (action.get("args") or {}).items():
-            if isinstance(v, str) and len(v) >= _MIN_ARG:
+            if k not in _ENUM_ARGS and isinstance(v, str) and len(v) >= _MIN_ARG:
                 nv = _norm(v)
                 if nv and nv in corpus and not self._in_task(nv):
                     return "argument %r" % k

@@ -70,7 +70,7 @@ flowchart TD
 | Betrieb | PowerShell-Skripte `scripts/start.ps1`, `stop.ps1`, `cleanup.ps1`; Installation nur aus gepinnten, gehashten Quellen |
 | Abhängigkeiten | `requirements.lock` mit `--require-hashes`, Wheelhouse in `vendor/` |
 
-Verzeichnisse: `src/` Code · `tests/` Tests · `docs/` Architektur, ADRs, Blueprint, Sicherheit · `infra/` Manifest und Prüfskripte · `scripts/` Start/Stopp.
+Verzeichnisse: `src/` Code · `tests/` Tests · `docs/` Architektur, ADRs, Blueprint, Sicherheit · `infra/` Manifest und Prüfskripte · `scripts/` Start/Stopp · `example/` Beispielfälle zum Evaluieren.
 
 ## Sicherheitsmodell
 
@@ -86,7 +86,7 @@ Restrisiko: Eine VM-Flucht lässt sich nie ganz ausschließen. Echte Schadsoftwa
 
 ## Umsetzungsstand
 
-Belegt durch Tests (387 Tests, alle grün: Unit, Integration, Sicherheit, CTF-Kette mit Skript-Modell). Der erste Lauf mit echtem Modell im Browser steht noch aus.
+Belegt durch Tests (469 Tests, alle grün: Unit, Sicherheit, forensische Kettenprüfung, CTF-Kette mit Skript-Modell). Der erste Lauf mit echtem Modell im Browser steht noch aus.
 
 ```mermaid
 flowchart LR
@@ -134,13 +134,18 @@ scripts\stop.ps1           # beendet alles und räumt eigene Reste auf
 ```
 
 Schalter `start.ps1`: `-NoCleanup`, `-Offline`, `-Update`, `-SkipUpdateCheck`, `-NoBrowser`, `-Model`, `-Port`, `-OllamaPort`.
-Tests: `.venv\Scripts\python.exe -m pytest`.
+Tests: `.venv\Scripts\python.exe -m pytest`. Beispielfälle mit automatischer Prüfung des Berichts: `example\start_eval.ps1` (Menü, siehe [`example/README.md`](example/README.md)).
 
 ## Weiterlesen
 
+- [`docs/README.md`](docs/README.md) – Dokumentenkarte: wo steht was
+- [`docs/runbooks/betrieb.md`](docs/runbooks/betrieb.md) – Start, Stopp, Ablage, Fehlerbehebung
+- [`docs/security/sicherheitsmodell.md`](docs/security/sicherheitsmodell.md) – Schutzschichten, Tests, Restrisiko
 - [`PROJEKTPLAN.md`](PROJEKTPLAN.md) – Quelle der Wahrheit (Ziele, Sicherheit, Phasen)
 - [`docs/STATUS.md`](docs/STATUS.md) – aktueller Stand, offene Aufgaben
 - [`docs/architecture/chain.md`](docs/architecture/chain.md) – Analysekette im Detail
+- [`docs/architecture/workflows.md`](docs/architecture/workflows.md) – Start/Stopp, Job-Lebenszyklus, Schutzschichten, Datenfluss als Diagramme
+- [`example/`](example/README.md) – Beispielfälle (Challenges) mit automatischer Prüfung des Berichts: `example\start_eval.ps1`
 - [`docs/blueprint/`](docs/blueprint/) – Analysemethodik
 - [`docs/adr/`](docs/adr/) – Entscheidungen
 

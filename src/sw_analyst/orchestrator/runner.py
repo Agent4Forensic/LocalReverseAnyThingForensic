@@ -15,12 +15,16 @@ from sw_analyst.common.util import preview
 from sw_analyst.gateway.base import ToolGateway
 from sw_analyst.guard import (SYSTEM_RULES_EN, TaskGuard, sanitize_untrusted, validate_action)
 from sw_analyst.llm.base import ChatMessage, LLMClient, LLMError
-from sw_analyst.orchestrator.verifier import answer_values_grounded, verify_finding
+from sw_analyst.orchestrator.verifier import MIN_QUOTE, answer_values_grounded, norm, verify_finding
 from sw_analyst.prompts.registry import ACTION_SCHEMA, SYSTEM_BASE, get_prompt
 
 MAX_TURNS = 10
 MAX_INVALID = 3
+MAX_REPAIRS = 2               # chances to fix findings the checker refused before they are stored
+REPLY_TOKENS = 3000           # thinking counts against this budget
+REPLY_TOKENS_MAX = 4096       # after a cut-off reply; more does not fit next to the context in num_ctx 16384
 PROMPT_EVIDENCE_CHARS = 6000
+KNOWN_CHARS = 6000
 CONTEXT_CHAR_BUDGET = 36000   # rough guard for 16k-token contexts (about 4 chars per token incl. reserve)
 
 
@@ -49,15 +53,42 @@ class TaskRunner:
 
     # ---- prompt building -------------------------------------------------------------------
     def known_findings_text(self, job_id: str, limit: int = 25) -> str:
-        rows = self.store.list_findings(job_id, "confirmed")[-limit:]
-        if not rows:
+        """Newest confirmed findings with a quote to re-cite. Model text about the sample stays marked as data."""
+        lines: list[str] = []
+        used = 0
+        for f in reversed(self.store.list_findings(job_id, "confirmed")[-limit:]):
+            q = (f["quotes"] or [{}])[0]
+            line = (f"- {f['id']}: {f['statement_en']} [evidence: {', '.join(f['evidence_ids'])}; "
+                    f"quote from {q.get('evidence_id', '-')}: \"{preview(q.get('quote', ''), 160)}\"]")
+            if used + len(line) > KNOWN_CHARS:
+                break
+            lines.append(line)
+            used += len(line)
+        if not lines:
             return "(nothing confirmed yet)"
-        return "\n".join(f"- {f['id']}: {f['statement_en']} [evidence: {', '.join(f['evidence_ids'])}]" for f in rows)
+        return sanitize_untrusted("\n".join(reversed(lines)), "known-findings", max_chars=KNOWN_CHARS + 200).text
+
+    def _evidence_index_text(self, job_id: str) -> str:
+        rows = self.store.evidence_index(job_id)
+        if not rows:
+            return "(none)"
+        text = "\n".join(f"- {e['id']}: {e['tool']} {preview(json.dumps(e['params'], sort_keys=True), 100)}" for e in rows)
+        return sanitize_untrusted(text, "evidence-index", max_chars=2000).text
 
     def render_task_prompt(self, job: dict, task: dict, tools: list[ToolSpec]) -> tuple[str, str, str, str]:
         spec = job["spec"]
         qs = "\n".join(f"- {q['id']}: {q.get('text_en') or q['text_orig']}" for q in spec["target_questions"]) or "(none)"
+        params = task["params"]
+        last = task.get("summary_en") or ""
+        previous = ""
+        if task["attempts"] > 1 and last:   # a retry must know what failed, otherwise it fails the same way
+            previous = ("The previous attempt at this task failed. Change the approach.\n"
+                        + sanitize_untrusted(last, "previous-attempt", max_chars=600).text + "\n")
         common = dict(
+            guide=params.get("guide") or "No specific procedure; work from the goal.",
+            tools_hint=", ".join(params.get("tools_hint") or []) or "(choose from the list)",
+            input_file=params.get("path") or "sample", evidence_index=self._evidence_index_text(job["id"]),
+            previous=previous, max_turns=MAX_TURNS,
             goal=task["goal"], title=task["title"], reason=task["reason"] or "part of the recipe",
             detected_type=job["detected_type"] or "unknown", sample_sha256=job["sample_sha256"],
             recipe=job["recipe"] or "generic",
@@ -85,19 +116,26 @@ class TaskRunner:
         self.store.update_task(task_id, prompt_id=pid, prompt_version=pver, prompt_sha256=psha, prompt_text=body)
         system = SYSTEM_BASE + "\n" + SYSTEM_RULES_EN
         messages = [ChatMessage(role="system", content=system), ChatMessage(role="user", content=body)]
-        guard = TaskGuard(task_id)
+        # What the task itself names is no sign of a hijack, even when a sample mentions the same word.
+        guard = TaskGuard(task_id, " ".join([task["title"], task["goal"], task["params"].get("path") or "sample",
+                                             *(task["params"].get("tools_hint") or [])]))
         seen_calls: set[str] = set()
-        invalid = 0
+        invalid = repairs = 0
+        reply_tokens = REPLY_TOKENS
         # keep sample-relative context for the user-visible log
         for turn in range(1, MAX_TURNS + 1):
+            if turn == MAX_TURNS:
+                messages.append(ChatMessage(role="user", content="LAST TURN. Reply with \"finish\" now: report what the "
+                                            "evidence shows so far and name what stays open."))
             self._compact(messages)
             sid = self.store.begin_step(job_id, task_id, StepKind.PROMPT.value, f"model turn {turn}",
-                                        how=f"model={self.llm.model}, json_mode, think=on",
+                                        how=f"model={self.llm.model}, json_mode, think=on, "
+                                            f"seed={getattr(self.llm, 'seed', None)}, max_tokens={reply_tokens}",
                                         why="decide next action (tool call or finish)",
                                         input_preview=messages[-1].content)
             t0 = time.monotonic()
             try:
-                resp = self.llm.chat(messages, json_mode=True, think=True, max_tokens=2048)
+                resp = self.llm.chat(messages, json_mode=True, think=True, max_tokens=reply_tokens)
             except LLMError as e:
                 self.store.finish_step(sid, status="error", duration_ms=int((time.monotonic() - t0) * 1000),
                                        output_preview=str(e))
@@ -123,11 +161,28 @@ class TaskRunner:
                 invalid += 1
                 if invalid >= MAX_INVALID:
                     return TaskOutcome("failed", error=f"model produced {invalid} invalid actions: {res.error}")
-                messages += [ChatMessage(role="assistant", content=preview(raw, 1500)),
-                             ChatMessage(role="user", content=f"INVALID ACTION: {res.error}. Reply with exactly one valid JSON object as specified.")]
+                msg = f"INVALID ACTION: {res.error}. Reply with exactly one valid JSON object as specified."
+                if resp.done_reason == "length" or not raw.strip():
+                    reply_tokens = REPLY_TOKENS_MAX
+                    msg = ("Your reply was cut off by the token limit or empty. Think less and reply with one short "
+                           "JSON object: fewer findings, short statements.")
+                messages += [ChatMessage(role="assistant", content=preview(raw, 1500) or "(no output)"),
+                             ChatMessage(role="user", content=msg)]
                 continue
             action = res.action
             if res.kind == "finish":
+                problems = self._finish_problems(job_id, task, action)
+                if problems and repairs < MAX_REPAIRS and turn < MAX_TURNS:
+                    repairs += 1
+                    self.store.log(job_id, f"task {task_id}: checker refused the result, repair {repairs}",
+                                   level="warn", problems=problems)
+                    messages += [ChatMessage(role="assistant", content=raw),
+                                 ChatMessage(role="user", content=(
+                                     "CHECK FAILED, nothing was stored yet:\n" + "\n".join(f"- {p}" for p in problems)
+                                     + "\nCopy each quote character by character from the cited tool result, cite the "
+                                     "evidence that really holds it, or set status \"hypothesis\" and say what is "
+                                     "missing. Reply with the corrected finish object."))]
+                    continue
                 return self._finish(job, task, action)
             # ---- tool action
             key = json.dumps([action["tool"], action.get("args", {})], sort_keys=True)
@@ -139,30 +194,69 @@ class TaskRunner:
                     return TaskOutcome("failed", error="loop: repeated identical tool calls")
                 continue
             seen_calls.add(key)
+            args = action.get("args", {})
+            stored = self.store.find_evidence(job_id, action["tool"], args)  # tools are deterministic, the sample is fixed
             tsid = self.store.begin_step(job_id, task_id, StepKind.TOOL.value, f"tool {action['tool']}",
-                                         how=json.dumps(action.get("args", {}), sort_keys=True),
+                                         how=json.dumps(args, sort_keys=True) + (f"; reused {stored['id']}" if stored else ""),
                                          why=action.get("why", ""), tool=action["tool"],
-                                         input_preview=json.dumps(action.get("args", {})))
+                                         input_preview=json.dumps(args))
             t1 = time.monotonic()
-            result = self.gateway.call(job_id, action["tool"], action.get("args", {}))
+            if stored:
+                ev, ok, cut = stored, True, "[output truncated" in stored["text"]
+            else:
+                result = self.gateway.call(job_id, action["tool"], args)
+                ok, cut = result.ok, result.truncated
+                ev = self.store.add_evidence(job_id, task_id, action["tool"], result.tool_version, args,
+                                             result.text if result.ok else f"[tool error] {result.error}",
+                                             source_ref=result.meta)
             tms = int((time.monotonic() - t1) * 1000)
-            ev = self.store.add_evidence(job_id, task_id, action["tool"], result.tool_version, action.get("args", {}),
-                                         result.text if result.ok else f"[tool error] {result.error}",
-                                         source_ref=result.meta)
             block = sanitize_untrusted(ev["text"], ev["id"], max_chars=PROMPT_EVIDENCE_CHARS)
             guard.observe_input(block)
+            self._record_injection(job_id, task_id, ev, block)
             for d in block.detections:
                 self.store.add_guard_event(job_id, task_id, "input", d.rule, d.severity,
                                            "redacted" if (block.redacted and d.severity == "high") else "flagged",
                                            d.snippet)
-            self.store.finish_step(tsid, status="ok" if result.ok else "error", duration_ms=tms,
+            self.store.finish_step(tsid, status="ok" if ok else "error", duration_ms=tms,
                                    output_preview=ev["text"], evidence_id=ev["id"])
-            suffix = " (output truncated)" if result.truncated else ""
+            suffix = " (output truncated)" if cut else ""
             messages += [ChatMessage(role="assistant", content=raw),
-                         ChatMessage(role="user", content=f"Result of {action['tool']} is stored as {ev['id']}{suffix}.\n{block.text}")]
+                         ChatMessage(role="user", content=f"Result of {action['tool']} is stored as {ev['id']}{suffix} "
+                                                          f"[turn {turn} of {MAX_TURNS}, {MAX_TURNS - turn} left].\n{block.text}")]
         return TaskOutcome("failed", error=f"no final answer after {MAX_TURNS} turns")
 
+    # ---- injection record ----------------------------------------------------------------------
+    def _record_injection(self, job_id: str, task_id: str, ev: dict, block) -> None:
+        """A hijack attempt is a forensic result. The platform records it, the model never has to repeat the text."""
+        known = {f["statement_en"] for f in self.store.list_findings(job_id)}
+        for d in block.detections:
+            statement = f"Prompt injection attempt in sample (guard rule {d.rule})."
+            if d.severity != "high" or statement in known:
+                continue
+            known.add(statement)
+            quote = norm(d.snippet)
+            ok = len(quote) >= MIN_QUOTE and quote in norm(ev["text"])
+            self.store.add_finding(job_id, task_id, statement, "confirmed" if ok else "hypothesis", [ev["id"]],
+                                   [{"evidence_id": ev["id"], "quote": quote}] if ok else [], "")
+
     # ---- finish handling ---------------------------------------------------------------------
+    def _finish_problems(self, job_id: str, task: dict, action: dict) -> list[str]:
+        """What the checker would refuse, without storing anything, so the model can still repair it."""
+        out, confirmed = [], 0
+        for i, raw in enumerate(action.get("findings", []), 1):
+            vf = verify_finding(self.store, job_id, raw)
+            confirmed += vf.status == "confirmed"
+            if vf.reject_reason:
+                out.append(f"finding {i}: {vf.reject_reason}")
+        answer = ((action.get("answer") or {}).get("text") or "").strip()
+        if task["kind"] == "question" and answer and not answer.upper().startswith("UNRESOLVED"):
+            if not confirmed:
+                out.append('the answer needs at least one finding with status "confirmed" in this reply')
+            ok, why = check_answer_grounding(self.store, job_id, answer)
+            if not ok:
+                out.append(f"answer: {why}")
+        return out
+
     def _finish(self, job: dict, task: dict, action: dict) -> TaskOutcome:
         job_id, task_id = job["id"], task["id"]
         vsid = self.store.begin_step(job_id, task_id, StepKind.VERIFY.value, "verify findings against evidence",

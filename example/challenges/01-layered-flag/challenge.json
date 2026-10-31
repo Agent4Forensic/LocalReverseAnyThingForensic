@@ -1,0 +1,12 @@
+{
+  "id": "01-layered-flag",
+  "title": "Doppelt kodierte Flagge",
+  "level": "leicht",
+  "description": "Eine kleine Textdatei besteht nur aus Base64-Text. Darunter liegt eine zweite Base64-Schicht und erst darin steht die Flagge. Kein Code, keine Tricks, nur Schichten abtragen.",
+  "goal": "Die KI soll beide Schichten mit dem Werkzeug decode_layer entpacken und die Flagge mit Beleg (Evidence-ID und Zitat) nennen.",
+  "tests": "Mehrstufiges Dekodieren, Weiterarbeiten mit abgeleiteten Artefakten, Belegzwang des Prüfers.",
+  "sample": {"name": "ctf.txt", "builder": "layered_flag"},
+  "job_description": "CTF: find the flag.",
+  "questions": ["What is the flag?"],
+  "flag": "FLAG{layered_ok}"
+}

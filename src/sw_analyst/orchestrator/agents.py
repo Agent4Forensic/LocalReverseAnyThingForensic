@@ -10,12 +10,12 @@ from dataclasses import dataclass, field
 
 from sw_analyst.common.models import StepKind
 from sw_analyst.common.store import Store
-from sw_analyst.guard import SYSTEM_RULES_EN
+from sw_analyst.guard import SYSTEM_RULES_EN, sanitize_untrusted
 from sw_analyst.llm.base import ChatMessage, LLMClient, LLMError
 from sw_analyst.orchestrator.jsonutil import extract_json_object
 from sw_analyst.prompts.registry import SYSTEM_BASE, get_prompt
 
-MAX_FOLLOWUPS = 4
+MAX_FOLLOWUPS = 2
 MAX_NEW_FROM_PRIORITIZER = 3
 PRIO_MIN, PRIO_MAX = 1, 999
 
@@ -29,7 +29,7 @@ class HelperAgents:
         self.store, self.llm = store, llm
 
     def _ask(self, job_id: str, task_id: str | None, kind: StepKind, what: str, why: str, prompt_id: str,
-             **fields) -> dict | None:
+             think: bool = True, **fields) -> dict | None:
         p = get_prompt(prompt_id)
         body = p.render(**fields)
         sid = self.store.begin_step(job_id, task_id or "", kind.value, what,
@@ -38,7 +38,7 @@ class HelperAgents:
         t0 = time.monotonic()
         try:
             resp = self.llm.chat([ChatMessage(role="system", content=SYSTEM_BASE + "\n" + SYSTEM_RULES_EN),
-                                  ChatMessage(role="user", content=body)], json_mode=True, think=True, max_tokens=1500)
+                                  ChatMessage(role="user", content=body)], json_mode=True, think=think, max_tokens=2000)
         except LLMError as e:
             self.store.finish_step(sid, status="error", duration_ms=int((time.monotonic() - t0) * 1000),
                                    output_preview=str(e))
@@ -56,7 +56,9 @@ class HelperAgents:
         qs = "\n".join(f"- {q['id']}: {q.get('text_en') or q['text_orig']}" for q in job["spec"]["target_questions"]) or "(none)"
         obj = self._ask(job["id"], task["id"], StepKind.EVALUATE, f"self-evaluate task {task['id']}",
                         "check goal, find gaps, derive logical follow-ups backed by findings", "agent.evaluate",
-                        title=task["title"], goal=task["goal"], summary=summary or "(no summary)", task_findings=tf,
+                        title=task["title"], goal=task["goal"],
+                        task_result=sanitize_untrusted(f"Summary: {summary or '(none)'}\nFindings:\n{tf}", "task-result",
+                                                       max_chars=4000).text,
                         questions=qs, known=known, pending="; ".join(pending_titles[:30]) or "(none)")
         out = {"goal_reached": None, "assessment": "", "gaps": [], "followups": []}
         if not obj:
@@ -65,7 +67,8 @@ class HelperAgents:
         out["assessment"] = _clip(obj.get("assessment"), 800)
         out["gaps"] = [_clip(g, 300) for g in (obj.get("gaps") or [])[:6]]
         valid_ids = {f["id"] for f in self.store.list_findings(job["id"])}
-        for f in (obj.get("followups") or [])[:MAX_FOLLOWUPS]:
+        limit = 1 if out["goal_reached"] else MAX_FOLLOWUPS   # a reached goal needs no "verify it again"
+        for f in (obj.get("followups") or [])[:limit]:
             title, goal = _clip(f.get("title"), 120), _clip(f.get("goal"), 500)
             rel = _clip(f.get("related_finding"), 20)
             reason = _clip(f.get("reason"), 400)
@@ -82,7 +85,7 @@ class HelperAgents:
         plist = "\n".join(f"- {t['id']} prio={t['priority']} [{t['origin']}] {t['title']}: {t['goal'][:160]}"
                           for t in pending)
         obj = self._ask(job["id"], None, StepKind.PRIORITIZE, "re-order queue by information gain",
-                        "react to current knowledge", "agent.prioritize",
+                        "react to current knowledge", "agent.prioritize", think=False,
                         pending=plist, questions=qs, known=known, budget=budget)
         out = {"changes": [], "new_tasks": []}
         if not obj:
@@ -96,7 +99,7 @@ class HelperAgents:
                 continue
             if tid in ids and PRIO_MIN <= prio <= PRIO_MAX:
                 # Question tasks stay in the late band unless the model lowers within it (never above 800 floor rule).
-                if ids[tid]["kind"] == "question" and prio < 800:
+                if (ids[tid]["kind"] == "question" or ids[tid]["params"].get("synthesis")) and prio < 800:
                     prio = 800
                 out["changes"].append({"task_id": tid, "priority": prio, "reason": _clip(c.get("reason"), 300)})
         for n in (obj.get("new_tasks") or [])[:MAX_NEW_FROM_PRIORITIZER]:
