@@ -1,6 +1,6 @@
 # Direct runtime dependencies of sw-analyst (host side). Pinned with hashes in requirements.lock.
-# Justification: fastapi+uvicorn = local web API/SSE; pyyaml = recipes; (pydantic comes with fastapi); python-multipart = upload (Form/UploadFile) of POST /api/jobs, Apache-2.0, 0.0.32 of 2026-06-04 (0.0.33 is only hours old, skipped).
+# Justification: fastapi+uvicorn = local web API/SSE; pyyaml = recipes; (pydantic comes with fastapi); python-multipart = upload (Form/UploadFile) of POST /api/jobs, Apache-2.0, 0.0.33 of 2026-10-31, bumped on request of Jan.
 fastapi==0.128.0
 uvicorn==0.40.0
 pyyaml==6.0.3
-python-multipart==0.0.32
+python-multipart==0.0.33
