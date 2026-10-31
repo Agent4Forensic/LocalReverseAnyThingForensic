@@ -23,6 +23,7 @@ from sw_analyst.common.audit import verify_file  # noqa: E402
 from sw_analyst.common.models import JobSpec, TargetQuestion  # noqa: E402
 from sw_analyst.common.store import Store  # noqa: E402
 from sw_analyst.common.util import sha256_hex  # noqa: E402
+from sw_analyst.gateway.container_tools import attach_container_tools  # noqa: E402
 from sw_analyst.gateway.dev_gateway import DevGateway  # noqa: E402
 from sw_analyst.llm.ollama import OllamaClient  # noqa: E402
 from sw_analyst.orchestrator.engine import JobEngine  # noqa: E402
@@ -52,6 +53,7 @@ def run_one(c: dict, out: Path, model: str, url: str, num_ctx: int, minutes: int
                    budget_max_tasks=20, budget_max_steps=200, budget_max_minutes=minutes)
     job = store.create_job(spec, c["sample"]["name"], sha256_hex(data))
     gw = DevGateway(d)
+    attach_container_tools(gw)          # same tools as the server: Ghidra & co. when Docker and the images exist
     gw.store_sample(job["id"], data)
     t0 = time.monotonic()
     status = JobEngine(store, OllamaClient(model, url, num_ctx=num_ctx), gw).run_job(job["id"])

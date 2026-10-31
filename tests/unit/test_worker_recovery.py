@@ -18,14 +18,14 @@ def _job(store, status="queued"):
 def test_restart_closes_running_job_tasks_and_steps(tmp_path):
     store = Store(tmp_path / "t.db", tmp_path / "logs")
     j = _job(store)
-    store.update_job(j["id"], status="running")
+    store.update_job(j["id"], status="running", started_at="2026-10-31T10:00:00Z")
     t = store.add_task(j["id"], title="a", goal="g", kind="analysis", origin="recipe", priority=1)
-    store.update_task(t["id"], status="running")
+    store.update_task(t["id"], status="running", started_at="2026-10-31T10:00:07Z")
     sid = store.begin_step(j["id"], t["id"], "tool", "x")
     up = _job(store, status="uploading")
     assert sorted(Worker(store, _Boom()).recover()) == sorted([j["id"], up["id"]])
     job = store.get_job(j["id"])
-    assert job["status"] == "failed" and job["finished_at"]
+    assert job["status"] == "failed" and job["finished_at"] and job["duration_ms"] == 7000   # downtime does not count
     assert store.get_task(t["id"])["status"] == "failed"
     assert store.get_step(sid)["status"] == "error"
     assert store.get_job(up["id"])["status"] == "failed"

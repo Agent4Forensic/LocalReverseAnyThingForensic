@@ -2,10 +2,20 @@
 from __future__ import annotations
 
 import threading
+from datetime import datetime
 
 from sw_analyst.common.store import Store
 from sw_analyst.common.util import utcnow
 from sw_analyst.orchestrator.engine import JobEngine
+
+
+def _ms_between(start: str | None, end: str | None) -> int:
+    """Duration up to the last recorded activity; the time while the server was down does not count."""
+    fmt = "%Y-%m-%dT%H:%M:%SZ"
+    try:
+        return max(0, int((datetime.strptime(end, fmt) - datetime.strptime(start, fmt)).total_seconds() * 1000))
+    except (TypeError, ValueError):
+        return 0
 
 
 class Worker:
@@ -29,6 +39,8 @@ class Worker:
             if job["status"] not in ("running", "uploading"):
                 continue
             reason = "job interrupted by restart" if job["status"] == "running" else "upload interrupted by restart"
+            last = max([job["started_at"] or ""] + [t["finished_at"] or t["started_at"] or "" for t in
+                                                     self.store.list_tasks(job["id"])])
             for t in self.store.list_tasks(job["id"]):
                 for st in self.store.list_steps(t["id"]):
                     if st["status"] == "running":
@@ -37,7 +49,8 @@ class Worker:
                 if t["status"] == "running":
                     self.store.update_task(t["id"], status="failed", finished_at=utcnow(), summary_en=reason)
             self.store.log(job["id"], reason, level="error")
-            self.store.update_job(job["id"], status="failed", finished_at=utcnow(), summary_en=reason)
+            self.store.update_job(job["id"], status="failed", finished_at=utcnow(), summary_en=reason,
+                                  duration_ms=_ms_between(job["started_at"], last))
             done.append(job["id"])
         return done
 
