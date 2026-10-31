@@ -5,7 +5,9 @@
 param(
     [int]$Port = 8765,
     [int]$OllamaPort = 11435,
-    [switch]$Force
+    [switch]$Force,
+    [switch]$NoCleanup,     # skip the cleanup after stopping
+    [switch]$DockerDeep     # also prune the shared Docker build cache older than 7 days (affects other projects)
 )
 $ErrorActionPreference = 'Stop'
 
@@ -114,6 +116,11 @@ try {
         if ($m) { Write-Stage 'JOB' "job $m marked cancelled" 'WARN' }
     }
     Stop-Own 'ollama' $OllamaPort { param($i) Test-OwnOllama $i }
+    if (-not $NoCleanup) {
+        $ca = @{ Phase = 'post'; Port = $Port; OllamaPort = $OllamaPort }
+        if ($DockerDeep) { $ca.DockerDeep = $true }
+        & (Join-Path $PSScriptRoot 'cleanup.ps1') @ca
+    }
     Write-Stage 'STOP' 'done, PID files removed' 'OK'
 } catch {
     Write-Stage 'STOP' "failed: $($_.Exception.Message)" 'FEHLER'

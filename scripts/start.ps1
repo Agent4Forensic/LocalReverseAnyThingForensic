@@ -10,7 +10,8 @@ param(
     [switch]$SkipUpdateCheck,
     [switch]$Update,
     [switch]$Offline,
-    [switch]$NoBrowser
+    [switch]$NoBrowser,
+    [switch]$NoCleanup      # skip the cleanup of orphans, scratch files, old logs and own Docker leftovers
 )
 $ErrorActionPreference = 'Stop'
 
@@ -150,6 +151,9 @@ try {
     $Manifest = Get-Content (Join-Path $Root 'infra\manifest.json') -Raw | ConvertFrom-Json
     $ol = $Manifest.components.ollama
     $OllamaExe = Join-Path $ol.target $ol.exe
+
+    # ---- 0. CLEAN (own leftovers only; never blocks the start) ----
+    if (-not $NoCleanup) { & (Join-Path $PSScriptRoot 'cleanup.ps1') -Phase pre -Port $Port -OllamaPort $OllamaPort }
 
     # ---- 1. CHECK ----
     Write-Stage 'CHECK' ("PowerShell {0}, {1}, repo {2}" -f $PSVersionTable.PSVersion, [Environment]::OSVersion.VersionString, $Root)
