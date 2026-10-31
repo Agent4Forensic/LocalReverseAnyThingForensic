@@ -45,3 +45,6 @@ data/
 jobs/
 graphify-out/cache/
 .claude/settings.local.json
+
+# graphify output is machine-specific (absolute paths); regenerate locally with /graphify
+graphify-out/

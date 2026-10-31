@@ -12,9 +12,9 @@ $ErrorActionPreference = 'Stop'
 $g = (& nvidia-smi --query-gpu=memory.total,memory.used --format=csv,noheader,nounits) -split ','
 $free = [int]$g[0].Trim() - [int]$g[1].Trim()
 
-if     ($free -ge 11000) { $tier = 'A'; $chat = 'gemma4:12b-it-q4_K_M' }
-elseif ($free -ge 7000)  { $tier = 'B'; $chat = 'ornith:9b-q4_K_M' }
-else                     { $tier = 'C'; $chat = 'gemma4:e4b-it-q4_K_M' }
+if     ($free -ge 11000) { $tier = 'A'; $chat = 'qwen3:14b' }
+elseif ($free -ge 7000)  { $tier = 'B'; $chat = 'qwen3:8b' }
+else                     { $tier = 'C'; $chat = 'qwen3:4b' }
 $embed = 'qwen3-embedding:0.6b'
 
 $result = [pscustomobject]@{

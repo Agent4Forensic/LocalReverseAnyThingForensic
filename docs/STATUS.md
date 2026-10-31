@@ -36,7 +36,7 @@ Stand: 2026-10-31 · Legende: `[x]` erledigt und geprüft · `[~]` begonnen · `
 
 ### P5 Analyse-Werkzeuge (Dev-Test mit harmlosen Proben)
 - [~] Ghidra: Version recherchiert und gepinnt (12.1.4, JDK 21, SHA-256 verifiziert), Docker-Image noch nicht gebaut
-- [!] REA: Reputationswarnung (414k Sterne/103k Forks bei 6 Monaten Alter). Erst tiefere Prüfung (native/, patches/, install.sh, npm gegen Repo), dann entscheiden. Siehe B5.
+- [~] REA: von Jan freigegeben (nur statisch, ohne Live-Teile). Tiefenaudit fertig (6.8.0, Pin, Familien- und Tool-Allowlist, Auflagen in dev-environment.md). Einbau ins Docker-Image und manuelles Quellcode-Review stehen aus.
 - [ ] jadx, apktool, capa, YARA, FLOSS, radare2, binwalk, pefile, lief, androguard im Image
 - [~] Ghidra-MCP: Empfehlung pyghidra-mcp v0.2.7 (kleinste Angriffsfläche, keine Code-Ausführung); ADR folgt nach Funktionstest
 - [ ] Alle Downloads mit SHA-256 in `docs/dev-environment.md`
@@ -51,8 +51,75 @@ Stand: 2026-10-31 · Legende: `[x]` erledigt und geprüft · `[~]` begonnen · `
 - B1: `wsl --shutdown` zum Anwenden des 24-GB-Limits erlaubt? (beendet WSL-Instanzen, auch andere Projekte)
 - B2: VRAM-Belegung durch Desktop-Apps: Apps schließen oder kleineres Modell akzeptieren?
 - B4: Freier RAM beim Test nur 3,7 von 31 GB (Docker Desktop frisch gestartet plus Browser/Apps). 24-GB-Limit ist nur realistisch, wenn andere Programme während der Analyse geschlossen sind.
-- B5: REA zurückstellen und pyghidra-mcp als Primärweg nehmen? (Empfehlung: ja, REA später optional nach Tiefenprüfung)
+- B5: erledigt. Jan hat REA ohne Live-Komponenten freigegeben, Bedingungen im Audit.
 - B3: Admin-Rechte für Hyper-V-Einrichtung: Du führst das erzeugte Skript selbst aus (bestätigt in Auswahl, Termin offen).
+
+## Aktuelle Arbeit (feat/core-chain)
+- [~] Kern: Datenmodell, Gateway-/LLM-Vertrag, Audit-Log (Hash-Kette), SQLite-Store, Ollama-/Fake-Client geschrieben; Tests stehen aus
+- [~] Agenten parallel: Frontend, Dev-Gateway, Prompt-Schutz, Übersetzung+Defanging (in Arbeit)
+- [~] Blueprint (docs/blueprint/, 15 Dateien, Fable 5.1, 4 Agenten) in Arbeit; Themenliste des Berichts von Jan liegt vor (Übergabe+Hashes, Erkennung je Schritt, logischer Aufbau mit Nachweis, Zielfragen/CTF)
+- [~] Audit morluto/rea (Tool-Inventar, npm gegen Repo) läuft
+- [~] Orchestrator: geschrieben sind Prompt-Registry, Rezepte (generic/script/exe/apk), JSON-Hilfen, Prüfer (verifier.py) und Task-Runner (runner.py, ungetestet, braucht das Paket guard). FEHLT: Evaluator, Priorisierer, Planer/Engine, Worker, Report-Builder, API-App, Wiring, Tests, CTF-Test, Prompts je Aufgabentyp, API, Bericht, Wiring, CTF-Tests
+- [ ] graphify-Lauf über das Repo (nach Abgabe der Agenten)
+
+## Hinweis Limit (2026-10-31)
+Sitzung wegen Nutzungslimit beendet. Der Frontend-Agent wurde gestoppt (vorhanden: api.js, dom.js, markdown.js, theme.js, mock.js; es fehlen index.html, app.js, styles.css und der Asset-Test). Hintergrund-Agenten (Dev-Gateway, Dev-Gateway, Prompt-Schutz, Übersetzung, 4 Blueprint-Agenten, REA-Audit, graphify-Extraktion) laufen eventuell weiter und schreiben Dateien. Ergebnisse prüfen: `git status`, dann Tests (`.venv\Scripts\python.exe -m pytest`). graphify: Chunk-Datei `graphify-out/.graphify_chunk_01.json` abwarten, dann Schritte 3 Part C bis 9 des Skills ausführen (AST-Ergebnis liegt in `graphify-out/.graphify_ast.json`).
+
+## Nächste Schritte: alles zum Laufen bringen (Priorität 1, Stand 2026-10-31 abends)
+Ziel: ein echter Job läuft im Browser mit echtem Modell von der Eingabe bis zum Bericht, gestartet mit `scripts\start.ps1`.
+Abnahme: CTF-Probe (zwei Base64-Schichten, Flagge) wird mit lokalem Modell gelöst, Antwort belegt und als erwartet erkannt; Dashboard zeigt Aktivität, Baum, Queue, Live-Bericht und Log; `stop.ps1` beendet sauber.
+
+| # | Schritt | Ergebnis | Abhängig von |
+|---|---|---|---|
+| R1 | Arbeitsbaum sichern: Startskripte, Preflight, Fable-Dokumente committen und pushen, `git ls-files -d` prüfen | Stand auf GitHub | nichts |
+| R2 | Modell: `qwen3:8b` (existiert sicher, Thinking und Tools) in `D:\Tools\sw-analyst\ollama-models` ziehen, Server auf Port 11435 starten, Smoke-Test JSON-Modus, Geschwindigkeit messen. Parallel prüfen, ob `gemma4:12b-it-q4_K_M` und `ornith:9b-q4_K_M` existieren (VRAM jetzt ca. 14 GB frei) | Modellwahl belegt, ADR-0001 aktualisiert | nichts |
+| R3 | Backend-Lauffähigkeit: Origin-Prüfung portabel machen (nicht fest 8765), Endpunkt `/activity`, Antwortbudget für Thinking-Modelle anheben und leere Antworten abfangen, `redact`/Guard im echten Lauf prüfen | `python -m sw_analyst` startet, API antwortet | R2 |
+| R4 | Frontend-MVP fertigstellen (Neuer Auftrag, Aktivität, Baum, Queue, Live-Bericht, Log, Bericht), dann Asset-Test | Dashboard bedienbar, `?mock=1` zeigt alle Ansichten | R3 (API-Form) |
+| R5 | Erster echter Lauf: CTF-Probe über den Browser, Fehler in Prompts und Schleife beheben (JSON-Zuverlässigkeit, Token, Dauer), danach Skript mit 3 Schichten und kleine synthetische PE | belegte Antwort, Messwerte je Aufgabe | R2 bis R4 |
+| R6 | `start.ps1` und `stop.ps1` scharf testen (CHECK, INSTALL aus Pins, OLLAMA, APP, Strg+C, `-Force`) | ein Befehl startet alles | R2, R3 |
+| R7 | Abnahme: alle Tests grün, `/claude-security` auf dem Diff, Tag `v0.1.0`, `feat/*` per `--no-ff` nach `main`, Push | lauffähiger `main` | R1 bis R6 |
+
+Danach (Priorität 2, in dieser Reihenfolge): P1-Anpassungen aus `docs/review/platform-adjustments.md` (Guard-Schema, Store-Tabellen, Endpunkte, Antwortbudget), forensische Tests Block 1 und 2, Ghidra-Image und Disassembler-Tools hinter dem Gateway (ADR und Freigabe nötig), Dashboard V2 (Lernpfad, Diagramme), Hyper-V-VM, dynamische Analyse (ADR-0005).
+
+## Aufräumen vor Start und nach Stopp (von Jan beauftragt, 2026-10-31)
+- [x] `scripts/cleanup.ps1` (Stage `CLEAN`), von `start.ps1` (`-Phase pre`) und `stop.ps1` (`-Phase post`) aufgerufen; abschaltbar mit `-NoCleanup`, prüfbar mit `cleanup.ps1 -Phase pre|post -DryRun`.
+- **pre:** veraiste PID-Dateien, verwaiste eigene App-Prozesse (nicht in `app.pid`), verwaiste Modell-Runner, Laufzeit-Scratch in `data\run`, `data\tmp`, `*.partial`-Installreste, Logs älter als 14 Tage, beendete Docker-Container mit Label `sw-analyst`.
+- **post:** zusätzlich alle eigenen Restprozesse, PID-Dateien, `__pycache__` und `.pytest_cache`, Install-Archive in `dl` älter als 1 Tag, abgebrochene Modell-Downloads (`*-partial*`) älter als 3 Tage (nur wenn kein Ollama läuft), alle Docker-Container mit dem Label (erst `stop`, dann `rm -f -v`), Netzwerke, anonyme Volumes und Images mit dem Label.
+- **Grenzen:** nur eigene Dinge. Fremde Prozesse, Ollama auf 11434, `~/.ollama` und fremde Docker-Objekte bleiben unberührt. Der Docker-Build-Cache gehört allen Projekten und wird nur mit `stop.ps1 -DockerDeep` (Einträge älter als 7 Tage) angefasst.
+- **Konvention:** Jeder Container, jedes Netzwerk und jedes Volume der Plattform wird mit `--label sw-analyst` erzeugt, sonst räumt das Skript es nicht auf.
+- Geprüft: Parser 0 Fehler, Trockenlauf beider Phasen, Docker-Test mit Wegwerf-Containern (nur der gelabelte wurde entfernt), 3 statische Tests in `tests/unit/test_scripts.py`. Noch nicht geprüft: ein echter `stop.ps1`-Lauf (läuft erst nach dem Modell-Download, sonst würde er ihn abbrechen).
+
+## Größeres Modell (von Jan beauftragt, 2026-10-31)
+Bewertung: `docs/review/model-evaluation.md`. Kurzfassung: Ein größeres Modell hilft wahrscheinlich bei Protokolltreue, Belegtreue und Planung, kostet aber Geschwindigkeit und birgt auf Blackwell Absturzrisiko bei Teil-Offload. **Nutzen ist ohne Messung nicht belegt.** Erst messen, zuerst die billigen Hebel (Schema-Ausgabe, Few-Shot, Denkbudget, Selbstkonsistenz), dann Kandidaten in zwei Stufen (voll im VRAM, dann MoE/Offload). Alle Modell-Tags sind per Registry belegt.
+
+| # | Schritt | Abhängig von |
+|---|---|---|
+| M0 | Basislinie `qwen3:8b` im ersten Echtlauf messen | R2 bis R5 |
+| M1 | Benchmark-Arena `tests/bench/run_arena.py` (Trefferquote, Belegquote, ungültige Aktionen, Züge, Dauer, Token/s, VRAM/RAM, Abstürze) | M0 |
+| M2 | Billige Hebel einbauen und messen | M1 |
+| M3 | Stufe 1 messen: `qwen3:14b`, `gemma4:12b`, `phi4-reasoning:14b`, `ornith:9b`, `gpt-oss:20b` | M1 |
+| M4 | Stufe 2 messen (Offload, nur bei Bedarf): `qwen3:30b`, `gemma4:26b`, `ornith:35b`, `flint:40b`, 24B bis 27B dicht | M3 |
+| M5 | ADR-0001 aktualisieren, Rollen `analysis`/`helper`/`translate` im Manifest | M2 bis M4 |
+| M6 | Engine wählt Modell je Aufgabentyp, Tests je Rolle | M5 |
+| M7 | Entscheidungsvorlage Hardware (GPU mit 24 bis 32 GB) für Jan | M4 |
+
+Risiken: Modellnamen aus der Recherche (`gemma4`, `ornith`, `flint`, `qwen3.8`) sind per Registry-Manifest belegt (Tag und Größe), ihre Qualität ist ungemessen. Fallback `qwen3:8b`. Thinking-Modelle verbrauchen Tokens vor der JSON-Antwort. Blackwell-Absturzmeldungen bei Teil-Offload (ADR-0001): Modell vollständig in den VRAM legen, Kontext 16k. Dev-Gateway ohne Disassembler: Assembler-Lernpfad erst nach dem Ghidra-Adapter.
+
+## Neue Aufträge von Jan (2026-10-31, Nachmittag)
+- [x] G-Data-Prüfung: keine getrackte Datei fehlt, Tests grün (202). `scripts.py` war kurz verschwunden, ist da.
+- [x] Remote `origin` = Agent4Forensic/LocalReverseAnyThingForensic (öffentlich, leer bei Start). `main` gepusht. Feature-Branch folgt, sobald der Arbeitsbaum sauber ist (Guard-Agent schreibt noch). Workflow in CLAUDE.md.
+- [x] Agenten nutzen graphify: Pflichtregel in CLAUDE.md "Subagenten-Regeln" und in jedem neuen Agenten-Prompt. `graphify-out/` bleibt lokal (enthält Pfade), ist ignoriert.
+- [x] Token-Effizienz der Agenten: Regeln 2 bis 6 in CLAUDE.md (kurze Prompts, Dateiverweise, feste Dateimengen, Abgabe max 25 Zeilen).
+- [~] Dashboard V2 (Spezifikation `docs/architecture/dashboard-v2.md`): Live-Aktivität, Assembler-Lernpfad mit Sprung zur Zeile, Ablaufplan je Funktion, Diagramme. Frontend-Agent läuft. Backend offen: Tabellen functions/walkthroughs/diagrams, Endpunkte activity/functions/walkthroughs/diagrams, Guard-Schema für neue finish-Felder, neue Prompts.
+- [~] Bestes Modell (Fable) schreibt Vorgaben `docs/blueprint/15-walkthroughs-and-visuals.md` und Anpassungsliste `docs/review/platform-adjustments.md`: Agent läuft. Antwort auf die Frage: Das Blueprint (15 Dateien) und die Methodik standen auf der Liste; die Vorgaben für Lernpfad/Diagramme und die Anpassungsliste kamen erst jetzt dazu.
+- [~] Start/Stop-Skripte mit Preflight, Selbstinstallation aus gepinnten Quellen, Update-Prüfung, Terminal-Log mit Stage-Namen (`scripts/start.ps1`, `stop.ps1`, `infra/manifest.json`): Agent läuft. Konflikt zu klären: automatische Updates widersprechen CLAUDE.md Verbot 5/6; Umsetzung nur aus gepinnten, gehashten Quellen, neue Versionen werden gemeldet.
+
+## Tests (von Jan beauftragt, 2026-10-31)
+- [ ] **Detaillierte Tests für die forensische Absicherung der Kette.** Plan in `docs/testing/forensic-test-plan.md` mit 8 Blöcken (Chain of Custody, Belegprüfung, Prompt-Injection, Isolation und Jail, Determinismus, Übersetzung und Bericht, Ground-Truth-Korpus, Umsetzung). Vorhanden: 202 Unit-, 160 Sicherheits-, 4 E2E-Tests. Offen sind unter anderem Audit-Manipulationstest, Artefakt-Hash-Abgleich, Netz-Sperr-Test, API-Sicherheitstests, Reproduzierbarkeit des Berichts, Hold-out-Set für den Guard, Live-Modell-Tests und der Ground-Truth-Korpus.
+
+## Backlog (von Jan beauftragt, braucht ADR und Freigabe)
+- [ ] **Dynamische Analyse** (ADR-0005, Entwurf): widerspricht Nicht-Ziel 1 des Plans und ist nach CLAUDE.md Verbot 3 nur mit ADR und ausdrücklicher Freigabe umsetzbar. Voraussetzungen: Hyper-V-VM ohne Netzwerkkarte, Snapshot/Rollback, simuliertes Netz, Opt-in pro Job, Audit, Gateway-Tools (`capture_trace`, `emulate_function`), Berichtsregel "niedrigere Konfidenz bis statisch bestätigt". Blueprint-Datei `10-dynamic-analysis.md` beschreibt die Methodik als Wissen.
+- [ ] REA: Live-Komponenten (Frida, ADB, Prozess-Capture) bleiben bis zur Freigabe von ADR-0005 aus.
 
 ## Phasen 0–12 (laut PROJEKTPLAN.md Abschnitt 7)
 Alle offen. Beginn erst nach Abschluss von Phase P und Freigabe.

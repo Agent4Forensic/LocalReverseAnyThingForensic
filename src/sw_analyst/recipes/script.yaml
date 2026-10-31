@@ -1,0 +1,29 @@
+id: script
+description: Scripts (PowerShell, JavaScript, VBScript, Python, Bash, Batch). Layer-by-layer static decoding, never executed.
+detect: {types: [powershell, vbscript, javascript, python, bash, batch, html]}
+steps:
+  - id: detect_obfuscation
+    title: Identify language and obfuscation indicators
+    goal: Determine the script language and list obfuscation indicators (encoded blobs, string concatenation, char-code building, eval-like calls, XOR/compression loops) with line numbers.
+    priority: 100
+    tools_hint: [script_detect, read_lines, grep]
+  - id: decode_layers
+    title: Decode embedded layers statically
+    goal: Decode each encoded layer with decode_layer (never execute), inspect each result, and continue until readable plain text or a binary payload is reached. Record every layer with its derived file and hash.
+    priority: 120
+    tools_hint: [decode_layer, read_lines, grep]
+  - id: behaviour
+    title: Describe behaviour of the decoded script
+    goal: From the final readable layer describe what the script does (download, execute, persist, exfiltrate, encrypt) citing exact lines.
+    priority: 140
+    tools_hint: [read_lines, grep]
+  - id: indicators
+    title: Collect indicators of compromise
+    goal: Collect URLs, domains, IPs, file and registry paths, mutex names, commands and keys from all layers, each with evidence.
+    priority: 160
+    tools_hint: [grep, strings_extract]
+required_questions:
+  - What does the script do (main purpose)?
+  - How many obfuscation layers exist and how are they decoded?
+  - Which indicators can be derived statically?
+  - Is there an embedded payload and what is its type?

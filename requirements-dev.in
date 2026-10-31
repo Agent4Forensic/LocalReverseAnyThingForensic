@@ -1,0 +1,4 @@
+-r requirements.in
+# Tests only. httpx is required by fastapi.testclient.
+pytest==9.0.2
+httpx==0.28.1

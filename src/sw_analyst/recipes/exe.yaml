@@ -1,0 +1,34 @@
+id: exe
+description: Windows PE executables and DLLs. Static analysis only.
+detect: {types: [pe]}
+steps:
+  - id: static_triage
+    title: PE headers, sections and packer indicators
+    goal: Record machine type, timestamp, subsystem, entry point, sections (names, sizes, flags, entropy) and overlay; judge packing/protection using section entropy, import count and entry point location.
+    priority: 100
+    tools_hint: [pe_headers, entropy_map]
+  - id: imports_capabilities
+    title: Imports and capability hints
+    goal: From the import table derive capability hints (process/memory, network, crypto, persistence, anti-debug) and name the imports that justify each hint.
+    priority: 120
+    tools_hint: [pe_headers, grep]
+  - id: strings_iocs
+    title: Strings and indicators
+    goal: Extract ASCII and UTF-16 strings, classify URLs, domains, IPs, paths, registry keys, commands, mutex names, and note suspicious strings with offsets.
+    priority: 130
+    tools_hint: [strings_extract, grep]
+  - id: resources_overlay
+    title: Resources and overlay
+    goal: Inspect overlay and high-entropy regions for embedded payloads or configuration blobs and record their offsets, sizes and entropy.
+    priority: 150
+    tools_hint: [entropy_map, hexdump, decode_layer]
+  - id: crypto_config
+    title: Crypto constants and configuration
+    goal: Search for crypto-related constants, base64/hex blobs and configuration structures; state what was found and what could not be determined.
+    priority: 170
+    tools_hint: [grep, hexdump, decode_layer]
+required_questions:
+  - What does the software do (main function)?
+  - Which persistence, communication and encryption mechanisms are indicated?
+  - Which indicators can be derived statically?
+  - Are there hints of weaknesses (key handling, kill switch)?
