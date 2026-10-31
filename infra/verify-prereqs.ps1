@@ -47,9 +47,9 @@ if ($LASTEXITCODE -eq 0) {
 
 # --- Ollama
 try {
-    $v = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/version' -TimeoutSec 3
+    $v = Invoke-RestMethod -Uri 'http://127.0.0.1:11435/api/version' -TimeoutSec 3
     Add-Result 'ollama:server' 'PASS' ("version {0}" -f $v.version)
-} catch { Add-Result 'ollama:server' 'FAIL' 'server not reachable on 127.0.0.1:11434' }
+} catch { Add-Result 'ollama:server' 'FAIL' 'server not reachable on 127.0.0.1:11435' }
 
 # --- Hyper-V (needs admin to inspect features; service state is enough here)
 $vmms = Get-Service vmms -ErrorAction SilentlyContinue
