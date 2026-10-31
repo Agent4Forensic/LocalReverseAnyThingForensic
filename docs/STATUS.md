@@ -207,10 +207,10 @@ Lücken:
 - [x] `goal_reached` und `gaps` werden ausgewertet: Selbstbewertung in den Task-Parametern und im Bericht, Lücken als Findings mit Status `open` (`_record_evaluation`).
 - [x] Nach der Synthese entsteht eine Lückenrunde, deren Folgeaufgaben nicht erneut bewertet werden.
 - [x] Der Planer ergänzt nach dem Rezept höchstens 4 Aufgaben aus dem Job-Ziel (`_plan_from_goal`). Jede Aufgabe trägt ein Abnahmekriterium `done_when`.
-- [ ] Vor und nach den Änderungen Challenges 01 bis 04 messen. Erster Lauf nur teilweise gültig: Ab 22:14:52 fiel Ollama weg, zeitgleich lief `scripts/start.ps1` (Bereinigung um 22:14:57). Gültig sind Basislauf 01 (PASS) und 02 (FAIL, Budget). Basislauf 03 und 04 sowie alle Nachher-Läufe werden wiederholt.
+- [ ] Vor und nach den Änderungen Challenges 01 bis 04 messen. Erster Lauf nur teilweise gültig: Ab 22:14:52 fiel Ollama weg, zeitgleich lief `scripts/start.ps1` (Bereinigung um 22:14:57). Gültig sind Basislauf 01 (PASS) und 02 (FAIL, Budget). Basislauf 03 und 04 sowie alle Nachher-Läufe sind zu wiederholen. Die Wiederholung ab 22:20 brach beim ersten Lauf ab: `start.ps1` lief erneut und beendete beim Stopp um 22:22:50 den von ihm selbst gestarteten Server. Die Messung braucht etwa 60 Minuten ohne `start.ps1`.
 - [ ] Messergebnis in ADR-0007, `docs/STATUS.md` und `docs/roadmap.html` eintragen, Bestätigtes und Offenes getrennt, dann nach `main` nachmergen.
 - [ ] `/claude-security` über den gemergten Stand laufen lassen. Vor dem Merge von `feat/workflow-optimization` (2026-10-31) lief nur ein manuelles Security-Review des Diffs. Ein Versuch am 2026-10-31 startete nicht, weil der Sitzung das Workflow-Werkzeug fehlte (`/config`, Dynamic workflows).
-- [ ] `scripts/start.ps1` beendet laufende Ollama-Server anderer Prozesse und meldete um 22:19:00 "nothing listens on port 11435", obwohl der Port antwortete. Beides prüfen.
+- [ ] `scripts/start.ps1` prüfen: Der um 21:51 fremd gestartete Server endete um 22:14:52, die Bereinigung lief um 22:14:57, ein Beendigen durch das Skript ist nicht belegt (siehe auch F-19). Um 22:19:00 meldete es "nothing listens on port 11435", obwohl der Port antwortete.
 - [ ] Bericht-Tabellen: echten Markdown-Sanitizer statt des Leerzeichens nach `<` einbauen (`shortcut` in `report/builder.py`, `_cell`).
 
 Sicherheitsreview des Änderungsstands (2026-10-31):
