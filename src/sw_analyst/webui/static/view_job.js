@@ -371,7 +371,7 @@
                   h('td', { text: fmt.ORIGIN[r.origin] || r.origin || '–' }),
                   h('td', null, fmt.badge(r.status)),
                   h('td', { cls: 'num mono', text: String(r.priority) }),
-                  h('td', { cls: 'qreason', text: r.reason || '–' }));
+                  h('td', { cls: 'qreason' }, r.reason || '–', r.done_when ? h('div', { cls: 'small muted', text: 'Fertig, wenn: ' + r.done_when }) : null));
               })))));
       }
       host.appendChild(h('div', { cls: 'stack' },

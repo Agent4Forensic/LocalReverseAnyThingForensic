@@ -71,7 +71,7 @@
       function paintFindings() {
         var list = st.findings.filter(function (f) { return filter === 'all' || f.status === filter; });
         SW.dom.fill(fHost, list.length ? list.map(function (f) { return findingCard(st, f, f.id === target); })
-          : (st.loaded ? ui.empty('Noch keine Befunde', filter === 'all' ? 'Befunde erscheinen hier, sobald sie belegt und geprüft sind.' : 'Kein Befund mit diesem Status.', 'search') : ui.loading()));
+          : (st.loaded ? ui.empty('Noch keine Befunde', filter === 'all' ? 'Befunde und offene Punkte erscheinen hier, sobald die Analyse sie liefert.' : 'Kein Befund mit diesem Status.', 'search') : ui.loading()));
         if (target) {
           var node = document.getElementById('f-' + target);
           if (node) { node.scrollIntoView({ block: 'center' }); node.focus({ preventScroll: true }); target = null; }

@@ -15,8 +15,9 @@ from sw_analyst.common.util import preview
 from sw_analyst.gateway.base import ToolGateway
 from sw_analyst.guard import (SYSTEM_RULES_EN, TaskGuard, sanitize_untrusted, validate_action)
 from sw_analyst.llm.base import ChatMessage, LLMClient, LLMError
+from sw_analyst.orchestrator.agents import MODEL_ORIGINS, task_text
 from sw_analyst.orchestrator.verifier import MIN_QUOTE, answer_values_grounded, norm, verify_finding
-from sw_analyst.prompts.registry import ACTION_SCHEMA, SYSTEM_BASE, get_prompt
+from sw_analyst.prompts.registry import ACTION_SCHEMA, DEFAULT_DONE_WHEN, SYSTEM_BASE, get_prompt
 
 MAX_TURNS = 10
 MAX_INVALID = 3
@@ -25,6 +26,7 @@ REPLY_TOKENS = 3000           # thinking counts against this budget
 REPLY_TOKENS_MAX = 4096       # after a cut-off reply; more does not fit next to the context in num_ctx 16384
 PROMPT_EVIDENCE_CHARS = 6000
 KNOWN_CHARS = 6000
+OPEN_POINTS_CHARS = 2000
 CONTEXT_CHAR_BUDGET = 36000   # rough guard for 16k-token contexts (about 4 chars per token incl. reserve)
 
 
@@ -56,7 +58,8 @@ class TaskRunner:
         """Newest confirmed findings with a quote to re-cite. Model text about the sample stays marked as data."""
         lines: list[str] = []
         used = 0
-        for f in reversed(self.store.list_findings(job_id, "confirmed")[-limit:]):
+        confirmed = self.store.list_findings(job_id, "confirmed")
+        for f in reversed(confirmed[-limit:]):
             q = (f["quotes"] or [{}])[0]
             line = (f"- {f['id']}: {f['statement_en']} [evidence: {', '.join(f['evidence_ids'])}; "
                     f"quote from {q.get('evidence_id', '-')}: \"{preview(q.get('quote', ''), 160)}\"]")
@@ -66,7 +69,18 @@ class TaskRunner:
             used += len(line)
         if not lines:
             return "(nothing confirmed yet)"
+        if len(lines) < len(confirmed):
+            lines.append(f"({len(confirmed) - len(lines)} older confirmed findings not shown)")
         return sanitize_untrusted("\n".join(reversed(lines)), "known-findings", max_chars=KNOWN_CHARS + 200).text
+
+    def open_points_text(self, job_id: str, limit: int = 10) -> str:
+        """Unproven findings a later task can test. GAP needs dynamic analysis; GUARD would send a task back into an attack."""
+        rows = [f for f in self.store.list_findings(job_id)
+                if f["status"] in ("hypothesis", "open") and not f["statement_en"].startswith(("GAP:", "GUARD:"))][-limit:]
+        if not rows:
+            return "(none)"
+        return sanitize_untrusted("\n".join(f"- {f['id']}: {preview(f['statement_en'], 200)}" for f in rows),
+                                  "open-points", max_chars=OPEN_POINTS_CHARS).text
 
     def _evidence_index_text(self, job_id: str) -> str:
         rows = self.store.evidence_index(job_id)
@@ -89,13 +103,16 @@ class TaskRunner:
             tools_hint=", ".join(params.get("tools_hint") or []) or "(choose from the list)",
             input_file=params.get("path") or "sample", evidence_index=self._evidence_index_text(job["id"]),
             previous=previous, max_turns=MAX_TURNS,
-            goal=task["goal"], title=task["title"], reason=task["reason"] or "part of the recipe",
+            goal=task_text(task, task["goal"], "task-goal"), title=task_text(task, task["title"], "task-title"),
+            reason=task_text(task, task["reason"], "task-reason") if task["reason"] else "part of the recipe",
             detected_type=job["detected_type"] or "unknown", sample_sha256=job["sample_sha256"],
             recipe=job["recipe"] or "generic",
             description=spec.get("description_en") or spec.get("description") or "(none)",
             context_info=spec.get("context_info_en") or spec.get("context_info") or "(none)",
             focus=spec.get("focus_en") or spec.get("focus") or "(none)",
             questions=qs, known=self.known_findings_text(job["id"]),
+            hypotheses=self.open_points_text(job["id"]),
+            done_when=task_text(task, params.get("done_when") or DEFAULT_DONE_WHEN, "task-done-when"),
             action_schema=ACTION_SCHEMA, tools=_tools_block(tools))
         if task["kind"] == "question":
             p = get_prompt("task.question")
@@ -117,8 +134,7 @@ class TaskRunner:
         system = SYSTEM_BASE + "\n" + SYSTEM_RULES_EN
         messages = [ChatMessage(role="system", content=system), ChatMessage(role="user", content=body)]
         # What the task itself names is no sign of a hijack, even when a sample mentions the same word.
-        guard = TaskGuard(task_id, " ".join([task["title"], task["goal"], task["params"].get("path") or "sample",
-                                             *(task["params"].get("tools_hint") or [])]))
+        guard = TaskGuard(task_id, guard_task_text(task))
         seen_calls: set[str] = set()
         invalid = repairs = 0
         reply_tokens = REPLY_TOKENS
@@ -301,6 +317,12 @@ class TaskRunner:
                 total -= len(m.content) - len(new)
                 messages[i] = ChatMessage(role="user", content=new)
             i += 1
+
+
+def guard_task_text(task: dict) -> str:
+    """What may appear in tool calls without looking hijacked. A goal the model wrote can carry sample text itself."""
+    own = [] if task["origin"] in MODEL_ORIGINS else [task["title"], task["goal"]]
+    return " ".join([*own, task["params"].get("path") or "sample", *(task["params"].get("tools_hint") or [])])
 
 
 def check_answer_grounding(store: Store, job_id: str, answer_text: str) -> tuple[bool, str]:

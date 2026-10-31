@@ -5,30 +5,35 @@ steps:
   - id: static_triage
     title: PE headers, sections and packer indicators
     goal: Record machine type, timestamp, subsystem, entry point, sections (names, sizes, flags, entropy) and overlay; judge packing/protection using section entropy, import count and entry point location.
+    done_when: Machine type, timestamp, subsystem, entry point, sections, overlay and a packing judgement are recorded with evidence, or a finding names which value the tool could not provide.
     guide: Call pe_headers first. Packed signs need several together - section entropy above 7.2 on large raw size, only a few imports (LoadLibraryA, GetProcAddress, VirtualAlloc), entry point outside the first code section, section names such as UPX0. High entropy alone is a hypothesis, resources are also compressed. A CLR entry (mscoree.dll) means .NET; say so, native analysis shows only a stub.
     priority: 100
     tools_hint: [pe_headers, entropy_map]
   - id: imports_capabilities
     title: Imports and capability hints
     goal: From the import table derive capability hints (process/memory, network, crypto, persistence, anti-debug) and name the imports that justify each hint.
+    done_when: Each capability hint names its justifying imports with evidence as a hypothesis, or a finding states that the import table shows no hint or names why the tool could not read it.
     guide: Group imports by category and quote the import names. Every capability from imports stays a hypothesis, because no code path was read. grep refuses binary files, use pe_headers output.
     priority: 120
     tools_hint: [pe_headers]
   - id: strings_iocs
     title: Strings and indicators
     goal: Extract ASCII and UTF-16 strings, classify URLs, domains, IPs, paths, registry keys, commands, mutex names, and note suspicious strings with offsets.
+    done_when: Classified indicators and suspicious strings are listed with offsets and evidence, or a finding states none were extracted from the sample or names the tool limit that prevented it.
     guide: Use strings_extract with both encodings and min_len 6, page with offset. Report offset and text. Do not treat a string as behaviour; it shows presence only.
     priority: 130
     tools_hint: [strings_extract]
   - id: resources_overlay
     title: Resources and overlay
     goal: Inspect overlay and high-entropy regions for embedded payloads or configuration blobs and record their offsets, sizes and entropy.
+    done_when: Offset, size and entropy of the overlay and high-entropy regions are recorded with evidence, or a finding states none exist in the sample or names the tool limit that prevented inspection.
     guide: pe_headers gives the overlay offset. Look at it with hexdump. If it holds encoded text, call decode_layer with offset and length of exactly that blob (skip any prefix) and read the result. A result with its own magic is a new artifact; the platform triages it. Do not guess keys.
     priority: 150
     tools_hint: [pe_headers, entropy_map, hexdump, decode_layer]
   - id: crypto_config
     title: Crypto constants and configuration
     goal: Search for crypto-related constants, base64/hex blobs and configuration structures; state what was found and what could not be determined.
+    done_when: Any crypto constants, encoded blobs and config structures are listed with offsets, or a finding states none were seen, and a finding names what stays undeterminable without a disassembler.
     guide: Without a disassembler you can only see constants and blobs, not their use. Say so. Identify algorithms only as hypothesis unless a constant is quoted. Function-level questions (key handling, control flow) are a GAP until the disassembler tools exist.
     priority: 170
     tools_hint: [strings_extract, hexdump, decode_layer]

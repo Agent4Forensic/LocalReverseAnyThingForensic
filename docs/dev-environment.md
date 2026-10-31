@@ -96,3 +96,49 @@ Einzeln zu sperren trotz erlaubter Familie: `capture_process_scenario` (startet 
 Umgebung: `REA_ANALYSIS_PROVIDER=ghidra`, `GHIDRA_INSTALL_DIR`, `JAVA_HOME`, `REA_JADX_MCP_JAR` (SHA-256 selbst gegen `6e5eacf500b64292bfb73c49797c1958f6ee44646e43e868039ae7feb573ff75` prüfen, REA lehnt Abweichungen nicht ab), Timeouts und Heap-Limits setzen, nur stdio, nicht `rea mcp --http`. `REA_BROWSER_EXECUTABLE`, `REA_ADB_PATH`, `REA_GDB_COMMAND`, `REA_RIZIN_COMMAND`, `REA_DOCKER_COMMAND` nicht setzen.
 
 Vor dem Einsatz: Quellen am Commit 160d821a manuell prüfen (`src/ghidra/GhidraLauncher.ts`, `src/android/Jadx*.ts`, `src/contracts/toolEffects.ts`, `src/application/UpdateRuntime.ts`, `scripts/rea.mjs`, `bridge/`), `npm ls --all` und Install-Skripte der transitiven Abhängigkeiten ansehen und beim ersten Lauf Netzwerk-/Syscall-Monitoring in einer Wegwerf-VM durchführen.
+
+## Downloads und Pins
+
+Stand: 2026-10-31. Abgleich von `infra/manifest.json`, `requirements.lock` und den Angaben in diesem Dokument. Es wurde kein Netzwerkzugriff ausgeführt und nichts heruntergeladen. Hashes der Python-Pakete stehen in `requirements.lock` und sind hier bewusst nicht kopiert. "nicht erfasst" bedeutet: Der Wert fehlt in den Repo-Dateien und ist nicht geraten.
+
+| Komponente | Version | Quelle (URL) | SHA-256 | Commit-SHA | Prüfstatus |
+|---|---|---|---|---|---|
+| Ollama (Server) | 0.40.13 | https://github.com/ollama/ollama/releases/download/v0.40.13/ollama-windows-amd64.zip | 7afa38624fa62ee5d8293422d0ab084c1bb4603134c7f4dafce11a033b57cc19 | nicht erfasst | Bestätigt: Pin in `infra/manifest.json`. Offen: Download nicht gegen Hash geprüft. Installierter Client ist 0.35.1, Abweichung zum Pin. |
+| Ghidra 12.1.4 (Ziel) | 12.1.4 (2026-09-21) | Repo laut Manifest: NationalSecurityAgency/ghidra. Download-URL nicht erfasst (`pending`). | ddac49f903da9d5bac833e5cc79395098b9c33cfd3279be5f31bd00387d2d4db | nicht erfasst | Bestätigt: Hash in Manifest und Doku identisch. Offen: URL und Zielpfad sind `pending`. |
+| Ghidra 12.2 (nur Doku) | 12.2 (2026-10-22) | nicht erfasst (Asset `ghidra_12.2_PUBLIC_20261016.zip`) | 2c2cd776db3c1f6a097ba418922378ac3649cadd5e844a6f5f088ae628a7be67 | nicht erfasst | Offen: nicht gepinnt, MCP-Kompatibilität nicht belegt. Nicht einbinden. |
+| JDK | Temurin 17.0.20 (installiert) | nicht erfasst | nicht erfasst | nicht erfasst | Offen: Ghidra 12.1.4 braucht laut Doku JDK 21, ein JDK-21-Pin fehlt. |
+| Python / Node | 3.11.9 / 24.19.0 (installiert) | nicht erfasst | nicht erfasst | nicht erfasst | Offen: keine Pins oder Hashes erfasst. |
+| Python-Abhängigkeiten | annotated-doc 0.0.5, annotated-types 0.8.0, anyio 4.15.1, click 8.5.0, fastapi 0.128.0, h11 0.16.0, idna 3.20, pydantic 2.14.2, pydantic-core 2.50.2, python-multipart 0.0.33, pyyaml 6.0.3, starlette 0.50.0, typing-extensions 4.16.0, typing-inspection 0.4.4, uvicorn 0.40.0 | PyPI-Index (nicht in `requirements.lock` erfasst) | in `requirements.lock` je Paket (nicht kopiert) | nicht erfasst | Bestätigt: Versionen und Hashes in Lock-Datei vorhanden. Offen: Index-URL fehlt, `requirements.in` nicht gegen Lock abgeglichen. |
+| pyghidra-mcp | v0.2.7 | GitHub clearbluejar/pyghidra-mcp | nicht erfasst | nicht erfasst | Offen: Commit-Pin und Hash fehlen. Empfohlener Primärweg, vor Nutzung testen. |
+| bethington/ghidra-mcp | v7.0.0 | GitHub bethington/ghidra-mcp, Release v7.0.0 | Präfix `d133c4c8` (GhidraMCP-7.0.0.zip) und `a7505006` (Bridge-Wheel), volle Hashes nicht erfasst | 19e64c75f1be1fcbe413e845f65e549f2361b928 | Bestätigt: Tag und Commit in Doku. Offen: volle Hashes beim Einbau aus dem Release eintragen. Tag unsigniert. |
+| morluto/rea (npm `rea-agents`) | 6.8.0 | npm `rea-agents@6.8.0` (URL nicht erfasst) | nicht erfasst (npm-Integrity ist sha512 und steht im Audit-Abschnitt) | 160d821ac9a0 (Tag `rea-agents-6.8.0`) | Offen: `infra/manifest.json` ist `pending`, SHA-256 fehlt. Doku nennt zusätzlich Repo-Commit 60149282fcfc mit Datum 2026-11-01, das nach dem Stand liegt. Widerspruch klären. |
+| REA: jadx-MCP-JAR | nicht erfasst | nicht erfasst | 6e5eacf500b64292bfb73c49797c1958f6ee44646e43e868039ae7feb573ff75 (Prüfwert aus REA-Audit) | nicht erfasst | Offen: Datei und Herkunft nicht erfasst, nur Prüfwert bekannt. |
+| jadx | v1.5.6 | GitHub skylot/jadx | nicht erfasst | nicht erfasst | Offen: nicht eingebunden, Pin fehlt. |
+| apktool | v3.0.3 | GitHub iBotPeaches/Apktool | nicht erfasst | nicht erfasst | Offen: nicht eingebunden, Pin fehlt. |
+| capa / capa-rules | v10.0.0 | GitHub mandiant/capa | nicht erfasst | nicht erfasst | Offen: nicht eingebunden, Pin fehlt. |
+| FLOSS | v3.2.0 | GitHub mandiant/flare-floss | nicht erfasst | nicht erfasst | Offen: nicht eingebunden, Pin fehlt. |
+| yara-x | v1.22.1 | GitHub VirusTotal/yara-x | nicht erfasst | nicht erfasst | Offen: nicht eingebunden, Pin fehlt. |
+| radare2 | 6.2.4 | GitHub radareorg/radare2 | nicht erfasst | nicht erfasst | Offen: nicht eingebunden, Pin fehlt. |
+| binwalk | v3.1.0 | GitHub ReFirmLabs/binwalk | nicht erfasst | nicht erfasst | Offen: nicht eingebunden, Pin fehlt. |
+| LIEF / pefile / androguard | 1.0.0 / 2024.8.26 / 4.1.4 | PyPI bzw. GitHub (Index nicht erfasst) | nicht erfasst | nicht erfasst | Offen: nicht eingebunden, Pin fehlt. |
+| Qiling | v1.4.11 (GPL-2.0) | GitHub, Repo nicht erfasst | nicht erfasst | nicht erfasst | Offen: nur für Phase 11, Lizenz vorher prüfen. |
+| caveman (JuliusBrussee) | nicht erfasst | GitHub, Autor JuliusBrussee (URL nicht erfasst) | nicht erfasst | 655b7d9c5431 | Bestätigt: Prüfung dokumentiert. Offen: Version fehlt. |
+| ponytail (DietrichGebert) | 5.3.3 | GitHub, Autor DietrichGebert (URL nicht erfasst) | nicht erfasst | 96608e078b2d | Bestätigt: Prüfung dokumentiert. |
+| claude-security | 0.12.0 | claude-plugins-official | nicht erfasst | nicht erfasst | Offen: Commit fehlt. |
+| feature-dev, pr-review-toolkit, mcp-server-dev | nicht erfasst | claude-plugins-official | nicht erfasst | nicht erfasst | Offen: Version und Commit fehlen. |
+| nvidia/cuda (Docker-Testimage) | 12.6.0-base-ubuntu24.04 | Docker Hub (URL nicht erfasst) | nicht erfasst | nicht erfasst | Offen: nur Test, Digest fehlt. |
+| Ollama-Modelle | qwen3:14b, qwen3:8b, qwen3:4b, qwen3-embedding:0.6b | Ollama-Bibliothek (URL nicht erfasst) | nicht erfasst | nicht erfasst | Offen: noch kein Pull belegt. Digest nach dem Pull erfassen. |
+
+### Bestätigt
+- Ollama 0.40.13 ist mit URL und SHA-256 in `infra/manifest.json` gepinnt.
+- Der Ghidra-12.1.4-Hash ist in `infra/manifest.json` und in dieser Doku identisch.
+- Die Commit-Pins für ponytail, caveman und bethington/ghidra-mcp v7.0.0 stehen in diesem Dokument.
+
+### Offen
+- `infra/manifest.json`: Ghidra (`url`, `target`) und REA (`version`, `url`, `sha256`, `target`) stehen auf `pending`. Das Feld `target` von Ollama enthält einen lokalen Pfad. Er gehört nicht in ein Repo-Dokument und wurde hier nicht übernommen.
+- Ollama: installierter Client 0.35.1 weicht vom Pin 0.40.13 ab.
+- JDK: Ghidra 12.1.4 braucht JDK 21, installiert ist Temurin 17.
+- REA: zwei Commits in der Doku (60149282fcfc und 160d821ac9a0). Klären, welcher gilt. Kein SHA-256 für das npm-Paket.
+- Modelle und Docker-Testimage haben keine Digests.
+- Analyse-Werkzeuge sind nur recherchiert, nicht eingebunden. Ihnen fehlen URLs und Hashes.
+- `requirements.in` wurde nicht gegen `requirements.lock` abgeglichen.

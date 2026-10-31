@@ -162,7 +162,8 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
     def queue(job_id: str):
         need_job(job_id)
         return [{"task_id": t["id"], "title": t["title"], "origin": t["origin"], "status": t["status"],
-                 "priority": t["priority"], "reason": t["reason"], "position": i + 1}
+                 "priority": t["priority"], "reason": t["reason"], "done_when": t["params"].get("done_when") or "",
+                 "position": i + 1}
                 for i, t in enumerate(store.queue(job_id))]
 
     @app.get("/api/jobs/{job_id}/tasks/{task_id}")
