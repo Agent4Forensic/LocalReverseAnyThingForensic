@@ -164,7 +164,8 @@ Open and pending task titles (do not repeat them): {pending}
 
 ## Rules
 - A follow-up must refer to a finding id or a concrete gap in the result. No speculative tasks.
-- At most 4 follow-ups. Each must be smaller than the original goal.
+- At most 2 follow-ups, none if the goal was reached and nothing new appeared. Each must be smaller than the original goal.
+- A verbatim quote is already verified by the platform: never propose to verify, confirm or cross-check a confirmed finding again.
 - Say what is still unproven. Prefer a follow-up that tests an open hypothesis or decodes a found blob over more of the same.
 - Something only running the sample could answer is a gap, never a follow-up: write it in "gaps" as "GAP: ...".
 

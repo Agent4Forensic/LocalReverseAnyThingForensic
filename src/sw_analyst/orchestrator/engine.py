@@ -24,6 +24,8 @@ MAX_ATTEMPTS = 2
 MAX_DEPTH = 3
 MAX_ARTIFACT_TASKS = 6
 MAX_LLM_ERRORS = 3
+MAX_FOLLOWUPS_JOB = 8         # model-derived tasks per job; without a cap "verify it again" eats the whole budget
+MAX_EVALUATED_DEPTH = 1       # follow-ups of follow-ups are not evaluated again
 BUDGET_RESERVE_FROM = 0.75    # from here on the rest of the budget belongs to target questions, then synthesis
 # Derived files of these types get their own task. Text and data stay with the task that decoded them.
 RECURSE_TYPES = {"pe", "elf", "apk", "jar", "zip", "dex", "pdf", "macho", "ole2",
@@ -190,6 +192,9 @@ class JobEngine:
     def _counted_tasks(self, job_id: str) -> int:
         return sum(1 for t in self.store.list_tasks(job_id) if t["kind"] not in ("group", "triage"))
 
+    def _followups_used(self, job_id: str) -> int:
+        return sum(1 for t in self.store.list_tasks(job_id) if t["origin"] in ("split", "evaluator", "prioritizer"))
+
     def _task_budget_full(self, job_id: str) -> bool:
         return self._counted_tasks(job_id) >= self.store.get_job(job_id)["spec"]["budget_max_tasks"]
 
@@ -299,7 +304,7 @@ class JobEngine:
         self._add_subtasks(job_id, task, outcome.subtasks, "split", depth)
         if task["kind"] == "question":
             self._apply_answer(job_id, task, outcome)
-        if task["params"].get("synthesis"):
+        if task["params"].get("synthesis") or depth > MAX_EVALUATED_DEPTH:
             return
         ev = self.agents.evaluate(job, task, outcome.summary, outcome.finding_ids,
                                   [t["title"] for t in self.store.queue(job_id)], self.runner.known_findings_text(job_id))
@@ -316,13 +321,14 @@ class JobEngine:
             if self.store.has_similar_task(job_id, _norm_title(title)):
                 self.store.log(job_id, f"duplicate task ignored: {title}", level="debug")
                 continue
-            if self._task_budget_full(job_id):
-                self.store.log(job_id, f"task budget reached, follow-up not added: {title}", level="warn")
+            if self._task_budget_full(job_id) or self._followups_used(job_id) >= MAX_FOLLOWUPS_JOB:
+                self.store.log(job_id, f"follow-up limit reached, not added: {title}", level="warn")
                 continue
             if self._injected(job_id, parent["id"], title, s["goal"], s.get("reason") or ""):
                 continue
+            # Behind all recipe steps (100-199): "parent - 1" let follow-ups starve the recipe and the target questions.
             self.store.add_task(job_id, title=title, goal=s["goal"], kind="analyze", origin=origin,
-                                priority=min(max(parent["priority"] - 1, 2), 790), parent_id=parent["id"],
+                                priority=min(max(parent["priority"] + 1, 200), 790), parent_id=parent["id"],
                                 reason=s.get("reason") or f"derived from {parent['id']}",
                                 params={"depth": depth + 1})
 
@@ -346,6 +352,7 @@ class JobEngine:
             self.store.log(job_id, f"priority of {c['task_id']} set to {c['priority']}", reason=c["reason"])
         for n in res["new_tasks"]:
             if (not self.store.has_similar_task(job_id, _norm_title(n["title"])) and not self._task_budget_full(job_id)
+                    and self._followups_used(job_id) < MAX_FOLLOWUPS_JOB
                     and not self._injected(job_id, None, n["title"], n["goal"], n["reason"])):
                 self.store.add_task(job_id, title=n["title"], goal=n["goal"], kind="analyze", origin="prioritizer",
                                     priority=n["priority"], reason=n["reason"] or "suggested by prioritizer",

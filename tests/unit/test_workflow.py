@@ -132,23 +132,52 @@ def test_budget_reserve_keeps_target_questions(tmp_path):
     assert status == "partial"
 
 
-def test_follow_ups_respect_the_task_budget(tmp_path):
-    def model(messages):
-        t = _text(messages)
-        if "critical reviewer" in t:
-            n = sum(1 for _ in range(1))
-            return json.dumps({"goal_reached": False, "assessment": "more", "gaps": ["g"], "followups": [
-                {"title": f"Follow-up {abs(hash(t)) % 100000}-{i}", "goal": "dig", "reason": "gap", "related_finding": ""}
-                for i in range(4)]})
-        h = _helpers(messages)
-        return h or NOTHING
+def _endless_followups(messages):
+    t = _text(messages)
+    if "critical reviewer" in t:
+        return json.dumps({"goal_reached": False, "assessment": "more", "gaps": ["g"], "followups": [
+            {"title": f"Follow-up {abs(hash(t)) % 100000}-{i}", "goal": "dig", "reason": "gap", "related_finding": ""}
+            for i in range(4)]})
+    return _helpers(messages) or NOTHING
 
+
+def test_follow_ups_respect_the_task_budget(tmp_path):
     q = TargetQuestion(id="Q1", text_orig="What is it?")
-    store, gw, llm, engine, jid = _setup(tmp_path, model, questions=[q], budget_max_tasks=6)
+    store, gw, llm, engine, jid = _setup(tmp_path, _endless_followups, questions=[q], budget_max_tasks=6)
     engine.run_job(jid)
     tasks = _analysis(store, jid)
     assert len(tasks) <= 6 + 1
     assert next(t for t in tasks if t["kind"] == "question")["status"] == "done"
+
+
+def test_follow_ups_cannot_starve_recipe_steps_and_questions(tmp_path):
+    order = []
+
+    def model(messages):
+        t = _text(messages)
+        if "critical reviewer" not in t and "orders the work queue" not in t:
+            order.append(t.split("Title: ", 1)[1].split("\n", 1)[0] if "Title: " in t else "question")
+        return _endless_followups(messages)
+
+    q = TargetQuestion(id="Q1", text_orig="What is it?")
+    store, gw, llm, engine, jid = _setup(tmp_path, model, questions=[q])
+    engine.run_job(jid)
+    tasks = _analysis(store, jid)
+    assert sum(1 for t in tasks if t["origin"] in ("split", "evaluator", "prioritizer")) <= 8
+    assert order.index("Extract indicators and notable strings") < 4, order
+    assert next(t for t in tasks if t["kind"] == "question")["status"] == "done"
+
+
+def test_reached_goal_allows_only_one_follow_up(tmp_path):
+    def model(messages):
+        if "critical reviewer" in _text(messages):
+            return json.dumps({"goal_reached": True, "assessment": "ok", "gaps": ["g"], "followups": [
+                {"title": f"Verify again {i}", "goal": "verify", "reason": "gap", "related_finding": ""} for i in range(4)]})
+        return _helpers(messages) or NOTHING
+
+    store, gw, llm, engine, jid = _setup(tmp_path, model)
+    engine.run_job(jid)
+    assert sum(1 for t in _analysis(store, jid) if t["title"].startswith("Verify again")) == 1
 
 
 def _small_pe() -> bytes:

@@ -15,7 +15,7 @@ from sw_analyst.llm.base import ChatMessage, LLMClient, LLMError
 from sw_analyst.orchestrator.jsonutil import extract_json_object
 from sw_analyst.prompts.registry import SYSTEM_BASE, get_prompt
 
-MAX_FOLLOWUPS = 4
+MAX_FOLLOWUPS = 2
 MAX_NEW_FROM_PRIORITIZER = 3
 PRIO_MIN, PRIO_MAX = 1, 999
 
@@ -67,7 +67,8 @@ class HelperAgents:
         out["assessment"] = _clip(obj.get("assessment"), 800)
         out["gaps"] = [_clip(g, 300) for g in (obj.get("gaps") or [])[:6]]
         valid_ids = {f["id"] for f in self.store.list_findings(job["id"])}
-        for f in (obj.get("followups") or [])[:MAX_FOLLOWUPS]:
+        limit = 1 if out["goal_reached"] else MAX_FOLLOWUPS   # a reached goal needs no "verify it again"
+        for f in (obj.get("followups") or [])[:limit]:
             title, goal = _clip(f.get("title"), 120), _clip(f.get("goal"), 500)
             rel = _clip(f.get("related_finding"), 20)
             reason = _clip(f.get("reason"), 400)
