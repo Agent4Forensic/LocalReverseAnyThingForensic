@@ -125,6 +125,7 @@ def test_main_check_json_exit_code(tmp_path, capsys, monkeypatch):
     assert pf.main_check(ROOT, tmp_path, 8765, 11435, None, as_json=True) == 0
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows paths; path_under follows the host OS")
 def test_path_under_recognises_own_install_root():
     from sw_analyst.preflight import path_under
     roots = [r"D:\Tools\sw-analyst"]
