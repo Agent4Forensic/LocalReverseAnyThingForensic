@@ -30,7 +30,15 @@ Job anlegen → Eingaben übersetzen (DE→EN) → Triage → Plan (Aufgabenbaum
 
 **Selbstbewertung (Evaluator):** nach jeder Aufgabe und nach jeder Zielfrage. Der Evaluator bekommt Ziel, Ergebnis und verifizierte Findings und beantwortet: Ist das Ziel erreicht? Welche Lücken oder logischen Folgerungen bleiben? Jede Folgeaufgabe muss sich auf mindestens ein vorhandenes Finding oder eine konkrete Lücke beziehen, sonst wird sie verworfen. Das verhindert freie Spekulation.
 
-**Abbruch:** alle Zielfragen beantwortet oder Budget erschöpft (Aufgaben, Schritte, Minuten) oder Abbruch durch den Nutzer. Bei erschöpftem Budget wird der Job `partial` und der Bericht nennt die ungeklärten Punkte samt Grund.
+**Artefakte (Rekursion):** Nach jeder Aufgabe bekommt jede neue `derived/`-Datei ohne Modell einen Typ und Hashes. Code und Container erhalten eine eigene Aufgabe mit dem Leitfaden des passenden Rezepts (höchstens 6 je Job), Text und Daten bleiben bei der dekodierenden Aufgabe.
+
+**Synthese:** Vor den Zielfragen prüft eine eigene Aufgabe die Befunde als Ganzes, benennt Widersprüche und ordnet die Standardfragen des Rezepts ein. Sie erzeugt keine Folgeaufgaben.
+
+**Budget-Reserve:** Ab 75 % des Schritt- oder Zeitbudgets werden wartende optionale Aufgaben `skipped`. Zielfragen haben Vorrang, die Synthese läuft aus der Reserve nur, wenn keine Zielfrage wartet. Folgeaufgaben überschreiten das Aufgabenbudget nicht.
+
+**Host-Schutz:** Vor jeder Aufgabe prüft der `HostGuard` freien RAM, freien Platz und die GPU-Temperatur. Bei Überschreitung pausiert der Job; hilft das nach 15 Minuten nicht, endet er als `partial`. Das Modell erreicht diese Prüfung nicht.
+
+**Abbruch:** alle Zielfragen beantwortet oder Budget erschöpft (Aufgaben, Schritte, Minuten) oder Abbruch durch den Nutzer. Bei erschöpftem Budget wird der Job `partial` und der Bericht nennt die ungeklärten Punkte samt Grund. `done` heißt: alle Aufgaben fertig und alle Zielfragen beantwortet. Ist eine Aufgabe fehlgeschlagen, blockiert oder übersprungen, lautet der Status `partial`; ist gar keine Analyseaufgabe fertig geworden, lautet er `failed`.
 
 ## 3. Agenten-Schleife einer Aufgabe
 
@@ -44,7 +52,9 @@ Das Modell antwortet in jedem Zug mit genau einem JSON-Objekt (modellunabhängig
   "subtasks":[{"title":"...","goal":"...","reason":"..."}]}
 ```
 
-Pro Zug: Prompt-Schutz prüft die Eingabe an das Modell (Tool-Ergebnisse) und die Aktion des Modells (Allowlist, Argumentschema). Jeder Zug wird als Step gespeichert. Maximal N Züge pro Aufgabe. Wiederholte identische Tool-Aufrufe zählen als Schleife und beenden die Aufgabe.
+Pro Zug: Prompt-Schutz prüft die Eingabe an das Modell (Tool-Ergebnisse) und die Aktion des Modells (Allowlist, Argumentschema). Jeder Zug wird als Step gespeichert. Maximal 10 Züge pro Aufgabe; jedes Tool-Ergebnis nennt die verbleibenden Züge, der letzte Zug verlangt `finish`. Wiederholte identische Tool-Aufrufe zählen als Schleife und beenden die Aufgabe.
+
+Ein identischer Aufruf aus einer früheren Aufgabe desselben Jobs läuft nicht erneut: Das gespeicherte Ergebnis wird wiederverwendet und der Step vermerkt das. Ein abgeschnittener oder leerer Modelltext hebt das Antwortbudget an und wird dem Modell als solcher gemeldet. Ein zweiter Versuch einer Aufgabe bekommt den Fehler des ersten im Prompt. Der Seed ist fest und steht im Step.
 
 ## 4. Prüfung gegen Halluzination (Grounding)
 
@@ -52,7 +62,7 @@ Für jedes Finding mit Status `confirmed`:
 1. Alle genannten Evidence-IDs existieren in diesem Job.
 2. Das Zitat kommt (nach Normalisierung von Leerraum) wörtlich im Ergebnistext der genannten Evidence vor.
 3. Referenzierte Zeilenbereiche liegen im Dokument.
-Fehlschlag in 1 oder 2: Status `rejected`, Grund wird gespeichert. `hypothesis` darf ohne Zitat bestehen, braucht aber mindestens eine existierende Evidence-ID als Anlass und taucht in Antworten nur als Hypothese auf. Antworten auf Zielfragen dürfen ausschließlich auf `confirmed` Findings beruhen. Gibt es keine, lautet der Status der Antwort `unresolved` mit Begründung.
+Fehlschlag in 1 oder 2: Das Modell bekommt die Gründe vor dem Speichern bis zu zweimal zurück und darf korrigieren. Besteht der Fehler danach, gilt: Status `rejected` oder Herabstufung zur `hypothesis`, Grund wird gespeichert. `hypothesis` darf ohne Zitat bestehen, braucht aber mindestens eine existierende Evidence-ID als Anlass und taucht in Antworten nur als Hypothese auf. Antworten auf Zielfragen dürfen ausschließlich auf `confirmed` Findings beruhen. Gibt es keine, lautet der Status der Antwort `unresolved` mit Begründung.
 
 ## 5. Prompt-Schutz (Schichten)
 
@@ -60,7 +70,9 @@ Fehlschlag in 1 oder 2: Status `rejected`, Grund wird gespeichert. `hypothesis` 
 2. **Scanner:** erkennt Anweisungsmuster im Sample-Text (Ignorier-Befehle, Rollenwechsel, Chat-Markierungen, nachgeahmte Tool-Aktionen, Exfiltrationsaufforderungen, versteckte Zeichen, kodierte Anweisungen) auf Englisch und Deutsch. Treffer hoher Schwere werden im Prompt geschwärzt (`[REDACTED-INJECTION:regel]`), das Original bleibt als Beleg erhalten.
 3. **Aktionsprüfung:** nur Tools der Allowlist, Argumente nach Schema, Pfad-Jail, Ausgabelimits. Alles andere wird abgelehnt und gezählt.
 4. **Wächter:** Gab es in einer Aufgabe Treffer hoher Schwere und das Modell versucht danach eine unzulässige Aktion oder wiederholt Injektionstext, wird die Aufgabe `blocked`, der Vorfall protokolliert und als Befund "Prompt-Injection im Sample" festgehalten (das ist selbst ein forensisches Ergebnis).
-5. **Keine Rechte:** Die KI hat keine Shell und keine Schreibwerkzeuge außer Notizen und Annotationen im Job-Arbeitsbereich.
+5. **Keine Rechte:** Die KI hat keine Shell und keine Schreibwerkzeuge außer Notizen und Annotationen im Job-Arbeitsbereich. `tests/security/test_host_safety.py` hält das fest: feste Allowlist, kein Prozessstart und kein Netz in dem Code, den die Modellschleife erreicht.
+6. **Zweite Ordnung:** Was das Modell über das Sample schreibt, kann Sample-Text weitertragen. Bekannte Befunde und Aufgabenergebnisse stehen deshalb auch in Folge-Prompts in Datenblöcken. Vom Modell formulierte Ziele werden vor dem Anlegen einer Aufgabe gescannt; bei Treffern hoher Schwere wird die Aufgabe verworfen und als Guard-Ereignis (`plan`) festgehalten.
+7. **Befund statt Wiederholung:** Einen Injektionsversuch hält die Plattform selbst als Befund mit Beleg fest. Das Modell muss den Text nicht zitieren, was sonst den Wächter auslösen würde.
 
 ## 6. Übersetzungspipeline
 

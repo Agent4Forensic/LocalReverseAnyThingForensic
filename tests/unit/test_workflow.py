@@ -95,6 +95,8 @@ def test_guide_and_tool_hints_reach_the_prompt_and_the_retry_knows_the_failure(t
 def test_unreachable_model_is_never_done(tmp_path):
     store, gw, llm, engine, jid = _setup(tmp_path, lambda m: None)
     assert engine.run_job(jid) == "failed"
+    assert len(llm.calls) <= 3, "a dead model server must not be asked for every task"
+    assert any(t["status"] == "pending" for t in _analysis(store, jid)) or len(_analysis(store, jid)) <= 3
 
 
 def test_one_failed_step_makes_the_job_partial(tmp_path):
@@ -355,7 +357,7 @@ class _Hot:
 
 def test_host_problem_stops_the_job_before_the_model_runs(tmp_path):
     store, gw, llm, engine, jid = _setup(tmp_path, lambda m: NOTHING, host_guard=_Hot())
-    assert engine.run_job(jid) == "partial"
+    assert engine.run_job(jid) == "failed"     # nothing was analysed, the stored reason names the host limit
     assert not llm.calls
     assert any("host protection" in e["message"] for e in store.events_after(jid))
 

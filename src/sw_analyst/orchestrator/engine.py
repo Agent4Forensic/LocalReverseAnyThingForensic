@@ -23,6 +23,7 @@ from sw_analyst.prompts.registry import SYNTHESIS_GOAL, SYNTHESIS_GUIDE
 MAX_ATTEMPTS = 2
 MAX_DEPTH = 3
 MAX_ARTIFACT_TASKS = 6
+MAX_LLM_ERRORS = 3
 BUDGET_RESERVE_FROM = 0.75    # from here on the rest of the budget belongs to target questions, then synthesis
 # Derived files of these types get their own task. Text and data stay with the task that decoded them.
 RECURSE_TYPES = {"pe", "elf", "apk", "jar", "zip", "dex", "pdf", "macho", "ole2",
@@ -227,6 +228,7 @@ class JobEngine:
     def _loop(self, job_id: str, t_job: float) -> str:
         known_ids = {t["id"] for t in self.store.list_tasks(job_id)}
         offload_checked = False
+        llm_errors = 0
         while True:
             if self.store.get_job(job_id)["cancel_requested"]:
                 return "cancelled"
@@ -243,6 +245,14 @@ class JobEngine:
             if not task:
                 return "done"
             self._run_task(job_id, task)
+            # A dead model server fails every task the same way; stop instead of marking the whole queue as failed.
+            if (self.store.get_task(task["id"])["summary_en"] or "").find("LLM error") >= 0:
+                llm_errors += 1
+                if llm_errors >= MAX_LLM_ERRORS:
+                    self.store.log(job_id, "stopping: model not reachable", level="error")
+                    return "partial"
+            else:
+                llm_errors = 0
             self._triage_artifacts(job_id, task)
             self._refresh_groups(job_id)
             if self.host_guard and not offload_checked:   # the model is loaded only after the first task
@@ -409,11 +419,10 @@ class JobEngine:
         answers = self.store.list_answers(job_id)
         work = [t for t in self.store.list_tasks(job_id) if t["kind"] != "group" and t["origin"] != "triage"]
         finished = [t for t in work if t["status"] == "done"]
-        if status == "done":
-            if work and not finished:      # nothing was analysed, e.g. the model was unreachable: never "done"
-                status = "failed"
-            elif len(finished) < len(work) or any(a["status"] != "answered" for a in answers):
-                status = "partial"
+        if status in ("done", "partial") and work and not finished:
+            status = "failed"              # nothing was analysed, e.g. the model was unreachable
+        elif status == "done" and (len(finished) < len(work) or any(a["status"] != "answered" for a in answers)):
+            status = "partial"
         prog = self.store.progress(job_id)
         summary = (f"{prog['done']} of {prog['tasks_total']} tasks done, {prog['failed']} failed, "
                    f"{prog['blocked']} blocked; {sum(1 for a in answers if a['status'] == 'answered')} of "
