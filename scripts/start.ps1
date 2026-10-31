@@ -135,13 +135,17 @@ function Install-Lock {
     if (Get-Command uv -ErrorAction SilentlyContinue) { Invoke-Native 'uv' (@('pip', 'install', '--python', $Py, '--require-hashes', '-r', $lock) + $extra) }
     else { Invoke-Native $Py (@('-m', 'pip', 'install', '--require-hashes', '-r', $lock) + $extra) }
 }
+function Test-Docker([string[]]$DockerArgs) {
+    # PS 5.1 turns native stderr into a terminating error under Stop, even with 2>$null; this scope only.
+    $ErrorActionPreference = 'Continue'
+    & docker @DockerArgs 2>$null | Out-Null
+    return ($LASTEXITCODE -eq 0)
+}
 function Install-ToolImages {
     if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { Write-Stage 'INSTALL' "docker not found; tool images skipped. $($InstallHints.docker)" 'WARN'; return }
-    & docker info --format '{{.ServerVersion}}' 2>$null | Out-Null
-    if ($LASTEXITCODE -ne 0) { Write-Stage 'INSTALL' 'docker daemon not reachable; start Docker Desktop, tool images skipped' 'WARN'; return }
+    if (-not (Test-Docker @('info', '--format', '{{.ServerVersion}}'))) { Write-Stage 'INSTALL' 'docker daemon not reachable; start Docker Desktop, tool images skipped' 'WARN'; return }
     foreach ($p in $Manifest.tool_images.PSObject.Properties) {
-        & docker image inspect $p.Value 2>$null | Out-Null
-        if ($LASTEXITCODE -eq 0) { Write-Stage 'INSTALL' "image $($p.Value) present" 'OK'; continue }
+        if (Test-Docker @('image', 'inspect', $p.Value)) { Write-Stage 'INSTALL' "image $($p.Value) present" 'OK'; continue }
         if ($Offline) { Write-Stage 'INSTALL' "image $($p.Value) missing and -Offline is set" 'WARN'; continue }
         Write-Stage 'INSTALL' "building $($p.Value) from pinned sources (network, can take minutes)"
         Invoke-Native 'powershell.exe' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $Root 'infra\tools\build-images.ps1'), '-Only', $p.Name)
@@ -258,17 +262,10 @@ try {
         try { Invoke-Native $OllamaExe @('pull', $ModelTag) } finally { Remove-Item Env:OLLAMA_HOST -ErrorAction SilentlyContinue }
         Write-Stage 'MODEL' "$ModelTag pulled" 'OK'
     } else { Write-Stage 'MODEL' "$ModelTag present" 'OK' }
-    # The embedding model is for the knowledge base, nothing needs it yet: a failed pull must not stop the start.
+    # The embedding model is for the knowledge base, nothing needs it yet: name it, never download it unasked.
     $embed = $Manifest.models.embedding
     if ($embed -and $tags -notcontains $embed -and $tags -notcontains "${embed}:latest") {
-        if ($Offline) { Write-Stage 'MODEL' "embedding model $embed missing and -Offline is set" 'WARN' }
-        else {
-            Write-Stage 'MODEL' "embedding model $embed missing: one-time download from the Ollama registry" 'WARN'
-            $env:OLLAMA_HOST = "127.0.0.1:$OllamaPort"
-            try { Invoke-Native $OllamaExe @('pull', $embed); Write-Stage 'MODEL' "$embed pulled" 'OK' }
-            catch { Write-Stage 'MODEL' "pull of $embed failed: $($_.Exception.Message)" 'WARN' }
-            finally { Remove-Item Env:OLLAMA_HOST -ErrorAction SilentlyContinue }
-        }
+        Write-Stage 'MODEL' "embedding model $embed missing; only the planned knowledge base needs it (ollama pull $embed)"
     } elseif ($embed) { Write-Stage 'MODEL' "$embed present" 'OK' }
     try {
         $sw = [Diagnostics.Stopwatch]::StartNew()

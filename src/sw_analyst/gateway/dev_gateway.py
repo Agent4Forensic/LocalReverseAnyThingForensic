@@ -385,10 +385,12 @@ class DevGateway:
             note = f"\n[output truncated at {MAX_OUTPUT_CHARS} characters; narrow the request]"
             text = text[:MAX_OUTPUT_CHARS - len(note)] + note
             trunc = True
+        # Container JSON can carry lone surrogates ("\\ud800"), which would break hashing and storage of the evidence.
+        text = text.encode("utf-8", "replace").decode("utf-8")
         version = out.version or TOOL_VERSION
         if not out.ok:
-            return ToolResult(ok=False, text=text, tool_version=version, meta=out.meta,
-                              error=out.error or "tool failed", truncated=trunc)
+            error = (out.error or "tool failed").encode("utf-8", "replace").decode("utf-8")
+            return ToolResult(ok=False, text=text, tool_version=version, meta=out.meta, error=error, truncated=trunc)
         return ToolResult(ok=True, text=text, tool_version=version, meta=out.meta, truncated=trunc)
 
     @staticmethod
@@ -991,7 +993,8 @@ class DevGateway:
         for r in res:
             off = "unmapped" if r["file_offset"] is None else f"0x{r['file_offset']:x}"
             flag = " [extends beyond file]" if r["truncated"] else ""
-            L.append(f"{r['path']} | {off} | {r['size']} | {r['entropy']:.3f} | {r['head'].hex()}{flag}")
+            entropy = "n/a" if r["entropy"] is None else f"{r['entropy']:.3f}"
+            L.append(f"{r['path']} | {off} | {r['size']} | {entropy} | {r['head'].hex()}{flag}")
         L += [f"[warning] {w}" for w in tree["warnings"]]
         rows = [{k: v for k, v in r.items() if k != "head"} for r in res[:100]]
         return _Out("\n".join(L), {"source_ref": sref, "count": len(res), "resources": rows})
@@ -1014,8 +1017,10 @@ class DevGateway:
         L += [f"  {c['kind']} {c['name']} exported={c['exported'] if c['exported'] is not None else 'unset'}"
               for c in mf["components"]]
         L += ["Manifest:", mf["xml"]]
+        if mf["truncated"]:
+            L.append("[manifest is longer than the parser limit: later elements are not listed]")
         return _Out("\n".join(L), {"source_ref": sref, "package": mf["package"], "permissions": mf["permissions"][:200],
-                                   "components": mf["components"][:200]})
+                                   "components": mf["components"][:200]}, truncated=mf["truncated"])
 
     def _auto_candidates(self, chunk: bytes) -> list[dict]:
         in_pr = printable_ratio(chunk[:65536])

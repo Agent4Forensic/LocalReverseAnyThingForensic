@@ -14,6 +14,8 @@ MAX_ELEMENTS = 20_000
 MAX_ATTRS = 256
 MAX_DEPTH = 64
 MAX_STRING_CHARS = 4096
+MAX_POOL_CHARS = 16 * 1024 * 1024    # string offsets may overlap, so a small file can decode to far more than it holds
+MAX_XML_CHARS = 1024 * 1024
 
 _POOL, _XML, _RES_MAP = 0x0001, 0x0003, 0x0180
 _START_NS, _END_NS, _START_EL, _END_EL, _CDATA = 0x0100, 0x0101, 0x0102, 0x0103, 0x0104
@@ -57,7 +59,10 @@ def _pool(d: bytes, start: int, size: int) -> list[str]:
     utf8 = bool(flags & _UTF8_FLAG)
     base, end = start + strings_at, start + size
     out = []
+    decoded = 0
     for i in range(count):
+        if decoded > MAX_POOL_CHARS:
+            raise AxmlError(f"string pool decodes to more than {MAX_POOL_CHARS} characters")
         o = base + _u32(d, start + 28 + 4 * i)
         if not base <= o < end:
             out.append("")
@@ -66,12 +71,13 @@ def _pool(d: bytes, start: int, size: int) -> list[str]:
             if utf8:
                 _, n1 = _length(d, o, True)
                 blen, n2 = _length(d, o + n1, True)
-                raw = d[o + n1 + n2:min(o + n1 + n2 + blen, end)]
+                raw = d[o + n1 + n2:min(o + n1 + n2 + blen, o + n1 + n2 + 4 * MAX_STRING_CHARS, end)]
                 out.append(_printable(raw.decode("utf-8", "replace")))
             else:
                 clen, n1 = _length(d, o, False)
-                raw = d[o + n1:min(o + n1 + 2 * clen, end)]
+                raw = d[o + n1:min(o + n1 + 2 * clen, o + n1 + 2 * MAX_STRING_CHARS, end)]
                 out.append(_printable(raw.decode("utf-16le", "replace")))
+            decoded += len(out[-1])
         except (IndexError, struct.error):
             out.append("")
     return out
@@ -94,7 +100,7 @@ def _value(kind: int, data: int, raw: int, strings: list[str]) -> str:
 
 
 def parse_axml(d: bytes) -> dict:
-    """Returns {xml, package, permissions, components, elements}. Raises only AxmlError."""
+    """Returns {xml, truncated, package, permissions, components, elements}. Raises only AxmlError."""
     try:
         return _parse(d)
     except AxmlError:
@@ -112,11 +118,15 @@ def _parse(d: bytes) -> dict:
     res_ids: list[int] = []
     namespaces: dict[int, str] = {}
     lines: list[str] = []
-    res = {"package": None, "permissions": [], "components": [], "elements": 0}
+    res = {"package": None, "permissions": [], "components": [], "elements": 0, "truncated": False}
     depth = 0
+    chars = 0
     pos = _u16(d, 2)                 # first chunk after the file header
     end = min(_u32(d, 4), len(d))
     while pos + 8 <= end:
+        if chars > MAX_XML_CHARS:      # checked before the next line, so memory stays near the limit
+            res["truncated"] = True
+            break
         ctype, header, size = _u16(d, pos), _u16(d, pos + 2), _u32(d, pos + 4)
         if size < 8 or header < 8 or pos + size > end:
             raise AxmlError(f"invalid chunk size at offset 0x{pos:x}")
@@ -135,11 +145,13 @@ def _parse(d: bytes) -> dict:
             if depth >= MAX_DEPTH:
                 raise AxmlError(f"elements nested deeper than {MAX_DEPTH}")
             lines.append(_start_element(d, pos + header, pos + size, strings, res_ids, namespaces, depth, res))
+            chars += len(lines[-1])
             depth += 1
         elif ctype == _END_EL:
             depth = max(0, depth - 1)
             name = _u32(d, pos + 20)
             lines.append("  " * depth + f"</{html.escape(strings[name]) if name < len(strings) else '?'}>")
+            chars += len(lines[-1])
         pos += size
     if not lines:
         raise AxmlError("no XML elements found")

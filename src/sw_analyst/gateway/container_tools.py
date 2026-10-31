@@ -21,6 +21,7 @@ from sw_analyst.gateway.dev_tools.util import clip
 
 MAX_JADX_TOTAL = 128 * 1024 * 1024
 MAX_JADX_FILES = 20000
+MAX_TAR_MEMBERS = 100000
 HYPOTHESIS = "Hits are hypotheses until code confirms them: name the code location that supports each one."
 
 GHIDRA_TOOLS = {"list_functions", "disassemble", "decompile", "xrefs", "basic_blocks"}
@@ -40,6 +41,8 @@ class ContainerTools:
     def __init__(self, runner: ContainerRunner):
         self.runner = runner
         self._loaded: tuple[str, Any] = ("", None)   # the last parsed result; Ghidra exports can be large
+        # A sample that hangs Ghidra must not cost 10 minutes on every call. In memory: a restart may try again.
+        self._failed: dict[str, str] = {}
 
     # ---- batch result ---------------------------------------------------------------------------------------
     def _result(self, ctx: _Ctx, op: str, logical: Any, parse=None) -> tuple[Any, str, str]:
@@ -55,14 +58,19 @@ class ContainerTools:
         if path.is_file():
             parsed = json.loads(path.read_text(encoding="utf-8"))
         else:
+            if key in self._failed:
+                raise ToolError(self._failed[key])
             try:
                 raw = self.runner.run(op, data)
             except ContainerError as exc:
+                if exc.final:
+                    self._failed[key] = str(exc)
                 raise ToolError(str(exc)) from None
             try:
                 parsed = parse(raw) if parse else json.loads(raw)
-            except (ValueError, UnicodeDecodeError):
-                raise ToolError(f"Tool '{op}' produced output that could not be read") from None
+            except (ValueError, UnicodeDecodeError, tarfile.TarError):
+                self._failed[key] = f"Tool '{op}' produced output that could not be read"
+                raise ToolError(self._failed[key]) from None
             cache_dir.mkdir(exist_ok=True)
             tmp = path.with_suffix(".tmp")
             tmp.write_text(json.dumps(parsed), encoding="utf-8")
@@ -159,8 +167,11 @@ class ContainerTools:
         for b in blocks[:500]:
             succ = ", ".join(f"{d} ({flow})" for d, flow in b.get("succ", [])) or "(none)"
             L.append(f"{b['start']} - {b['end']} -> {succ}")
+        cut = len(blocks) > 500 or bool(f.get("blocks_truncated"))
+        if cut:
+            L.append("[not every block of this function is listed: the control flow shown is incomplete]")
         return _Out("\n".join(L), {"source_ref": {"file": name, "function": f["name"], "address": f["entry"]},
-                                   "blocks": blocks[:500]}, truncated=len(blocks) > 500, version=version)
+                                   "blocks": blocks[:500]}, truncated=cut, version=version)
 
     # ---- capa, FLOSS, YARA ----------------------------------------------------------------------------------
     def t_capa_scan(self, ctx: _Ctx, a: dict) -> _Out:
@@ -226,8 +237,15 @@ class ContainerTools:
         """Reads the tar in memory and never unpacks it to disk, so names inside cannot escape anywhere."""
         files: dict[str, str] = {}
         total = 0
+        last_offset = -1
         with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as tar:
-            for member in tar:
+            for count, member in enumerate(tar):
+                # A negative size moves tarfile backwards and it loops forever (Python 3.11.9). The tar comes from the container.
+                if member.size < 0 or member.offset <= last_offset:
+                    raise ValueError("tar members do not advance")
+                last_offset = member.offset
+                if count >= MAX_TAR_MEMBERS:
+                    return {"files": files, "truncated": True}
                 if not member.isreg() or not member.name.endswith(".java"):
                     continue
                 if len(files) >= MAX_JADX_FILES or total + member.size > MAX_JADX_TOTAL:

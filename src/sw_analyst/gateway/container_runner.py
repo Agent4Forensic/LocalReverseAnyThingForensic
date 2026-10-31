@@ -14,7 +14,8 @@ import uuid
 from dataclasses import dataclass
 
 TIMEOUT_S = 600
-MAX_OUTPUT_BYTES = 256 * 1024 * 1024
+MAX_JSON_OUTPUT = 128 * 1024 * 1024    # parsed in memory; json.loads can need over 20 times the bytes
+MAX_TAR_OUTPUT = 256 * 1024 * 1024     # jadx: read without parsing into objects, big apps need the room
 LABEL = "sw-analyst"       # scripts/cleanup.ps1 removes leftovers carrying this label
 USER = "10001:10001"
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -33,23 +34,29 @@ class Op:
     pids: int
     tmp_size: str
     tmp_exec: bool = False     # PyInstaller binaries unpack and load their libraries from /tmp
+    max_output: int = MAX_JSON_OUTPUT
 
 
 _TRIAGE = dict(image="triage", memory="3g", cpus="2", pids=128, tmp_size="1g", tmp_exec=True)
-_JADX = dict(image="jadx", memory="4g", cpus="4", pids=256, tmp_size="2g")
+_JADX = dict(image="jadx", memory="4g", cpus="4", pids=256, tmp_size="2g", max_output=MAX_TAR_OUTPUT)
 OPS = {"ghidra": Op("ghidra", "6g", "4", 512, "4g"),
        "capa": Op(**_TRIAGE), "floss": Op(**_TRIAGE), "yara": Op(**_TRIAGE),
        "jadx-apk": Op(**_JADX), "jadx-dex": Op(**_JADX), "jadx-jar": Op(**_JADX)}
 
 
 class ContainerError(Exception):
-    """The tool container failed; the message is safe to show to the model."""
+    """The tool container failed; the message is safe to show to the model. `final`: the same input would fail the same way."""
+
+    def __init__(self, message: str, final: bool = False):
+        super().__init__(message)
+        self.final = final
 
 
 def build_argv(op: str, image_id: str, name: str) -> list[str]:
     spec = OPS[op]
     tmp_flags = "rw,nosuid,nodev," + ("exec" if spec.tmp_exec else "noexec")     # Docker defaults to noexec
-    return ["docker", "run", "--rm", "-i", "--name", name, "--label", LABEL,
+    # --pull never: a missing image must fail, not reach for a registry. --log-driver none: stdout is the result, not a log.
+    return ["docker", "run", "--rm", "-i", "--pull", "never", "--log-driver", "none", "--name", name, "--label", LABEL,
             "--network", "none", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
             "--user", USER, "--memory", spec.memory, "--memory-swap", spec.memory, "--cpus", spec.cpus,
             "--pids-limit", str(spec.pids),
@@ -91,6 +98,7 @@ class ContainerRunner:
         if op not in OPS or not self.has(op):
             raise ContainerError(f"Tool image for '{op}' is not available")
         name = f"sw-analyst-{uuid.uuid4().hex}"
+        limit = OPS[op].max_output
         proc = subprocess.Popen(build_argv(op, self.image_ids[OPS[op].image], name), stdin=subprocess.PIPE,  # noqa: S603
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=_NO_WINDOW)
         out: list[bytes] = []
@@ -112,7 +120,7 @@ class ContainerRunner:
             total = 0
             while chunk := proc.stdout.read(1 << 20):
                 total += len(chunk)
-                if total > MAX_OUTPUT_BYTES:
+                if total > limit:
                     too_big.set()
                     _kill(proc, name)
                     return
@@ -129,11 +137,15 @@ class ContainerRunner:
             code = proc.wait(timeout=TIMEOUT_S)
         except subprocess.TimeoutExpired:
             _kill(proc, name)
-            raise ContainerError(f"Tool '{op}' exceeded the {TIMEOUT_S} s limit and was stopped") from None
+            raise ContainerError(f"Tool '{op}' exceeded the {TIMEOUT_S} s limit and was stopped", final=True) from None
         for t in threads:
             t.join(timeout=10)
         if too_big.is_set():
-            raise ContainerError(f"Tool '{op}' exceeded the {MAX_OUTPUT_BYTES // (1024 * 1024)} MiB output limit and was stopped")
+            raise ContainerError(f"Tool '{op}' exceeded the {limit // (1024 * 1024)} MiB output limit and was stopped", final=True)
+        if any(t.is_alive() for t in threads):
+            raise ContainerError(f"Tool '{op}' did not finish delivering its output")
+        if code in (124, 137):     # entry.sh timeout, or the kernel at the memory limit
+            raise ContainerError(f"Tool '{op}' ran out of time or memory and was stopped", final=True)
         if code != 0:
             tail = err.decode("utf-8", "replace").strip().splitlines()[-1:] or [""]
             raise ContainerError(f"Tool '{op}' failed with exit code {code}: {tail[0][:300]}")
@@ -146,3 +158,7 @@ def _kill(proc: subprocess.Popen, name: str) -> None:
     except (OSError, subprocess.SubprocessError):
         pass
     proc.kill()
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        pass

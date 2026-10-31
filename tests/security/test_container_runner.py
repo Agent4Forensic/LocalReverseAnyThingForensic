@@ -31,7 +31,7 @@ def test_every_container_is_offline_read_only_and_limited(op):
     argv = build_argv(op, "sha256:abc", "sw-analyst-x")
     joined = " ".join(argv)
     for flag in ("--network none", "--read-only", "--cap-drop ALL", "--security-opt no-new-privileges", "--user 10001:10001",
-                 "--memory ", "--memory-swap ", "--cpus ", "--pids-limit ", "--label sw-analyst", "--rm"):
+                 "--memory ", "--memory-swap ", "--cpus ", "--pids-limit ", "--label sw-analyst", "--rm", "--pull never", "--log-driver none"):
         assert flag in joined, flag
     assert argv[:2] == ["docker", "run"] and argv[-2:] == ["sha256:abc", op]
     job = argv[argv.index("--tmpfs") + 1]

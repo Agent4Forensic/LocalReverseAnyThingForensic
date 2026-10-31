@@ -123,6 +123,7 @@ public class ExportAll extends GhidraScript {
             }
             w.write("]}");
         }
+        boolean blocksCut = blocks.hasNext();
         String code = null;
         if (decompile && !f.isThunk()) {
             DecompileResults res = dec.decompileFunction(f, DECOMPILE_TIMEOUT_S, monitor);
@@ -131,7 +132,7 @@ public class ExportAll extends GhidraScript {
                 if (code.length() > MAX_DECOMPILED_CHARS) code = code.substring(0, MAX_DECOMPILED_CHARS) + "\n/* truncated */";
             }
         }
-        w.write("],\"decompiled\":" + q(code) + "}");
+        w.write("],\"blocks_truncated\":" + blocksCut + ",\"decompiled\":" + q(code) + "}");
     }
 
     private boolean writeRefs() throws Exception {

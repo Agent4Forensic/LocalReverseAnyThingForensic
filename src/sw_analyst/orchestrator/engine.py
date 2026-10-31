@@ -164,7 +164,12 @@ class JobEngine:
         grp = self.store.add_task(job_id, title=f"Recipe: {recipe['id']}", goal=recipe.get("description", ""),
                                   kind="group", origin="recipe", priority=100,
                                   reason=f"sample type '{job['detected_type']}' selects recipe '{recipe['id']}'")
-        for st in self._usable_steps(recipe):
+        usable = self._usable_steps(recipe)
+        for st in recipe["steps"]:
+            if st not in usable:
+                self.store.log(job_id, f"recipe step '{st['id']}' skipped: tools not available "
+                                       f"({', '.join(st.get('requires_tools', []))})", level="warn")
+        for st in usable:
             self.store.add_task(job_id, title=st["title"], goal=st["goal"], kind="analyze", origin="recipe",
                                 priority=int(st.get("priority", 200)), parent_id=grp["id"],
                                 reason=f"required step '{st['id']}' of recipe '{recipe['id']}'",
