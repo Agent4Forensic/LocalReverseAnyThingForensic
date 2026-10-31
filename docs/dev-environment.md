@@ -96,3 +96,19 @@ Einzeln zu sperren trotz erlaubter Familie: `capture_process_scenario` (startet 
 Umgebung: `REA_ANALYSIS_PROVIDER=ghidra`, `GHIDRA_INSTALL_DIR`, `JAVA_HOME`, `REA_JADX_MCP_JAR` (SHA-256 selbst gegen `6e5eacf500b64292bfb73c49797c1958f6ee44646e43e868039ae7feb573ff75` prüfen, REA lehnt Abweichungen nicht ab), Timeouts und Heap-Limits setzen, nur stdio, nicht `rea mcp --http`. `REA_BROWSER_EXECUTABLE`, `REA_ADB_PATH`, `REA_GDB_COMMAND`, `REA_RIZIN_COMMAND`, `REA_DOCKER_COMMAND` nicht setzen.
 
 Vor dem Einsatz: Quellen am Commit 160d821a manuell prüfen (`src/ghidra/GhidraLauncher.ts`, `src/android/Jadx*.ts`, `src/contracts/toolEffects.ts`, `src/application/UpdateRuntime.ts`, `scripts/rea.mjs`, `bridge/`), `npm ls --all` und Install-Skripte der transitiven Abhängigkeiten ansehen und beim ersten Lauf Netzwerk-/Syscall-Monitoring in einer Wegwerf-VM durchführen.
+
+## Beispieldateien InfectedCapstone/Reverse_Engineering_CTFs (2026-10-31, statisch, nichts ausgeführt)
+
+Auf ausdrückliche Anweisung von Jan liegen die sieben EXEs unverändert in `example/challenges/05..11-*/` (lokal, über `*.exe` in `.gitignore` ausgeschlossen, nie im Repository). Herkunft: `https://github.com/InfectedCapstone/Reverse_Engineering_CTFs`, Commit `d50e12c98cac16babb0aeb91db1ecbb493abe230` (2024-02-09), **keine Lizenzdatei**, deshalb keine Weitergabe. Der Builder liest die Datei nur als Bytes und prüft den SHA-256 gegen `challenge.json`.
+
+Statische Prüfung (Strings, PE-Header, Sektionen, Importnamen, Entropie): MinGW-Programme, Importe nur `KERNEL32`/`msvcrt` (`Sleep`, `printf`, `puts`, `LoadLibraryA`, `GetProcAddress`, in chall_5 `IsDebuggerPresent`), kein Prozessstart, kein Netzwerk, keine Registry- oder Dateizugriffe sichtbar. chall_1 hat absichtlich defekte Signaturen (`PZ`, `ME`). chall_6 ist UPX-gepackt, seine Importe sind deshalb nicht belegt. Das ist keine Freigabe zur Ausführung. Ausführung bleibt auf die Analyse-VM beschränkt.
+
+| Datei | SHA-256 |
+|---|---|
+| chall_0.exe | `dc1eec26e17f5d7f35f6542b9dc855b898476c16a9950249c9d5fda36becd38a` |
+| chall_1.exe | `ab0fa5428db7e02b826a39f58db3741e46e4d5c722abe9267982ac011fd1f6f1` |
+| chall_2.exe | `4c97f1fe54d8018ec8d080b12a94d4ebfbbcc2daf244aab657dd9ccf866acd1e` |
+| chall_3.exe | `37e134cf1e9a08d296ba22646f4ed8e0ae1aecc3ddda7e6556db6edf84022fc9` |
+| chall_4.exe | `c0a8f9cd7990b4b6c6b6bc3475b802b598a6cc75f2ee268c3183851c78dce188` |
+| chall_5.exe | `37934d86e824ebf8ab15d7d64641dafd14cfde7b0295f47f707f82704b2590f0` |
+| chall_6.exe | `c2be3282bb891941d08e8fe68668d256fe47ff7c4440b8d27dd6fa68f158b206` |

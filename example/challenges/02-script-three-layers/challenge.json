@@ -1,0 +1,15 @@
+{
+  "id": "02-script-three-layers",
+  "title": "Skript mit drei Schichten",
+  "level": "mittel",
+  "description": "Ein harmloses, verschleiertes PowerShell-Skript hält einen Base64-Blob. Der Blob ist erneut Base64 und enthält ein gzip-Archiv. Erst im Inneren stehen eine URL und eine Markierungsvariable. Nichts wird ausgeführt.",
+  "goal": "Die KI soll die Schichten statisch auflösen (Base64, Base64, gzip-Hinweis im Kommentar) und aus der innersten Schicht die URL und den Wert der Markierungsvariable belegen.",
+  "tests": "Rezept script, Erkennung von Verschleierung, mehrere Dekodierschritte, Umgang mit komprimierten Schichten.",
+  "sample": {"name": "bench.ps1", "builder": "script_three_layers"},
+  "job_description": "Obfuscated script, analyse statically.",
+  "questions": [
+    "Which URL does the innermost layer reference?",
+    "What is the value of the marker variable in the innermost layer?"
+  ],
+  "flag": "MARKER{three_layers}"
+}

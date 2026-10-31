@@ -1,6 +1,7 @@
 # Dashboard-API (Vertrag zwischen Backend und Frontend)
 
 Basis: `http://127.0.0.1:8765`. Alle Pfade unter `/api`. JSON, UTF-8. Zeitstempel ISO-8601 UTC (`2026-10-31T17:40:00Z`). Fehler: HTTP-Status plus `{"error":{"code":"…","message":"…"}}`. POST-Anfragen verlangen `Origin` = `http://127.0.0.1:8765` oder `http://localhost:8765`.
+Oberfläche: Pfad-URLs `/`, `/new`, `/prompts`, `/job/<id>/<tab>`; der Server liefert dafür `index.html` aus (nicht für `/api/…` und nicht für Pfade mit Dateiendung). Alte Links `/#/…` werden im Browser umgeschrieben (ADR-0006).
 
 Inhalte aus dem Sample (Zeilen, Strings, Zitate) sind unvertrauenswürdig und müssen im Frontend ausschließlich als Text (`textContent`) angezeigt werden, nie als HTML.
 
@@ -9,7 +10,8 @@ Inhalte aus dem Sample (Zeilen, Strings, Zitate) sind unvertrauenswürdig und m�
 
 ## Jobs
 - `GET /api/jobs` → `[JobSummary]`, neueste zuerst.
-- `POST /api/jobs` (multipart/form-data): Feld `spec` = JSON `{title, description, context_info, focus, target_questions:[{id?, text, expected?}], emulation_opt_in:false, budget_max_tasks?, budget_max_steps?, budget_max_minutes?}`, Feld `sample` = Datei (max. 64 MiB). → `JobSummary`. Läuft schon ein Job, wird der neue `queued`.
+- `POST /api/jobs` (multipart/form-data): Feld `spec` = JSON `{title, description, context_info, focus, target_questions:[{id?, text, expected?}], emulation_opt_in:false, budget_max_tasks?, budget_max_steps?, budget_max_minutes?}`, dazu entweder Feld `sample` = Datei (max. 64 MiB) oder Feld `example` = ID aus `GET /api/examples` (Beispieldatei entsteht im Speicher). Ohne Budgetfelder gelten die Obergrenzen 300 / 5000 / 1440. → `JobSummary`. Läuft schon ein Job, wird der neue `queued`. Fehler: `unknown_example`, `empty_sample`.
+- `GET /api/examples` → `[{id, title, level, description, sample_name, job_description, questions:[…]}]` aus `example/challenges/*/challenge.json`. Ohne Ordner `example/` leer. Flagge, Ziel und Testnotizen werden nie geliefert.
 - `GET /api/jobs/{id}` → `{summary:JobSummary, spec:{…inkl. text_orig/text_en je Frage}, progress:{tasks_total,done,pending,running,failed,blocked,percent}, totals:{steps,tool_calls,llm_calls,duration_ms}}`
 - `POST /api/jobs/{id}/cancel` → `JobSummary`
 - `JobSummary` = `{id, title, status:"queued|running|done|partial|failed|cancelled", sample_name, sample_sha256, detected_type, recipe, created_at, started_at, finished_at, duration_ms}`

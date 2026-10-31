@@ -1,0 +1,20 @@
+{
+  "id": "09-ctf-stack-em-up",
+  "title": "Stack 'em up",
+  "level": "mittel",
+  "description": "Windows-EXE. Hinweis: Zeichenketten werden auf dem Stack Stück für Stück aufgebaut („stacking ’em strings“). Im Klartext steht nur „Do you know what stack strings are?“.",
+  "goal": "Die KI soll Stack-Strings in den Code-Bytes finden (mov-Befehle mit Direktwerten) und die Flagge belegen.",
+  "tests": "Stack-Strings, Lesen von Code-Bytes ohne Disassembler.",
+  "sample": {
+    "name": "chall_4.exe",
+    "builder": "ctf_09",
+    "file": "chall_4.exe",
+    "sha256": "c0a8f9cd7990b4b6c6b6bc3475b802b598a6cc75f2ee268c3183851c78dce188"
+  },
+  "job_description": "CTF: find the flag in this Windows executable. Static analysis only, the file must not be run.",
+  "questions": [
+    "What is the flag? Name where in the file you found it."
+  ],
+  "flag": "FLAG{do_not_ignore_hex}",
+  "source": "InfectedCapstone/Reverse_Engineering_CTFs@d50e12c98cac16babb0aeb91db1ecbb493abe230 (no licence; file stays untracked, see example/README.md)"
+}

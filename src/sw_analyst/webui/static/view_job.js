@@ -140,7 +140,7 @@
             h('button', { type: 'button', cls: 'btn sm', on: { click: function () { confirming = false; paint(); } } }, 'Nein'))
         : h('button', { type: 'button', cls: 'btn sm danger', on: { click: function () { confirming = true; paint(); } } }, icon('stop'), 'Abbrechen');
       SW.dom.fill(host,
-        h('p', { cls: 'crumb' }, h('a', { href: '#/', text: '← Übersicht' })),
+        h('p', { cls: 'crumb' }, h('a', { href: '/', text: '← Übersicht' })),
         h('div', { cls: 'page-h jh-top' },
           h('div', { cls: 'grow' }, h('h1', { id: 'job-h', tabindex: '-1', text: s.title }),
             h('p', { cls: 'page-sub' }, h('span', { cls: 'mono', text: s.id }), ' · ', s.sample_name || '–', ' · ', h('span', { cls: 'mono', title: s.sample_sha256, text: fmt.shortHash(s.sample_sha256, 16) }))),

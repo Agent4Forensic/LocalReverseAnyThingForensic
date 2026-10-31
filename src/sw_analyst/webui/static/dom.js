@@ -41,7 +41,7 @@
       } else if (/^on/i.test(key) || key === 'style' || key === 'src' || key === 'srcdoc') {
         continue; /* bewusst nicht erlaubt */
       } else if (key === 'href') {
-        if (typeof val === 'string' && val.charAt(0) === '#') el.setAttribute('href', val);
+        if (typeof val === 'string' && (val.charAt(0) === '#' || (val.charAt(0) === '/' && val.charAt(1) !== '/'))) el.setAttribute('href', val);
       } else {
         el.setAttribute(key, val === true ? '' : String(val));
       }

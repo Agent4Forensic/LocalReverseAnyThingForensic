@@ -90,16 +90,15 @@
     if (file) q.push('file=' + encodeURIComponent(file));
     if (line) q.push('line=' + encodeURIComponent(line));
     if (end) q.push('end=' + encodeURIComponent(end));
-    return '#/job/' + encodeURIComponent(jobId) + '/code' + (q.length ? '?' + q.join('&') : '');
+    return '/job/' + encodeURIComponent(jobId) + '/code' + (q.length ? '?' + q.join('&') : '');
   };
   ui.tabHref = function (jobId, tab, params) {
     var q = [];
     for (var k in params || {}) if (Object.prototype.hasOwnProperty.call(params, k)) q.push(k + '=' + encodeURIComponent(params[k]));
-    return '#/job/' + encodeURIComponent(jobId) + '/' + tab + (q.length ? '?' + q.join('&') : '');
+    return '/job/' + encodeURIComponent(jobId) + '/' + tab + (q.length ? '?' + q.join('&') : '');
   };
-  ui.go = function (hash) {
-    if (window.location.hash === hash) window.dispatchEvent(new HashChangeEvent('hashchange'));
-    else window.location.hash = hash;
+  ui.go = function (url) {
+    SW.navigate(url);
   };
 
   /* ---------- Evidence ---------- */
