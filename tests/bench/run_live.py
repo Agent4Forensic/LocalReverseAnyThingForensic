@@ -23,6 +23,7 @@ from sw_analyst.common.models import JobSpec, TargetQuestion
 from sw_analyst.common.store import Store
 from sw_analyst.common.util import sha256_hex
 from sw_analyst.gateway.dev_gateway import DevGateway
+from sw_analyst.llm.base import LLMError
 from sw_analyst.llm.ollama import OllamaClient
 from sw_analyst.orchestrator.engine import JobEngine
 from sw_analyst.report.builder import build_report
@@ -92,24 +93,29 @@ def samples() -> dict[str, dict]:
 class CountingLLM:
     def __init__(self, inner: OllamaClient):
         self.inner, self.model = inner, inner.model
-        self.calls = self.tok_in = self.tok_out = self.empty = self.cut = 0
+        self.calls = self.tok_in = self.tok_out = self.empty = self.cut = self.llm_ms = self.llm_errors = 0
 
     def chat(self, messages, **kw):
-        r = self.inner.chat(messages, **kw)
+        try:
+            r = self.inner.chat(messages, **kw)
+        except LLMError:
+            self.llm_errors += 1     # server gone or refused: a crash signal, not a model answer
+            raise
         self.calls += 1
         self.tok_in += r.prompt_tokens
         self.tok_out += r.completion_tokens
+        self.llm_ms += r.duration_ms
         self.empty += not r.text.strip()
         self.cut += getattr(r, "done_reason", "") == "length"
         return r
 
 
-def run_one(sid: str, s: dict, out: Path, model: str, url: str, num_ctx: int, minutes: int) -> dict:
+def run_one(sid: str, s: dict, out: Path, model: str, url: str, num_ctx: int, minutes: int, seed: int = 42) -> dict:
     d = out / sid
     d.mkdir(parents=True, exist_ok=True)
     store = Store(d / "t.db", d / "logs")
     gw = DevGateway(d)
-    llm = CountingLLM(OllamaClient(model, url, num_ctx=num_ctx))
+    llm = CountingLLM(OllamaClient(model, url, num_ctx=num_ctx, seed=seed))
     spec = JobSpec(title=sid, description=s["desc"], context_info="harmless self-made benchmark sample",
                    target_questions=[TargetQuestion(id=q, text_orig=t, text_en=t, expected=e)
                                      for q, t, e in s["questions"]],
@@ -131,6 +137,7 @@ def run_one(sid: str, s: dict, out: Path, model: str, url: str, num_ctx: int, mi
             "findings": count(findings, "status"), "tasks": count(tasks, "status"),
             "reject_reasons": [f["reject_reason"][:160] for f in findings if f["reject_reason"]][:8],
             "llm_calls": llm.calls, "tok_in": llm.tok_in, "tok_out": llm.tok_out, "empty_replies": llm.empty,
+            "seed": seed, "llm_seconds": round(llm.llm_ms / 1000, 1), "llm_errors": llm.llm_errors,
             "cut_replies": llm.cut, "invalid_actions": sum(1 for g in guard if g["rule"] == "invalid_action"),
             "guard_high": sum(1 for g in guard if g["severity"] == "high"),
             "task_errors": [t["summary_en"][:160] for t in tasks if t["status"] in ("failed", "blocked")],
