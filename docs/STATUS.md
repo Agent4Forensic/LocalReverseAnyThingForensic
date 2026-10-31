@@ -17,17 +17,17 @@ Stand: 2026-10-31 · Legende: `[x]` erledigt und geprüft · `[~]` begonnen · `
 - [x] claude-security, feature-dev, pr-review-toolkit, mcp-server-dev installiert (claude-plugins-official, nur On-Demand-Befehle, Hooks ohne Netzwerk)
 - [x] Bereits vorhanden: engineering:* (code-review, architecture, system-design, testing-strategy, debug, documentation), security-review, code-simplifier, frontend-design
 - [x] Verworfen nach Audit: mnemo (Fremd-Hooks auf jedem Tool-Call, Binary-Nachladen), security-guidance (pip-venv beim Start, LLM-Review bei jedem Stop)
-- [ ] Ponytail userConfig (4 Optionen) prüfen und setzen
-- [ ] Ergebnisse der Audits in `docs/dev-environment.md` mit SHAs festhalten
+- [x] Ponytail userConfig geprüft: Webhook leer (nichts verlässt den Rechner), lokales Ledger bleibt Standard
+- [x] Audits mit SHAs in `docs/dev-environment.md`, Entscheidungen in `docs/adr/0000-grundentscheidungen.md`
 
 ### P3 Claude-Code-Einstellungen
 - [x] Auto-Compact bei 70 % (`.claude/settings.json`)
-- [ ] Prüfen, dass Auto-Compact global aktiv ist (`autoCompactEnabled`)
-- [~] Repo-Gerüst, `.gitignore`, Pre-Commit-Hook, CLAUDE.md angelegt
-- [ ] Erster Commit (initiales Gerüst)
+- [x] Auto-Compact: Schlüssel `autoCompactEnabled` nicht gesetzt = Standard (an); Schwelle 70 % per Projekt-Env
+- [x] Repo-Gerüst, `.gitignore`, Pre-Commit-Hook (Test: blockiert .exe in tests/corpus), CLAUDE.md, PROJEKTPLAN.md
+- [x] Erster Commit (`5d5a15e`), LF-Erzwingung für Hooks (`342bae3`)
 
 ### P4 Laufzeit-Infrastruktur
-- [ ] Docker Desktop starten, Daemon erreichbar, GPU-Durchreichung (`--gpus all`) testen
+- [x] Docker Desktop läuft (Engine 29.8.2), GPU-Durchreichung getestet (nvidia-smi im Container, `--network none`)
 - [!] `.wslconfig` von 20 auf 24 GB: erfordert `wsl --shutdown` und beendet laufende WSL-Dienste (Kali, anderer Docker-Stack). Freigabe von Jan nötig. Siehe B1.
 - [ ] Ollama-Server starten, Umgebung setzen (`OLLAMA_MAX_LOADED_MODELS=1`, `OLLAMA_KEEP_ALIVE`, Flash Attention, KV-Cache-Quantisierung)
 - [ ] Modellauswahl automatisiert (Skript prüft VRAM/RAM, wählt Modell, Benchmark mit synthetischen Beispielen)
@@ -42,7 +42,7 @@ Stand: 2026-10-31 · Legende: `[x]` erledigt und geprüft · `[~]` begonnen · `
 - [ ] Alle Downloads mit SHA-256 in `docs/dev-environment.md`
 
 ### P6 Abschluss Voraussetzungen
-- [ ] Verifikationsskript `infra/verify-prereqs.ps1` (prüft alles oben, Ausgabe grün/rot)
+- [x] Verifikationsskript `infra/verify-prereqs.ps1` (Lauf: 24 PASS, 2 FAIL: VRAM, Ollama-Server; 2 WARN: freier RAM, graphify-out)
 - [ ] Kompakte Doku `docs/README.md` (Überblick, Entscheidungen, Runbook Kurzform)
 - [ ] graphify-Lauf über das Repo, `graphify-out/` vorhanden
 - [ ] Freigabe von Jan für Phase 0
@@ -50,6 +50,7 @@ Stand: 2026-10-31 · Legende: `[x]` erledigt und geprüft · `[~]` begonnen · `
 ## Blocker und offene Fragen an Jan
 - B1: `wsl --shutdown` zum Anwenden des 24-GB-Limits erlaubt? (beendet WSL-Instanzen, auch andere Projekte)
 - B2: VRAM-Belegung durch Desktop-Apps: Apps schließen oder kleineres Modell akzeptieren?
+- B4: Freier RAM beim Test nur 3,7 von 31 GB (Docker Desktop frisch gestartet plus Browser/Apps). 24-GB-Limit ist nur realistisch, wenn andere Programme während der Analyse geschlossen sind.
 - B3: Admin-Rechte für Hyper-V-Einrichtung: Du führst das erzeugte Skript selbst aus (bestätigt in Auswahl, Termin offen).
 
 ## Phasen 0–12 (laut PROJEKTPLAN.md Abschnitt 7)
