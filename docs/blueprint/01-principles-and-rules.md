@@ -39,17 +39,21 @@ Details, formats and examples: [[evidence]].
 
 ## Confidence levels and their criteria
 
-The platform status is one of `confirmed`, `hypothesis`, `open`, `rejected`. Inside `hypothesis`, express strength in the statement text as `(confidence: medium)` or `(confidence: low)`.
+Two separate axes (same vocabulary as [[report]]):
 
-| Level | Status | Criteria (all must hold) | Example basis |
+- **Platform status** (`confirmed`, `hypothesis`, `open`, `rejected`): was the evidence verified? Set in the `status` field.
+- **Confidence** (`confirmed`, `probable`, `possible`): how strong is the interpretation? Write it in the statement text as `(confidence: probable)`.
+
+| Status | Confidence | Criteria (all must hold) | Example basis |
 |---|---|---|---|
-| Confirmed | `confirmed` | Direct observation in evidence; verbatim quote; no unresolved contradiction; interpretation needs no unverified assumption | Decompiled call `RegSetValueExW(hKey, L"Updater", ...)` with key path string visible in same function |
-| Hypothesis, medium | `hypothesis` | Two or more independent indicators point the same way, but the decisive link is not seen | Import `CryptEncrypt` plus capa rule "encrypt data using AES" but no code path from file enumeration to encryption reviewed |
-| Hypothesis, low | `hypothesis` | Single indicator, or indicator with known false-positive rate | String `vssadmin delete shadows` present, no xref found |
-| Open | `open` | Question identified; no evidence decides it | "Is the config decrypted at runtime?" after config blob located but routine not found |
-| Rejected | `rejected` | Verification failed or later evidence disproves it | Earlier hypothesis "uses RC4" disproven when routine matches XOR with rolling key |
+| `confirmed` | confirmed | Direct observation in evidence; verbatim quote; no unresolved contradiction; interpretation needs no unverified assumption | Decompiled call `RegSetValueExW(hKey, L"Updater", ...)` with key path string visible in same function |
+| `confirmed` | probable | Quoted observations verified, but the meaning is an inference from several consistent findings | Verified XOR loop over a verified blob address; "decrypts the configuration" is inferred |
+| `hypothesis` | probable | Two or more independent indicators point the same way, decisive link not seen | Import `CryptEncrypt` plus capa rule "encrypt data using AES" but no code path from file enumeration to encryption reviewed |
+| `hypothesis` | possible | Single indicator, or indicator with known false-positive rate; alternatives not excluded | String `vssadmin delete shadows` present, no xref found |
+| `open` | - | Question identified; no evidence decides it | "Is the config decrypted at runtime?" after config blob located but routine not found |
+| `rejected` | - | Verification failed or later evidence disproves it | Earlier hypothesis "uses RC4" disproven when routine matches XOR with rolling key |
 
-Independent means different sources: for example an import plus a decompiled call site, or a string plus its code reference. Two capa rules triggered by the same import are not independent.
+Independent means different sources: for example an import plus a decompiled call site, or a string plus its code reference. Two capa rules triggered by the same import are not independent. Rule of thumb: confidence `confirmed` requires status `confirmed`; status `hypothesis` never carries confidence `confirmed`.
 
 ## What you must never claim
 
@@ -66,7 +70,7 @@ Never state as fact:
 
 ## How to report uncertainty
 
-- Use `hypothesis` with a confidence qualifier, and name the missing link: "Hypothesis (confidence: medium): `FUN_00402b10` likely decrypts the configuration; the XOR loop is visible but the key source is not yet identified."
+- Use `hypothesis` with a confidence qualifier, and name the missing link: "Hypothesis (confidence: probable): `FUN_00402b10` likely decrypts the configuration; the XOR loop is visible but the key source is not yet identified."
 - Use `open` for unresolved questions and propose a concrete test task in `subtasks`.
 - Mark uncertain technical facts from your own knowledge with `(verify)` in the statement, for example a constant you believe belongs to a specific algorithm but cannot match fully.
 - If a target question cannot be answered from confirmed findings, the answer is `unresolved` with the reason (missing evidence, budget, tool failure, packed payload). An honest `unresolved` is a correct result; a guessed answer is a defect.

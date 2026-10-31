@@ -57,6 +57,9 @@ _JOB_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 _DERIVED_NAME_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,99}")
 _RESERVED_RE = re.compile(r"(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?", re.IGNORECASE)
 _LAYER_RE = re.compile(r"layer(\d{2,3})\.bin")
+_META_TYPES = frozenset({
+    "pe", "elf", "apk", "jar", "zip", "dex", "pdf", "macho", "gzip", "7z", "rar", "ole2",
+    "powershell", "vbscript", "javascript", "python", "bash", "batch", "html", "text", "unknown"})
 _BINARY_HINT = ("File '{p}' appears to be binary (NUL bytes or many non-text bytes). "
                 "Use hexdump(path, offset, length) or strings_extract instead.")
 _KEYWORDS = re.compile(
@@ -264,6 +267,41 @@ class DevGateway:
             return self._error(f"Tool '{name}' ran out of memory")
         except Exception as exc:  # noqa: BLE001 - a tool must never raise out of call()
             return self._error(f"Internal error in tool '{name}' ({type(exc).__name__})")
+
+    def store_sample(self, job_id: str, data: bytes) -> dict:
+        """Write the sample bytes to <data_dir>/jobs/<job_id>/sample (read-only where possible).
+
+        Creates the job workspace. Raises ToolError for an invalid job id, oversized data or an
+        existing sample. Returns {name, size, md5, sha1, sha256}.
+        """
+        self._check_job_id(job_id)
+        if not isinstance(data, (bytes, bytearray)):
+            raise ToolError("Sample data must be bytes")
+        if len(data) > MAX_SAMPLE_BYTES:
+            raise ToolError(f"Sample exceeds the {MAX_SAMPLE_BYTES // (1024 * 1024)} MiB limit")
+        self._jobs.mkdir(parents=True, exist_ok=True)
+        jobs_real = self._jobs.resolve()
+        root = self._jobs / job_id
+        try:
+            root.resolve().relative_to(jobs_real)
+        except ValueError:
+            raise ToolError("Jail violation: job directory resolves outside the data directory") from None
+        root.mkdir(parents=True, exist_ok=True)
+        (root / "derived").mkdir(exist_ok=True)
+        target = root / "sample"
+        try:
+            with open(target, "xb") as f:      # never overwrite or follow an existing entry
+                f.write(bytes(data))
+        except FileExistsError:
+            raise ToolError(f"Job '{job_id}' already has a sample") from None
+        except OSError:
+            raise ToolError("Could not write the sample") from None
+        try:
+            os.chmod(target, 0o444)
+        except OSError:
+            pass
+        md5, sha1, sha256 = self._digest_all(bytes(data))
+        return {"name": "sample", "size": len(data), "md5": md5, "sha1": sha1, "sha256": sha256}
 
     # ------------------------------------------------------------------ extras for the code viewer
     def list_files(self, job_id: str) -> list[dict]:
@@ -506,8 +544,10 @@ class DevGateway:
         if res["details"]:
             lines.append("Details:")
             lines += [f"  - {d}" for d in res["details"]]
+        # meta['type'] is limited to the orchestrator's vocabulary (e.g. java_class -> unknown)
+        mtype = res["type"] if res["type"] in _META_TYPES else "unknown"
         return _Out("\n".join(lines),
-                    {"type": res["type"], "confidence": res["confidence"],
+                    {"type": mtype, "confidence": res["confidence"],
                      "source_ref": {"file": name, "offset": 0, "length": min(len(data), 64)}})
 
     # ------------------------------------------------------------------ tools: byte views

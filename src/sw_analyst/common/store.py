@@ -164,6 +164,11 @@ class Store:
     def running_job(self) -> Optional[dict]:
         return self._one("SELECT * FROM jobs WHERE status='running' LIMIT 1")
 
+    def update_spec(self, job_id: str, spec: JobSpec) -> None:
+        self._x("UPDATE jobs SET spec_json=? WHERE id=?", (spec.model_dump_json(), job_id))
+        for q in spec.target_questions:
+            self._x("UPDATE answers SET text_en=? WHERE job_id=? AND question_id=?", (q.text_en, job_id, q.id))
+
     def set_question_text_en(self, job_id: str, qid: str, text_en: str) -> None:
         self._x("UPDATE answers SET text_en=? WHERE job_id=? AND question_id=?", (text_en, job_id, qid))
         spec = JobSpec.model_validate(self.get_job(job_id)["spec"])
