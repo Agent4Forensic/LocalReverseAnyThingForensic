@@ -146,9 +146,9 @@ Jedes Modell prüft **blind** (kein Zugriff auf die Ergebnisse der anderen), dan
 
 ## Dashboard-Lücken (Stand 2026-10-31 20:15, per Screenshot geprüft)
 - [x] App startete nicht: `python-multipart` fehlte (Upload-Route). Gepinnt auf 0.0.32 (Apache-2.0, 0.0.33 vom selben Tag bewusst übersprungen), Test `tests/unit/test_webui_boot.py` sichert den Start ab.
-- [ ] `index.html` lädt drei nicht vorhandene Skripte (`mock_v2.js`, `view_diagrams.js`, `view_log.js`, 404). Die Tabs Diagramme, Log und Guard fehlen deshalb; Aktivität zeigt "Noch keine Daten", bis der `/activity`-Endpunkt Daten liefert.
-- [ ] Kopfzeile des Auftrags und Tab-Leiste mit Layoutfehlern (Texte laufen ineinander, Tabs ohne Abstand), Systemstatus als eine lange Spalte statt Kacheln.
-- [ ] Neuer Auftrag: Sample-Upload und Absenden im Browser noch nicht getestet.
+- [x] `index.html` lud drei nicht vorhandene Skripte. Behoben auf `feat/dashboard-integration` (2026-10-31): `view_log.js` (Tabs Log und Schutz) neu, tote Verweise entfernt, Test `test_every_script_and_style_in_index_html_exists`.
+- [x] Layoutfehler: Das CSS für Auftragskopf, Tabs, Aktivität, Baum, Code, Schritte, Kacheln und Formulare fehlte ganz. Ergänzt in `styles.css`, per Headless-Chromium gegen das echte Backend geprüft.
+- [x] Neuer Auftrag: Upload über das Formular im Browser bis zum Bericht geprüft (Playwright, Skript-Modell, 0 Konsolenfehler).
 
 ### Stand Dashboard-Nacharbeit (2026-10-31 22:30, Worktree `sw-analyst-dashboard`, Branch `feat/dashboard-start`)
 Ursache der Layoutfehler: Das CSS für Auftragsansicht, Tabs, Baum, Code-Viewer, Schritte und Bericht-Karten wurde nie geschrieben (Commit `1f2940f` brachte nur JS). Behoben im Worktree: `view_log.js` (Tabs Log und Guard), tote Skript-Verweise entfernt, rund 120 Zeilen CSS, Typo "Werkzeugaufrufe", Test `test_every_script_in_index_html_is_served`. Per Headless-Edge mit Mock-Daten geprüft (Übersicht, Aktivität, Baum, Code, Guard).
@@ -160,6 +160,27 @@ Ursache der Layoutfehler: Das CSS für Auftragsansicht, Tabs, Baum, Code-Viewer,
 - [ ] **Dashboard V2 fehlt:** Diagramme (`view_diagrams.js`), Funktionsliste und Lernpfad. Backend `/diagrams`, `/functions`, `/walkthroughs` gibt es nicht.
 - [ ] **Mock ohne `/activity`:** Live-Aktivität zeigt im `?mock=1`-Modus "Noch keine Daten". Mock ergänzen oder echtes Backend im Browser prüfen.
 - [ ] **Echtes Backend im Browser prüfen:** Bisher nur Mock-Daten per Screenshot gesehen, Dashboard nicht gegen laufende App getestet.
+
+## Prüfung Frontend-Backend-Anbindung (von Jan beauftragt, 2026-10-31 abends, Cloud-Sitzung)
+Branch `feat/dashboard-integration` (von `main`, mit `feat/static-tools` gemergt). Entscheidungen in [ADR-0008](adr/0008-dashboard-dateiansicht-export-import.md), Freigabe durch Jan steht aus. `feat/dashboard-start` liegt nur lokal bei Jan und ist nicht auf GitHub; beide Stände überschneiden sich in `webui/app.py`, `view_job.js`, `index.html` und `styles.css`.
+
+Bestätigt (Tests und Browserlauf gegen das echte Backend mit Skript-Modell, kein Ollama in der Cloud):
+- [x] Code-Viewer zeigte keine Zeilen (Vertrag `{n, text}` verletzt, Binärdateien gaben 400). Behoben, bisheriger strikter xfail aufgelöst.
+- [x] Laufzeitordner: relatives `--data-dir` zählt ab Projekt-Root, alle Ordner entstehen beim Start, Temp und Upload-Spool in `data/tmp` statt `%TEMP%` (`common/paths.py`). Server aus `/tmp` gestartet legte die Ordner im Projekt an.
+- [x] Beispiele im Dashboard: sortiert leicht, mittel, schwer, mit Größe, SHA-256 und Ort des Codes, Quelltext und Probe ansehbar, Start als Auftrag, Ergebnis „Flagge gefunden“. Neues Beispiel `05-pe-xor-routine` (echte x86-Schleife, per Disassembler geprüft); Beispiel 03 bytegleich.
+- [x] Tab „Datei“: Größe, Art, Ablage, Hex mit Blättern, Funktionsliste, Assembler mit fester deutscher Erklärung je Befehl, Pseudocode aus dem Ghidra-Export. Ohne Image nennt er Grund und Befehl.
+- [x] Export und Import (ZIP mit Manifest, Zeilen, Audit-Kette, Bericht, optional Dateien). Import prüft Prüfsummen, Kette, jedes Ereignis gegen die Kette und baut den Bericht bytegleich nach. Importe liegen schreibgeschützt in eigenem Store (`I0001-J-…`), IDs bleiben original. Manipuliertes Paket abgelehnt, Doppel-Import erkannt.
+- [x] Neustart mitten im Lauf (`kill -9`): Auftrag `failed` mit Endzeit, hängende Aufgaben und Schritte geschlossen, Audit-Kette gültig, alle Daten erhalten.
+- [x] Behoben aus dem Review: F-09 (Worker überlebt Engine-Fehler), F-10 (Status `uploading` bis Sample geschrieben), F-17 (`stop.ps1` Origin aus `-Port`), F-18 (fehlende Skripte), F-20 (Upload-Limit vor dem Spoolen per `Content-Length`).
+- [x] Weitere Funde: Live-Logzeilen kamen ohne Stufe und Text an (`store.js`), Live-Aktivität verwarf Ereignisse während einer Abfrage, Laufzeit im Kopf zeigte „0 ms“, Spaltenköpfe „origin“/„reason“ im deutschen Bericht, `requirements-dev.lock` ohne `python-multipart`, Dateiname `..\..\x` behielt unter Linux die Pfadteile, `parse_jadx_tar` unter Python 3.12+.
+- [x] Tests: 1023 grün, 10 übersprungen (Docker-Images, Windows), 38 bekannte xfails. Neu: `test_dashboard_api.py` (23), `test_bundle.py` (51), `test_worker_recovery.py` (3).
+
+Offen:
+- [ ] Lauf mit echtem Modell (Ollama) und echtem Ghidra-Image auf Jans Rechner: in der Cloud gab es weder Ollama noch Docker. Der Ghidra-Pfad ist mit einem Ersatz getestet, der dieselbe Exportform liefert.
+- [ ] PowerShell-Skripte (`start.ps1`, `stop.ps1`) konnten in der Cloud nicht ausgeführt werden, nur statisch geprüft.
+- [ ] `feat/dashboard-start` (lokal bei Jan) mit diesem Branch abgleichen: Jan entscheidet, welcher Stand gilt; ADR-Nummer 0006 dort umnummerieren.
+- [ ] ADR-0008 freigeben (neue Audit-Ereignisse „Export“ und „Ghidra-Ansicht“, unsigniertes Paket).
+- [ ] Mock-Modus (`?mock=1`) kennt die neuen Endpunkte nicht; die Ansichten zeigen dort eine Fehlermeldung.
 
 ## Aufräumen vor Start und nach Stopp (von Jan beauftragt, 2026-10-31)
 - [x] `scripts/cleanup.ps1` (Stage `CLEAN`), von `start.ps1` (`-Phase pre`) und `stop.ps1` (`-Phase post`) aufgerufen; abschaltbar mit `-NoCleanup`, prüfbar mit `cleanup.ps1 -Phase pre|post -DryRun`.
@@ -267,9 +288,9 @@ Quelle: `docs/review/code-review/SUMMARY.md` (Stellen, Modelle, Nachweis je Fund
 ### Ressourcen und Robustheit
 - [ ] F-05 ReDoS im Regex-Wächter plus harter Timeout für `grep` (`regex_guard.py:143-155`, `dev_gateway.py:701-705`, `runner.py:207,221`).
 - [ ] F-06 Kostendeckel für PE-Sektionsentropie, quadratische Regeln in `scripts.py`, Obergrenze für ZIP-Einträge.
-- [ ] F-09 Worker: `except` mit Fehlerstatus, Race zwischen Abbruch und Übernahme (`worker.py:33-41`).
-- [ ] F-10 Job erst nach dem Schreiben des Samples auf `queued` setzen (`app.py:126-127`).
-- [ ] F-20 Upload-Limit vor dem Spoolen durchsetzen (`app.py:111`).
+- [~] F-09 Worker: `except` mit Fehlerstatus erledigt (`feat/dashboard-integration`); Race zwischen Abbruch und Übernahme offen.
+- [x] F-10 Job erst nach dem Schreiben des Samples auf `queued` setzen (Status `uploading`, `feat/dashboard-integration`).
+- [x] F-20 Upload-Limit vor dem Spoolen durchsetzen (`Content-Length` in der Middleware, `feat/dashboard-integration`).
 - [ ] F-21 Ungültige `expected`-Regex abfangen (`engine.py:446`).
 - [ ] F-23 Abbruch und Zeitbudget auch innerhalb eines Tasks prüfen (`engine.py:231`).
 
@@ -286,8 +307,8 @@ Quelle: `docs/review/code-review/SUMMARY.md` (Stellen, Modelle, Nachweis je Fund
 - [ ] F-14 Defanging: `ws://`, `tcp://`, `smb://`, `file://`, UNC, weitere TLDs, IDN, Backticks, `javascript:`.
 - [ ] F-15 Hash-Spalte im Bericht (Artefakt-Hash statt Ausgabe-Hash), Prompt-Hashes und Modell aus dem Job speichern (`builder.py:97-102`).
 - [ ] F-16 Übersetzung: `done_reason == "length"` prüfen, Modell in den Cache-Schlüssel (`pipeline.py:204-273`).
-- [ ] F-17 `stop.ps1`: Origin aus `-Port` ableiten (`stop.ps1:90`).
-- [ ] F-18 `index.html`: fehlende Skripte entfernen oder anlegen, Asset-Test auf Existenz erweitern.
+- [x] F-17 `stop.ps1`: Origin aus `-Port` ableiten (`feat/dashboard-integration`).
+- [x] F-18 `index.html`: fehlende Skripte entfernt bzw. angelegt, Asset-Test prüft Existenz (`feat/dashboard-integration`).
 - [ ] F-19 Cleanup: Junctions prüfen, nur eigene Prozesse beenden; echten Test statt Teilstring-Test (`cleanup.ps1:44-54`, `test_scripts.py`).
 - [ ] F-22 `source_ref.length` bei UTF-16 korrigieren.
 - [ ] Einzelfunde aus `SUMMARY.md` bewerten (HostGuard außerhalb Windows, `create_job` transaktional, `/log`-Begrenzung, SSE, `markdown.js` und `\|`, `<think>`-Tags, Letzter Turn ohne `finish`, `_FENCE`-Regex, Annotationen ohne Beleg, `sha256_hex`, Code-Viewer-Vertrag, `list_files`-Cache).
