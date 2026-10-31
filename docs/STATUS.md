@@ -29,8 +29,8 @@ Stand: 2026-10-31 · Legende: `[x]` erledigt und geprüft · `[~]` begonnen · `
 ### P4 Laufzeit-Infrastruktur
 - [x] Docker Desktop läuft (Engine 29.8.2), GPU-Durchreichung getestet (nvidia-smi im Container, `--network none`)
 - [!] `.wslconfig` von 20 auf 24 GB: erfordert `wsl --shutdown` und beendet laufende WSL-Dienste (Kali, anderer Docker-Stack). Freigabe von Jan nötig. Siehe B1.
-- [ ] Ollama-Server starten, Umgebung setzen (`OLLAMA_MAX_LOADED_MODELS=1`, `OLLAMA_KEEP_ALIVE`, Flash Attention, KV-Cache-Quantisierung)
-- [ ] Modellauswahl automatisiert (Skript prüft VRAM/RAM, wählt Modell, Benchmark mit synthetischen Beispielen)
+- [x] Ollama-Server starten, Umgebung setzen: `infra/start-ollama.ps1` (Port 11435, Loopback, Flash Attention, KV-Cache q8_0, `MAX_LOADED_MODELS=1`, `KEEP_ALIVE`); `qwen3:8b` und `qwen3:14b` installiert
+- [~] Modellauswahl automatisiert: `infra/select-model.ps1` wählt nach freiem VRAM (Stufen A/B/C). Benchmark mit synthetischen Beispielen: `tests/bench/run_live.py` und `example/` (Stand der Messung siehe Modellabschnitt M0 bis M7)
 - [ ] Embedding-Modell wählen und testen
 - [!] Hyper-V: Dienst `vmms` läuft, Admin-Rechte fehlen für VM-Anlage. Admin-Skript wird erzeugt (Phase 1).
 
@@ -83,7 +83,7 @@ Danach (Priorität 2, in dieser Reihenfolge): P1-Anpassungen aus `docs/review/pl
 
 ## Strukturierte Code-Review durch alle Modelle (von Jan beauftragt, 2026-10-31)
 Ziel: Jedes verfügbare Modell prüft denselben Code nach demselben Raster. Unterschiedliche Modelle finden unterschiedliche Fehler; der Abgleich zeigt, was mehrfach bestätigt ist und was nur ein Modell sieht. Annahme: "alle Modelle" = die Claude-Modelle Fable 5.1, Opus 5.5, Sonnet 5.5, Haiku 5.5. Falls auch die lokalen Ollama-Modelle gemeint sind, bitte melden (anderer Ablauf, siehe Risiken).
-Stand: **offen**. Voraussetzung: Security-Review und Tag `v0.1.0` (siehe R7) bleiben davon getrennt (CLAUDE.md Arbeitsweise 9).
+Stand: **offen**. Reihenfolge: erst dieses Code-Review mit Behebung, danach der Security-Review (eigener Schritt, CLAUDE.md Arbeitsweise 9) und der Tag `v0.1.0` (siehe R7 und Abnahme unten).
 
 ### 1. Umfang (feste Pakete, je Paket ein Auftrag je Modell)
 | Paket | Pfad | Zeilen (ca.) | Schwerpunkt |
@@ -126,7 +126,7 @@ Jedes Modell prüft **blind** (kein Zugriff auf die Ergebnisse der anderen), dan
 6. Behebung in `fix/review-<paket>`, je Paket ein Merge nach grünen Tests. Offene Funde mit Begründung nach `docs/STATUS.md`.
 
 ### 5. Abnahme
-- [ ] Alle 9 Pakete von mindestens 2 Modellen geprüft (Pakete B, C, D von allen 4)
+- [ ] Alle 9 Pakete von mindestens 2 Modellen geprüft (Pakete B, C, D von Fable, Opus und Sonnet; Haiku prüft laut Verteilung nur G, H, I)
 - [ ] `SUMMARY.md` mit Fund-x-Modell-Tabelle, Funde getrennt in bestätigt, einzeln, verworfen (mit Grund)
 - [ ] Alle kritischen und hohen bestätigten Funde behoben, je mit Test
 - [ ] Tests grün, Ergebnis in `docs/STATUS.md` und im Dev-Vault
@@ -142,7 +142,7 @@ Jedes Modell prüft **blind** (kein Zugriff auf die Ergebnisse der anderen), dan
 - [x] **`README.md` im Repo-Root** (erstellt 2026-10-31; Screenshots und Flussdiagramm-Datei folgen) (fehlt, GitHub zeigt bisher keine Startseite). Inhalt: Zweck und Nicht-Ziele (nur statische Analyse, keine echte Malware im Repo), Architektur in einem Bild (Kette: Triage, Rezept, Queue, Task-Runner, Guard, Prüfer, Antworten, Bericht), Voraussetzungen (Windows 11, Python 3.11, Docker, NVIDIA-GPU, 24 GB RAM-Limit), Schnellstart (`scripts\start.ps1`, `stop.ps1`, Schalter `-NoCleanup`, `-Offline`, `-Update`), Sicherheitsmodell (Isolation, Gateway-Allowlist, Prompt-Schutz, Audit-Kette), Verweise auf `PROJEKTPLAN.md`, `docs/STATUS.md`, `docs/blueprint/`, Teststand, Lizenz. Belegt nur, was läuft; Offenes steht unter "Status". Screenshots des Dashboards erst nach dem ersten echten Lauf.
 
 ## Flussdiagramm der umgesetzten Workflows (von Jan beauftragt, 2026-10-31)
-- [ ] **Abstraktes Flussdiagramm** (`docs/architecture/workflows.md`, Mermaid, auch als Bild im README): nur was tatsächlich umgesetzt ist, je Workflow ein Diagramm auf hoher Ebene. Vorgesehen: (1) Start/Stopp (CLEAN, CHECK, INSTALL, UPDATE, OLLAMA, MODEL, APP, Statusschleife, Stopp mit Cleanup), (2) Job-Lebenszyklus (Auftrag, Triage, Rezept, Aufgaben-Queue, Task-Runner mit Werkzeug-Schleife, Prüfer, Bewerter, Priorisierer, Antworten, Übersetzung, Bericht), (3) Schutzschichten (Guard vor und nach jedem Modellaufruf, Gateway-Jail, Audit-Kette), (4) Datenfluss Sample bis Bericht mit Hashes und Evidence. Nicht Umgesetztes (Ghidra, Wissensdatenbank, dynamische Analyse) wird gestrichelt und als "offen" markiert. Quellen: `docs/architecture/chain.md`, `scripts/start.ps1`, `orchestrator/*`; graphify-Abfragen vorab, damit das Bild dem Code entspricht und nicht dem Plan.
+- [x] **Abstraktes Flussdiagramm** (erstellt 2026-10-31: `docs/architecture/workflows.md`, 4 Diagramme, im README verlinkt; Bild-Export für das README steht aus) (`docs/architecture/workflows.md`, Mermaid, auch als Bild im README): nur was tatsächlich umgesetzt ist, je Workflow ein Diagramm auf hoher Ebene. Vorgesehen: (1) Start/Stopp (CLEAN, CHECK, INSTALL, UPDATE, OLLAMA, MODEL, APP, Statusschleife, Stopp mit Cleanup), (2) Job-Lebenszyklus (Auftrag, Triage, Rezept, Aufgaben-Queue, Task-Runner mit Werkzeug-Schleife, Prüfer, Bewerter, Priorisierer, Antworten, Übersetzung, Bericht), (3) Schutzschichten (Guard vor und nach jedem Modellaufruf, Gateway-Jail, Audit-Kette), (4) Datenfluss Sample bis Bericht mit Hashes und Evidence. Nicht Umgesetztes (Ghidra, Wissensdatenbank, dynamische Analyse) wird gestrichelt und als "offen" markiert. Quellen: `docs/architecture/chain.md`, `scripts/start.ps1`, `orchestrator/*`; graphify-Abfragen vorab, damit das Bild dem Code entspricht und nicht dem Plan.
 
 ## Dashboard-Lücken (Stand 2026-10-31 20:15, per Screenshot geprüft)
 - [x] App startete nicht: `python-multipart` fehlte (Upload-Route). Gepinnt auf 0.0.32 (Apache-2.0, 0.0.33 vom selben Tag bewusst übersprungen), Test `tests/unit/test_webui_boot.py` sichert den Start ab.
@@ -184,7 +184,7 @@ Risiken: Modellnamen aus der Recherche (`gemma4`, `ornith`, `flint`, `qwen3.8`) 
 - [~] Start/Stop-Skripte mit Preflight, Selbstinstallation aus gepinnten Quellen, Update-Prüfung, Terminal-Log mit Stage-Namen (`scripts/start.ps1`, `stop.ps1`, `infra/manifest.json`): Agent läuft. Konflikt zu klären: automatische Updates widersprechen CLAUDE.md Verbot 5/6; Umsetzung nur aus gepinnten, gehashten Quellen, neue Versionen werden gemeldet.
 
 ## Tests (von Jan beauftragt, 2026-10-31)
-- [ ] **Detaillierte Tests für die forensische Absicherung der Kette.** Plan in `docs/testing/forensic-test-plan.md` mit 8 Blöcken (Chain of Custody, Belegprüfung, Prompt-Injection, Isolation und Jail, Determinismus, Übersetzung und Bericht, Ground-Truth-Korpus, Umsetzung). Vorhanden: 202 Unit-, 160 Sicherheits-, 4 E2E-Tests. Offen sind unter anderem Audit-Manipulationstest, Artefakt-Hash-Abgleich, Netz-Sperr-Test, API-Sicherheitstests, Reproduzierbarkeit des Berichts, Hold-out-Set für den Guard, Live-Modell-Tests und der Ground-Truth-Korpus.
+- [~] **Detaillierte Tests für die forensische Absicherung der Kette.** Neu 2026-10-31: `tests/forensic/test_chain_of_custody.py` (16 Tests: C4 Audit-Manipulation mit Zeilenposition, G1 bis G3 Belegprüfung, C8 Berichts-Reproduzierbarkeit, I4 nur Loopback-Endpunkt); Plan-Status in `forensic-test-plan.md` nachgezogen. Plan in `docs/testing/forensic-test-plan.md` mit 8 Blöcken (Chain of Custody, Belegprüfung, Prompt-Injection, Isolation und Jail, Determinismus, Übersetzung und Bericht, Ground-Truth-Korpus, Umsetzung). Vorhanden: 202 Unit-, 160 Sicherheits-, 4 E2E-Tests. Offen sind unter anderem Audit-Manipulationstest, Artefakt-Hash-Abgleich, Netz-Sperr-Test, API-Sicherheitstests, Reproduzierbarkeit des Berichts, Hold-out-Set für den Guard, Live-Modell-Tests und der Ground-Truth-Korpus.
 
 ## Backlog (von Jan beauftragt, braucht ADR und Freigabe)
 - [ ] **Dynamische Analyse** (ADR-0005, Entwurf): widerspricht Nicht-Ziel 1 des Plans und ist nach CLAUDE.md Verbot 3 nur mit ADR und ausdrücklicher Freigabe umsetzbar. Voraussetzungen: Hyper-V-VM ohne Netzwerkkarte, Snapshot/Rollback, simuliertes Netz, Opt-in pro Job, Audit, Gateway-Tools (`capture_trace`, `emulate_function`), Berichtsregel "niedrigere Konfidenz bis statisch bestätigt". Blueprint-Datei `10-dynamic-analysis.md` beschreibt die Methodik als Wissen.
@@ -192,3 +192,8 @@ Risiken: Modellnamen aus der Recherche (`gemma4`, `ornith`, `flint`, `qwen3.8`) 
 
 ## Phasen 0–12 (laut PROJEKTPLAN.md Abschnitt 7)
 Alle offen. Beginn erst nach Abschluss von Phase P und Freigabe.
+
+## Beispielfälle zum Evaluieren (von Jan beauftragt, 2026-10-31)
+- [x] `example/` mit `start_eval.ps1` (Menü zur Auswahl der Challenge), 4 Challenges mit Beschreibung und Ziel (`example/challenges/*/challenge.json`), Proben-Generatoren (`example/samples.py`) und automatischer Prüfung: `run_eval.py` sucht die Flagge im finalen Bericht (PASS/FAIL, Exit-Code). Anleitung: `example/README.md`.
+- [~] Echtlauf: Challenge 01 mit `qwen3:8b` bestanden (2,4 min, Status partial, Audit gültig, auf noch nicht committetem `src/`-Stand, daher kein Vergleichswert). Challenges 02 bis 04 ungetestet, weil eine zweite Sitzung die Ollama-Warteschlange belegte.
+- [ ] `example/` ist nicht committet (Branch-Entscheidung offen).

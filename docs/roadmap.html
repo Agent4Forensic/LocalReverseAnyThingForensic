@@ -256,26 +256,30 @@ var RANK=[
 var RECIPES=[
  {n:"EXE / DLL",f:"exe.yaml",now:[
    ["PE-Header, Sektionen, Packer-Hinweise",["pe_headers","entropy_map"]],
-   ["Imports und Fähigkeits-Hinweise",["pe_headers","grep"]],
-   ["Strings und Indikatoren",["strings_extract","grep"]],
+   ["Imports und Fähigkeits-Hinweise",["pe_headers"]],
+   ["Strings und Indikatoren",["strings_extract"]],
    ["Ressourcen und Overlay",["entropy_map","hexdump","decode_layer"]],
-   ["Krypto-Konstanten und Konfiguration",["grep","hexdump","decode_layer"]]],
+   ["Krypto-Konstanten und Konfiguration",["strings_extract","hexdump","decode_layer"]],
+   ["Entpackte Artefakte: Typ und Hashes ohne KI, Code und Container als eigene Aufgabe (höchstens 6 je Job)",["identify_type","hash_file"]]],
   plan:["Fähigkeiten mit capa","Signaturen mit YARA, Strings mit FLOSS","Funktionsranking und Dekompilierung in Ghidra","Packer-Stubs entpacken, Stage-Map bei mehrstufigen Proben"]},
  {n:"APK",f:"apk.yaml",now:[
    ["Container-Struktur",["zip_list"]],
-   ["Manifest und Berechtigungs-Hinweise",["zip_read_text","strings_extract"]],
-   ["Strings und Endpunkte",["strings_extract","grep"]],
-   ["Nachladen von Code und eingebettete Payloads",["grep","zip_list","entropy_map"]]],
+   ["Manifest und Berechtigungs-Hinweise",["zip_list","zip_read_text"]],
+   ["Strings und Endpunkte",["zip_list","zip_read_text"]],
+   ["Nachladen von Code und eingebettete Payloads",["zip_list","entropy_map"]],
+   ["Entpackte Artefakte: Typ und Hashes ohne KI, Code und Container als eigene Aufgabe (höchstens 6 je Job)",["identify_type","hash_file"]]],
   plan:["Manifest, Komponenten, Zertifikat mit androguard und apktool","DEX-Quelltext mit jadx","Native <code>.so</code> (<code>JNI_OnLoad</code>) in Ghidra","Entschlüsselung von Assets"]},
  {n:"Skript",f:"script.yaml",now:[
    ["Sprache und Verschleierung erkennen",["script_detect","read_lines","grep"]],
-   ["Eingebettete Ebenen statisch dekodieren",["decode_layer","read_lines","grep"]],
+   ["Eingebettete Ebenen statisch dekodieren",["strings_extract","decode_layer","read_lines","identify_type"]],
    ["Verhalten des dekodierten Skripts",["read_lines","grep"]],
-   ["Indikatoren sammeln",["grep","strings_extract"]]],
-  plan:["Familien-Regeln mit YARA","Rekursion auf entpackte Stufen mit Stage-Map"]},
+   ["Indikatoren sammeln",["grep","strings_extract"]],
+   ["Entpackte Artefakte: Typ und Hashes ohne KI, Code und Container als eigene Aufgabe (höchstens 6 je Job)",["identify_type","hash_file"]]],
+  plan:["Familien-Regeln mit YARA","Stage-Map über alle entpackten Stufen"]},
  {n:"Generisch",f:"generic.yaml",now:[
-   ["Struktur und Inhaltsklasse beschreiben",["hexdump","entropy_map","strings_extract"]],
-   ["Indikatoren und auffällige Strings",["strings_extract","grep"]]],
+   ["Struktur und Inhaltsklasse beschreiben",["read_lines","hexdump","entropy_map","strings_extract","decode_layer"]],
+   ["Indikatoren und auffällige Strings",["strings_extract","grep"]],
+   ["Entpackte Artefakte: Typ und Hashes ohne KI, Code und Container als eigene Aufgabe (höchstens 6 je Job)",["identify_type","hash_file"]]],
   plan:["Signatursuche mit binwalk","Format-Parser für unbekannte Container"]}
 ];
 
@@ -283,17 +287,17 @@ var RECIPES=[
 var AREAS=[
  {n:"Voraussetzungen",i:[
   ["Inventur Hardware und Tools","done"],["Plugins und Skills geprüft, Audits mit SHA","done"],["Claude-Code-Einstellungen, Hooks","done"],
-  ["Docker mit GPU-Durchreichung","done"],["Verifikationsskript verify-prereqs","done"],["Ollama-Server und Umgebung","part"],["Modellauswahl automatisiert","part"],
+  ["Docker mit GPU-Durchreichung","done"],["Verifikationsskript verify-prereqs","done"],["Ollama-Server und Umgebung (Port 11435, Loopback)","done"],["Modellauswahl automatisiert","part"],
   ["WSL-Limit 24 GB (braucht wsl --shutdown)","open"],["Hyper-V-VM (Admin-Skript)","open"],["Embedding-Modell","open"]]},
  {n:"Kern",i:[["Datenmodell","done"],["SQLite-Store","done"],["Audit-Log mit Hash-Kette","done"],["LLM-Client Ollama und ScriptedLLM","done"]]},
- {n:"Orchestrator",i:[["Rezepte exe, apk, script, generic","done"],["Engine und Worker","done"],["Task-Runner","done"],["Prüfer (Belegzwang)","done"],["Bewerter und Priorisierer","done"],["Prompt-Registry","done"],["Modell je Aufgabentyp","open"]]},
- {n:"Guard und Gateway",i:[["Scanner und Sanitizer","done"],["Aktions-Validierung","done"],["Dev-Gateway mit 13 statischen Tools","done"],["Ghidra-Adapter","open"],["Disassembler-Tools hinter dem Gateway","open"],["Tools im Docker-Image (jadx, capa, YARA …)","open"]]},
- {n:"Bericht und Übersetzung",i:[["Berichtsgenerator","done"],["Defanging","done"],["Übersetzung DE/EN mit Glossar und Cache","done"],["Diagramme im Bericht","open"]]},
+ {n:"Orchestrator",i:[["Rezepte exe, apk, script, generic","done"],["Engine und Worker","done"],["Task-Runner","done"],["Prüfer (Belegzwang)","done"],["Bewerter und Priorisierer","done"],["Prompt-Registry","done"],["Synthese-Schritt und Budget-Reserve für Zielfragen","done"],["Artefakt-Rekursion (derived/, höchstens 6 je Job)","done"],["HostGuard: RAM, Platz, GPU-Temperatur","done"],["Abbruch bei ausgefallenem Modellserver","done"],["Modell je Aufgabentyp","open"]]},
+ {n:"Guard und Gateway",i:[["Scanner und Sanitizer","done"],["Aktions-Validierung","done"],["Ziele des Modells vor dem Anlegen gescannt, Wächter","done"],["Dev-Gateway mit 13 statischen Tools","done"],["ADR-0006: Allowlist für statische Werkzeuge","draft"],["Ghidra-Adapter","open"],["Disassembler-Tools hinter dem Gateway","open"],["Tools im Docker-Image (jadx, capa, YARA …)","open"]]},
+ {n:"Bericht und Übersetzung",i:[["Berichtsgenerator","done"],["Defanging","done"],["Übersetzung DE/EN mit Glossar und Cache","done"],["Workflow-Diagramme als Dokument (workflows.md)","done"],["Diagramme im Bericht","open"]]},
  {n:"Web und Dashboard",i:[["API (FastAPI) mit /activity","done"],["Frontend: Übersicht, Auftrag, Code, Bericht","part"],["Tabs Diagramme, Log, Guard","open"],["Layout-Fehler Kopfzeile und Tabs","open"],["Upload im Browser getestet","open"],["Lernpfad und Ablaufpläne (V2)","open"]]},
  {n:"Betrieb",i:[["start.ps1 mit Preflight und Pins","part"],["stop.ps1","part"],["cleanup.ps1 (vor und nach dem Lauf)","done"],["Manifest mit Hashes","done"],["Echter stop.ps1-Lauf","open"]]},
- {n:"Tests",i:[["387 Tests grün (Unit, Sicherheit, E2E, CTF mit Skript-Modell)","done"],["Forensische Blöcke 1 bis 8","open"],["Ground-Truth-Korpus","open"],["Live-Modell-Tests","open"],["Netz-Sperr- und Manipulationstest","open"]]},
+ {n:"Tests",i:[["469 Tests grün (Unit, Sicherheit, E2E, forensisch, CTF mit Skript-Modell)","done"],["Beispielfälle mit Flaggen-Prüfung im Bericht (example/)","done"],["Forensische Blöcke: 1 und 2 teilweise (C4, G1–G3, C8, I4), 3 bis 8 offen","part"],["Ground-Truth-Korpus","open"],["Live-Modell-Tests","open"],["Netz-Sperr-Test","open"]]},
  {n:"Wissen und Vault",i:[["Dev-Vault als Markdown","done"],["Wissensdatenbank (Ingest, Index)","open"],["Obsidian-Notiz-Writer","open"]]},
- {n:"Isolation und Dynamik",i:[["REA: Audit und Pin","part"],["Ghidra gepinnt, Image fehlt","part"],["Hyper-V-VM ohne Netzwerkkarte","open"],["Dynamische Analyse (ADR-0005)","draft"]]}
+ {n:"Isolation und Dynamik",i:[["REA: Audit und Pin","part"],["Ghidra gepinnt, Image fehlt","part"],["Hyper-V-VM ohne Netzwerkkarte","open"],["Dynamische Analyse (ADR-0005, Stufenmodell überarbeitet)","draft"]]}
 ];
 
 /* Roadmap-Spuren */
@@ -303,19 +307,20 @@ var LANES=[
   ["R2","Modell qwen3:8b ziehen, Smoke-Test, Tempo messen","part","Messwerte nicht dokumentiert"],
   ["R3","Backend lauffähig (Origin portabel, /activity, Antwortbudget)","part","Antwortbudget offen"],
   ["R4","Frontend-MVP fertigstellen","part","4 Ansichten vorhanden, Browser-Test fehlt"],
-  ["R5","Erster echter Lauf: CTF-Probe mit Modell","open","braucht R2 bis R4"],
+  ["R5","Erster echter Lauf: CTF-Probe mit Modell","part","Challenge 01 bestanden (qwen3:8b), 02 bis 04 und Browser-Lauf offen"],
   ["R6","start und stop scharf testen","open","braucht R2, R3"],
-  ["R7","Abnahme: Security-Review, Tag v0.1.0","open","main ist bereits gemerged, Review steht aus"]]},
+  ["R7","Abnahme: Security-Review, Tag v0.1.0","open","Review steht aus, feat/workflow-optimization noch nicht in main"]]},
  {t:"2 · Reverse-Engineering-Tiefe",i:[
+  ["A6","ADR-0006: Allowlist-Erweiterung für statische Werkzeuge","draft","wartet auf Freigabe"],
   ["G","Ghidra-Image und Disassembler hinter dem Gateway","open","ADR und Freigabe nötig"],
   ["T","Tools im Image: jadx, apktool, androguard, capa, YARA, FLOSS, radare2, binwalk","open","Version- und Hash-Pin je Tool"],
   ["P1","Anpassungen aus docs/review/platform-adjustments.md","open","Guard-Schema, Store-Tabellen, Endpunkte"],
-  ["F","Forensische Tests Block 1 und 2","open","Audit-Manipulation, Hash-Abgleich"],
+  ["F","Forensische Tests Block 1 und 2","part","Audit-Manipulation, Belegprüfung, Reproduzierbarkeit da; Artefakt-Hash-Abgleich offen"],
   ["CR","Code-Review durch alle Modelle (9 Pakete)","open","Plan in STATUS.md"],
   ["D2","Dashboard V2: Lernpfad, Diagramme","open","Spec: dashboard-v2.md"],
   ["VM","Hyper-V-VM ohne Netzwerkkarte","open","Admin-Skript nötig"]]},
  {t:"3 · Modell-Messung",i:[
-  ["M0","Basislinie qwen3:8b im Echtlauf","open","braucht R5"],
+  ["M0","Basislinie qwen3:8b im Echtlauf","part","Messung läuft, Ergebnis steht aus"],
   ["M1","Benchmark-Arena run_arena.py","open",""],
   ["M2","Billige Hebel: Schema-Ausgabe, Few-Shot, Denkbudget","open",""],
   ["M3","Stufe 1: qwen3:14b, gemma4:12b, phi4-reasoning:14b, ornith:9b, gpt-oss:20b","open",""],
