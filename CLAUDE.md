@@ -10,6 +10,21 @@ Quelle der Wahrheit: `PROJEKTPLAN.md`. Aktueller Stand und offene Aufgaben: `doc
 3. Auto-Compact ist aktiv (`.claude/settings.json`, Schwelle 70 %). Vor einem Compact `docs/STATUS.md` aktuell halten, damit nichts verloren geht.
 4. Parallele Subagenten für unabhängige Aufgaben (Recherche, Audits, Tests). Kurze, präzise Aufträge, Ergebnis als Zusammenfassung.
 
+## Subagenten-Regeln (verbindlich, spart Token)
+1. **graphify zuerst.** Jeder Subagent-Prompt beginnt mit: "Lies `graphify-out/GRAPH_REPORT.md`, nutze `graphify query "<Frage>"`, `graphify explain "<Knoten>"` und `graphify path "A" "B"`, bevor du Dateien durchsuchst. Danach gezielt `Read` mit Zeilenbereich." Fehlt `graphify-out/` (lokal erzeugt, nicht im Repo), zuerst `/graphify .` ausführen. Nach größeren Änderungen `/graphify . --update`.
+2. **Modell passend wählen.** Suche und mechanische Edits: `cavecrew-investigator` / `cavecrew-builder` oder Haiku/Sonnet. Das stärkste Modell nur für Blueprint, Architektur-Review und Sicherheitsprüfung.
+3. **Kurze Aufträge.** Prompt unter ca. 40 Zeilen, auf Dateien verweisen statt Text zu kopieren (`docs/architecture/*.md`, `docs/blueprint/_STYLE.md`). Abgabe höchstens 25 Zeilen: Dateien, Teststand, offene Punkte. Keine Dateiinhalte zurückspiegeln.
+4. **Eigene Dateien.** Jeder Agent bekommt eine feste Dateimenge, nie dieselbe Datei wie ein anderer. Parallel nur bei unabhängigen Teilen.
+5. **Klein schreiben.** Dateien zuerst anlegen (Gerüst), dann ausbauen, damit ein Abbruch (Limit, Virenscanner) nichts kostet.
+6. **Nichts committen im Agenten.** Der Hauptagent committet, pusht und merged.
+
+## Git-Workflow (Remote ab 2026-10-31 freigegeben)
+- Remote: `origin` = `https://github.com/Agent4Forensic/LocalReverseAnyThingForensic.git`.
+- Branches: `main` (stabil), `feat/core-chain` (Kern, Gateway, Guard, Engine, API), `feat/dashboard` (Frontend), `feat/launcher` (Start/Stop-Skripte), `docs/blueprint` bei Bedarf.
+- Push nach jedem abgeschlossenen Baustein und mindestens nach jeder Arbeitsrunde. Vor jedem Push: `git status`, keine Samples, keine Secrets, keine lokalen Pfade (`graphify-out/` ist ignoriert).
+- Am Ende alle Feature-Branches per `--no-ff` nach `main` mergen, nach grünen Tests und Security-Review, dann `main` pushen.
+- Ein Virenscanner (G Data) hat während der Entwicklung einmal Dateien kurz entfernt; Ausnahme ist eingetragen. Nach Agentenläufen `git ls-files -d` prüfen.
+
 ## Entscheidungen von Jan (2026-10-31)
 - Isolation: Echte Proben nur in Hyper-V-VM ohne NIC. Darin laufen die Tools in Docker-Containern (`--network none`, read-only, `--cap-drop ALL`, Ressourcenlimits). Entwicklung und Tests mit harmlosen Proben auf Docker/WSL2.
 - Ressourcen: Hartes Limit 24 GB RAM für WSL/Docker/Modelle zusammen, Windows behält mindestens 7 GB. GPU (RTX 5060 Ti, 16 GB) wird für Ollama genutzt. Jedes Container hat eigene Speicher- und CPU-Limits.
