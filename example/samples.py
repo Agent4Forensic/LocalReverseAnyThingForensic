@@ -1,8 +1,9 @@
 """Sample builders for the example challenges. Every sample is harmless, generated in memory and never executed.
 
 A challenge names its builder in challenge.json ("sample": {"name": ..., "builder": ...}). To add a case, write a
-function here, register it in BUILDERS and add a folder under example/challenges/. Samples are written only to
-data/eval/ (git-ignored), never into the repository.
+function here, register it in BUILDERS, add a folder under example/challenges/ and run example/build_samples.py: it
+writes a copy of the output to example/challenges/<id>/sample/ and the hash to samples.manifest.json (ADR-0009). This
+function stays the source; the committed file must equal its output.
 """
 from __future__ import annotations
 

@@ -48,3 +48,7 @@ graphify-out/cache/
 
 # graphify output is machine-specific (absolute paths); regenerate locally with /graphify
 graphify-out/
+
+# --- Harmlose Beispielproben (ADR-0009): nur Dateien aus example/samples.manifest.json, der Pre-Commit-Hook prüft den Hash
+!example/challenges/*/sample/
+!example/challenges/*/sample/*

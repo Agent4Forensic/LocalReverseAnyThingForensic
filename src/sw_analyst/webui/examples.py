@@ -75,10 +75,21 @@ class Examples:
                 "paths": {"folder": self._rel(f.parent), "challenge": self._rel(f),
                           "builder_file": self._rel(self.dir / "samples.py"), "builder_line": line,
                           "runner": self._rel(self.dir / "start_eval.ps1"),
-                          "stored_as": "data/jobs/<Auftrag>/sample"},
+                          "stored_as": "data/jobs/<Auftrag>/sample",
+                          # copy of the builder output in the repository (ADR-0009); the builder stays the source
+                          "sample_file": self._rel(f.parent / "sample" / c["sample"]["name"]),
+                          "sample_file_ok": self._same(f.parent / "sample" / c["sample"]["name"], data)},
             })
         out.sort(key=lambda e: (e["level_rank"], e["id"]))
         return out
+
+    @staticmethod
+    def _same(path: Path, data: bytes) -> Optional[bool]:
+        """True: file equals the builder output, False: differs, None: no file in the repository."""
+        try:
+            return path.read_bytes() == data if path.is_file() else None
+        except OSError:
+            return False
 
     def list(self, store=None) -> list[dict]:
         items = self._load()

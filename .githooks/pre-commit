@@ -9,7 +9,22 @@ staged=$(git diff --cached --name-only --diff-filter=ACM)
 [ -z "$staged" ] && exit 0
 
 blocked_ext='\.(exe|dll|sys|apk|dex|so|elf|msi|jar|class|gguf|safetensors|vhdx|vhd|iso|img|pem|key|pfx)$'
+# Harmless example samples (ADR-0009) pass only with path and SHA-256 listed in the staged manifest.
+sample_ok() {
+    printf '%s' "$1" | grep -Eq '^example/challenges/[A-Za-z0-9-]+/sample/[A-Za-z0-9._-]+$' || return 1
+    local sha
+    sha=$(git cat-file -p ":$1" | sha256sum | cut -d' ' -f1)
+    git show ":example/samples.manifest.json" 2>/dev/null | tr -d ' \n' | grep -Fq "\"$1\":{\"builder\":" || return 1
+    git show ":example/samples.manifest.json" 2>/dev/null | tr -d ' \n' | grep -Eq "\"$(printf '%s' "$1" | sed 's/[.]/\\./g')\":\{[^}]*\"sha256\":\"$sha\""
+}
+
 while IFS= read -r f; do
+    case "$f" in
+        example/challenges/*/sample/*)
+            if sample_ok "$f"; then continue; fi
+            echo "BLOCKED: '$f' is not a manifest-listed example sample (run example/build_samples.py, ADR-0009)." >&2
+            fail=1; continue ;;
+    esac
     if printf '%s' "$f" | grep -Eiq "$blocked_ext"; then
         echo "BLOCKED: '$f' has a forbidden extension (sample/model/image/key)." >&2
         fail=1

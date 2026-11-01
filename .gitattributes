@@ -6,3 +6,6 @@ infra/tools/entry.sh text eol=lf
 infra/tools/rules/*.yar text eol=lf
 infra/tools/ghidra/*.java text eol=lf
 infra/tools/Dockerfile text eol=lf
+
+# Beispielproben (ADR-0009) bytegenau halten: der Hash im Manifest gilt fuer genau diese Bytes
+example/challenges/*/sample/* -text -diff
