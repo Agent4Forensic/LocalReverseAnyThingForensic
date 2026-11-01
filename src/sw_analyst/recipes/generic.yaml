@@ -6,7 +6,7 @@ steps:
     title: Describe file structure and content class
     goal: Establish what kind of data the file contains (text, binary, container) using hexdump, entropy_map and strings_extract, and summarise notable regions with offsets.
     done_when: Findings state the data class (text, binary or container) and notable regions with offsets, or report no notable regions in the file, or name the limit that prevented classification.
-    guide: For text use read_lines first; for binary use hexdump of the start and entropy_map. Long base64 or hex runs are encoded data - decode them with decode_layer (offset and length of the run only, or method auto) and read the result, it may hold the real content.
+    guide: For text use read_lines first; for binary use hexdump of the start and entropy_map. Long base64 or hex runs are encoded data. The platform decoded the long runs it found before this task; read those derived files (listed in the task) and quote the decode_layer evidence instead of decoding again. Decode a run it missed with decode_layer (offset and length of the run only, or method auto) and read the result, it may hold the real content.
     priority: 100
     tools_hint: [read_lines, hexdump, entropy_map, strings_extract, decode_layer]
   - id: indicators

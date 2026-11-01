@@ -91,8 +91,8 @@ def test_ctf_flag_solved_with_evidence(tmp_path):
     assert status == "done", store.get_job(job["id"])["summary_en"]
     ans = store.get_answer(job["id"], "Q1")
     assert ans["status"] == "answered" and ans["match"] == 1 and FLAG in ans["answer_en"]
-    conf = store.list_findings(job["id"], "confirmed")
-    assert conf and conf[0]["quotes"][0]["quote"] == FLAG
+    conf = store.list_findings(job["id"], "confirmed")       # the platform's custody findings for the layers come first
+    assert any(f["quotes"] and f["quotes"][0]["quote"] == FLAG for f in conf)
     # every task has timings, every step a what/how/why record
     for t in store.list_tasks(job["id"]):
         if t["kind"] != "group":

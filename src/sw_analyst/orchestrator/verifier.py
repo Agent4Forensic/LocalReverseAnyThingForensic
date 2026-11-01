@@ -3,6 +3,7 @@
 confirmed  -> every cited evidence id exists in this job AND every quote occurs verbatim
               (whitespace-normalised) in that evidence text; at least one quote.
 hypothesis -> at least one existing evidence id as basis; quotes optional, only verified ones are kept.
+open       -> a "GAP:" statement without evidence: an open point, not a claim about the sample.
 anything else -> rejected with a stored reason (kept for the audit trail, never used in answers).
 """
 from __future__ import annotations
@@ -143,6 +144,10 @@ def verify_finding(store: Store, job_id: str, raw: dict) -> VerifiedFinding:
         return VerifiedFinding(statement, "rejected", [], [], reason)
     if ids:
         return VerifiedFinding(statement, "hypothesis", ids, good_quotes)
+    # A gap states what static analysis could not settle: an open point like those of the evaluator, not a claim
+    # about the sample, so it needs no evidence and is never rejected for lacking it.
+    if statement.upper().startswith("GAP:"):
+        return VerifiedFinding(statement, "open", [], [])
     return VerifiedFinding(statement, "rejected", [], [], "; ".join(problems) or "hypothesis without any evidence")
 
 

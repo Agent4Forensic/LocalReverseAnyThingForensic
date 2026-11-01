@@ -65,6 +65,7 @@ _BLOBS = {"base64": re.compile(rb"[A-Za-z0-9+/_\-]{8,}={0,2}"),
           "base32": re.compile(rb"[A-Z2-7]{8,}={0,6}"),
           "hex": re.compile(rb"(?:[0-9A-Fa-f]{2}){4,}")}
 _LABEL = re.compile(rb"\s*[A-Za-z][A-Za-z0-9_.-]{1,15}[:=](?![/\\])\s*")
+_DELIM = re.compile(rb"[\s'\"`;,)\]}>|&]")      # what may follow an encoded run inside a line of text
 
 _JOB_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 _DERIVED_NAME_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,99}")
@@ -704,9 +705,9 @@ class DevGateway:
             found.append(item)
         L = [f"Strings in {name} (min length {n}, encoding {enc}, from offset 0x{start:x}): "
              f"{len(found)} shown" + (" (limit reached, more exist)" if more else "")]
-        L.append("offset      enc  string   [A=ASCII, W=UTF-16LE]")
+        L.append("offset      len     enc  string   [A=ASCII, W=UTF-16LE; len = characters, the string may be shown cut]")
         for off, kind, s in found:
-            L.append(f"0x{off:08x}  {kind}    {clip(s, 300)}")
+            L.append(f"0x{off:08x}  {len(s):<6}  {kind}    {clip(s, 300)}")
         if not found:
             L.append("(no strings found)")
         if more:
@@ -853,6 +854,11 @@ class DevGateway:
             offset += len(skipped)
             pre.append(f"Skipped label {_clean(skipped.decode('latin-1'))!r} ({len(skipped)} bytes) in front of the data; "
                        f"decoding starts at offset {offset} (0x{offset:x})")
+        chunk, tail = self._trim_tail(chunk, method)
+        if tail:
+            pre.append(f"Ignored {len(tail)} trailing byte(s) after the encoded run, starting with "
+                       f"{_clean(tail[:12].decode('latin-1'))!r}; decoding covers {len(chunk)} byte(s) from offset {offset} "
+                       f"(0x{offset:x}) to {offset + len(chunk)} (0x{offset + len(chunk):x})")
         sref = {"file": name, "offset": offset, "length": len(chunk)}
         meta_extra: dict[str, Any] = {}
         if method == "auto":
@@ -906,7 +912,7 @@ class DevGateway:
         meta = {"source_ref": sref, "derived": logical, "sha256": sha, "size": len(out),
                 "method": used, "reused_existing": reused, "result_kind": "text" if kind.endswith("text") else "binary",
                 "magic": magic[0] if magic else None, "json_fields": fields,
-                "looks_encoded": len(out.strip()) % 4 == 0 and self._is_blob("base64", out)}
+                "looks_encoded": len(b"".join(out.split())) % 4 == 0 and self._is_blob("base64", out)}
         meta.update(meta_extra)
         return _Out("\n".join(L), meta)
 
@@ -922,6 +928,24 @@ class DevGateway:
         is_blob = DevGateway._is_blob
         if m and any(not is_blob(n, chunk) and is_blob(n, chunk[m.end():]) for n in names):
             return chunk[m.end():], m.group(0)
+        return chunk, b""
+
+    @staticmethod
+    def _trim_tail(chunk: bytes, method: str) -> tuple[bytes, bytes]:
+        """'eyJ...' followed by a quote and the rest of the line: only the run is decoded, the evidence says what was
+        left out. Single-line input only, so a wrapped blob is never cut to its first line; the run must be at least
+        16 characters and end at a text delimiter, so binary input is never cut to a lucky prefix."""
+        names = list(_BLOBS) if method == "auto" else [method] if method in _BLOBS else []
+        if not names or DevGateway._is_blob(names[0], chunk):
+            return chunk, b""
+        for n in names:
+            m = _BLOBS[n].match(chunk)
+            if not (m and m.end() >= 16 and m.end() < len(chunk) and _DELIM.match(chunk, m.end())):
+                continue
+            rest = chunk[m.end():]
+            if rest[:1].isspace() and _BLOBS[n].match(rest.lstrip()):   # the run goes on after a line break: wrapped
+                continue
+            return chunk[:m.end()], rest
         return chunk, b""
 
     @staticmethod

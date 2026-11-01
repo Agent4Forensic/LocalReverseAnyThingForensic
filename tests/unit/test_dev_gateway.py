@@ -580,7 +580,7 @@ def test_strings_extract_ascii_and_utf16(gw):
     data = b"\x00\x01" + "SecretUtf16Text".encode("utf-16le") + b"\xff\xfe\xfd" + b"plain_ascii_string" + b"\x00ab\x00"
     r = run(gw, data, "strings_extract", {"min_len": 6})
     assert r.ok
-    assert "0x00000002  W    SecretUtf16Text" in r.text
+    assert "0x00000002  15      W    SecretUtf16Text" in r.text
     assert "A    plain_ascii_string" in r.text
     assert r.text.index("SecretUtf16Text") < r.text.index("plain_ascii_string")  # sorted by offset
     r = gw.call(JOB, "strings_extract", {"min_len": 6, "encoding": "ascii"})

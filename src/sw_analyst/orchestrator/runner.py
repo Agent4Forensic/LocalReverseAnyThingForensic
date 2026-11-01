@@ -19,7 +19,7 @@ from sw_analyst.orchestrator.agents import MODEL_ORIGINS, task_text
 from sw_analyst.orchestrator.verifier import MIN_QUOTE, answer_values_grounded, norm, verify_finding
 from sw_analyst.prompts.registry import ACTION_SCHEMA, DEFAULT_DONE_WHEN, SYSTEM_BASE, get_prompt
 
-MAX_TURNS = 10
+MAX_TURNS = 12
 MAX_INVALID = 3
 MAX_REPAIRS = 2               # chances to fix findings the checker refused before they are stored
 REPLY_TOKENS = 3000           # thinking counts against this budget
@@ -28,6 +28,18 @@ PROMPT_EVIDENCE_CHARS = 6000
 KNOWN_CHARS = 6000
 OPEN_POINTS_CHARS = 2000
 CONTEXT_CHAR_BUDGET = 36000   # rough guard for 16k-token contexts (about 4 chars per token incl. reserve)
+EVIDENCE_INDEX_ROWS = 30
+DERIVED_ROWS = 20
+BASE_CTX = 16384              # the limits above are tuned for this context; a larger model context scales them
+
+
+def context_limits(num_ctx: int) -> dict[str, int]:
+    """Prompt and reply limits for a model context. Larger contexts show more evidence per turn and keep more of
+    the older tool output; the reply budget grows with it, since thinking counts against it."""
+    f = max(1.0, min(4.0, (num_ctx or BASE_CTX) / BASE_CTX))
+    return {"context_chars": int(CONTEXT_CHAR_BUDGET * f), "evidence_chars": int(PROMPT_EVIDENCE_CHARS * f),
+            "known_chars": int(KNOWN_CHARS * f), "reply_tokens": int(REPLY_TOKENS * min(f, 2.0)),
+            "reply_tokens_max": int(REPLY_TOKENS_MAX * min(f, 2.0))}
 
 
 @dataclass
@@ -63,18 +75,20 @@ def _tools_block(tools: list[ToolSpec]) -> str:
 class TaskRunner:
     def __init__(self, store: Store, llm: LLMClient, gateway: ToolGateway):
         self.store, self.llm, self.gateway = store, llm, gateway
+        self.limits = context_limits(getattr(llm, "num_ctx", BASE_CTX))
 
     # ---- prompt building -------------------------------------------------------------------
-    def known_findings_text(self, job_id: str, limit: int = 25) -> str:
+    def known_findings_text(self, job_id: str, limit: int = 60) -> str:
         """Newest confirmed findings with a quote to re-cite. Model text about the sample stays marked as data."""
         lines: list[str] = []
         used = 0
+        known_chars = self.limits["known_chars"]
         confirmed = self.store.list_findings(job_id, "confirmed")
         for f in reversed(confirmed[-limit:]):
             q = (f["quotes"] or [{}])[0]
             line = (f"- {f['id']}: {f['statement_en']} [evidence: {', '.join(f['evidence_ids'])}; "
                     f"quote from {q.get('evidence_id', '-')}: \"{preview(q.get('quote', ''), 160)}\"]")
-            if used + len(line) > KNOWN_CHARS:
+            if used + len(line) > known_chars:
                 break
             lines.append(line)
             used += len(line)
@@ -82,7 +96,23 @@ class TaskRunner:
             return "(nothing confirmed yet)"
         if len(lines) < len(confirmed):
             lines.append(f"({len(confirmed) - len(lines)} older confirmed findings not shown)")
-        return sanitize_untrusted("\n".join(reversed(lines)), "known-findings", max_chars=KNOWN_CHARS + 200).text
+        return sanitize_untrusted("\n".join(reversed(lines)), "known-findings", max_chars=known_chars + 200).text
+
+    def derived_files_text(self, job_id: str) -> str:
+        """Files the platform or a tool derived from the sample, with the type its triage found. The model works on
+        them by path; without this list it only learns of them from an evidence it happens to re-read."""
+        rows = []
+        for f in self.gateway.list_files(job_id):
+            if f["kind"] != "derived":
+                continue
+            ev = self.store.find_evidence(job_id, "identify_type", {"path": f["path"]})
+            kind = str((ev["source_ref"] or {}).get("type") or "?") if ev else "?"
+            rows.append(f"- {f['path']}: type {kind}, {f['size']} bytes, sha256 {f['sha256'][:16]}...")
+        if not rows:
+            return "(none)"
+        if len(rows) > DERIVED_ROWS:
+            rows = rows[:DERIVED_ROWS] + [f"({len(rows) - DERIVED_ROWS} more derived files not shown)"]
+        return sanitize_untrusted("\n".join(rows), "derived-files", max_chars=3000).text
 
     def open_points_text(self, job_id: str, limit: int = 10) -> str:
         """Unproven findings a later task can test. GAP needs dynamic analysis; GUARD would send a task back into an attack."""
@@ -94,11 +124,11 @@ class TaskRunner:
                                   "open-points", max_chars=OPEN_POINTS_CHARS).text
 
     def _evidence_index_text(self, job_id: str) -> str:
-        rows = self.store.evidence_index(job_id)
+        rows = self.store.evidence_index(job_id, limit=EVIDENCE_INDEX_ROWS)
         if not rows:
             return "(none)"
         text = "\n".join(f"- {e['id']}: {e['tool']} {preview(json.dumps(e['params'], sort_keys=True), 100)}" for e in rows)
-        return sanitize_untrusted(text, "evidence-index", max_chars=2000).text
+        return sanitize_untrusted(text, "evidence-index", max_chars=4500).text
 
     def render_task_prompt(self, job: dict, task: dict, tools: list[ToolSpec]) -> tuple[str, str, str, str]:
         spec = job["spec"]
@@ -122,7 +152,7 @@ class TaskRunner:
             context_info=spec.get("context_info_en") or spec.get("context_info") or "(none)",
             focus=spec.get("focus_en") or spec.get("focus") or "(none)",
             questions=qs, known=self.known_findings_text(job["id"]),
-            hypotheses=self.open_points_text(job["id"]),
+            hypotheses=self.open_points_text(job["id"]), derived_files=self.derived_files_text(job["id"]),
             done_when=task_text(task, params.get("done_when") or DEFAULT_DONE_WHEN, "task-done-when"),
             action_schema=ACTION_SCHEMA, tools=_tools_block(tools))
         if task["kind"] == "question":
@@ -148,13 +178,13 @@ class TaskRunner:
         guard = TaskGuard(task_id, guard_task_text(task))
         seen_calls: set[str] = set()
         invalid = repairs = 0
-        reply_tokens = REPLY_TOKENS
+        reply_tokens = self.limits["reply_tokens"]
         # keep sample-relative context for the user-visible log
         for turn in range(1, MAX_TURNS + 1):
             if turn == MAX_TURNS:
                 messages.append(ChatMessage(role="user", content="LAST TURN. Reply with \"finish\" now: report what the "
                                             "evidence shows so far and name what stays open."))
-            self._compact(messages)
+            self._compact(messages, self.limits["context_chars"])
             sid = self.store.begin_step(job_id, task_id, StepKind.PROMPT.value, f"model turn {turn}",
                                         how=f"model={self.llm.model}, json_mode, think=on, "
                                             f"seed={getattr(self.llm, 'seed', None)}, max_tokens={reply_tokens}",
@@ -190,7 +220,7 @@ class TaskRunner:
                     return TaskOutcome("failed", error=f"model produced {invalid} invalid actions: {res.error}")
                 msg = f"INVALID ACTION: {res.error}. Reply with exactly one valid JSON object as specified."
                 if resp.done_reason == "length" or not raw.strip():
-                    reply_tokens = REPLY_TOKENS_MAX
+                    reply_tokens = self.limits["reply_tokens_max"]
                     msg = ("Your reply was cut off by the token limit or empty. Think less and reply with one short "
                            "JSON object: fewer findings, short statements.")
                 messages += [ChatMessage(role="assistant", content=preview(raw, 1500) or "(no output)"),
@@ -237,7 +267,7 @@ class TaskRunner:
                                              result.text if result.ok else f"[tool error] {result.error}",
                                              source_ref=result.meta)
             tms = int((time.monotonic() - t1) * 1000)
-            block = sanitize_untrusted(ev["text"], ev["id"], max_chars=PROMPT_EVIDENCE_CHARS)
+            block = sanitize_untrusted(ev["text"], ev["id"], max_chars=self.limits["evidence_chars"])
             guard.observe_input(block)
             self._record_injection(job_id, task_id, ev, block)
             for d in block.detections:
@@ -277,12 +307,20 @@ class TaskRunner:
                 out.append(f"finding {i}: {vf.reject_reason}")
         answer = ((action.get("answer") or {}).get("text") or "").strip()
         if task["kind"] == "question" and answer and not answer.upper().startswith("UNRESOLVED"):
-            if not confirmed:
-                out.append('the answer needs at least one finding with status "confirmed" in this reply')
+            based_on = self._based_on(job_id, action)
+            if not confirmed and not based_on:
+                out.append('the answer needs a confirmed finding: list ids of confirmed findings in answer.based_on '
+                           'or add a finding with status "confirmed" in this reply')
             ok, why = check_answer_grounding(self.store, job_id, answer)
             if not ok:
                 out.append(f"answer: {why}")
         return out
+
+    def _based_on(self, job_id: str, action: dict) -> list[str]:
+        """Confirmed findings of this job the answer rests on. Ids of other jobs or unproven findings do not count."""
+        ids = (action.get("answer") or {}).get("based_on") or []
+        rows = [self.store.get_finding(fid) for fid in ids]
+        return [f["id"] for f in rows if f and f["job_id"] == job_id and f["status"] == "confirmed"]
 
     def _finish(self, job: dict, task: dict, action: dict) -> TaskOutcome:
         job_id, task_id = job["id"], task["id"]
@@ -291,13 +329,18 @@ class TaskRunner:
                                      why="prevent unsupported claims")
         t0 = time.monotonic()
         ids, confirmed = [], []
+        open_known = {norm(f["statement_en"]).lower() for f in self.store.list_findings(job_id)
+                      if f["status"] in ("open", "hypothesis", "closed")}
         for raw in action.get("findings", []):
             vf = verify_finding(self.store, job_id, raw)
+            if vf.status == "open" and vf.statement.lower() in open_known:   # the same gap, reported again
+                continue
             f = self.store.add_finding(job_id, task_id, vf.statement, vf.status, vf.evidence_ids, vf.quotes,
                                        vf.reject_reason)
             ids.append(f["id"])
             if vf.status == "confirmed":
                 confirmed.append(f["id"])
+        confirmed += [fid for fid in self._based_on(job_id, action) if fid not in confirmed]
         for a in action.get("annotations", []):
             ev_id = a.get("evidence_id")
             if ev_id:
@@ -316,17 +359,21 @@ class TaskRunner:
 
     # ---- context hygiene ---------------------------------------------------------------------
     @staticmethod
-    def _compact(messages: list[ChatMessage]) -> None:
-        """Shrink old tool results to short previews when the context grows too large."""
+    def _compact(messages: list[ChatMessage], budget: int = CONTEXT_CHAR_BUDGET) -> None:
+        """Shrink old tool results, then old replies of the model, to short previews when the context grows too large."""
         total = sum(len(m.content) for m in messages)
         i = 2
-        while total > CONTEXT_CHAR_BUDGET and i < len(messages) - 2:
+        while total > budget and i < len(messages) - 2:
             m = messages[i]
             if m.role == "user" and "<untrusted_data" in m.content and len(m.content) > 600:
                 head = m.content.split("\n", 1)[0]
                 new = head + "\n[older tool output shortened to save context; full text stored as evidence]"
                 total -= len(m.content) - len(new)
                 messages[i] = ChatMessage(role="user", content=new)
+            elif m.role == "assistant" and len(m.content) > 1200:   # a refused finish carries every finding again
+                new = preview(m.content, 1000)
+                total -= len(m.content) - len(new)
+                messages[i] = ChatMessage(role="assistant", content=new)
             i += 1
 
 

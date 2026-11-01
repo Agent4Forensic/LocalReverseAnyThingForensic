@@ -34,8 +34,16 @@ BUDGET_RESERVE_FROM = 0.75    # from here on the rest of the budget belongs to t
 # Derived files of these types get their own task. Text and data stay with the task that decoded them.
 RECURSE_TYPES = {"pe", "elf", "apk", "jar", "zip", "dex", "pdf", "macho", "ole2",
                  "powershell", "vbscript", "javascript", "python", "bash", "batch", "html"}
-MAX_DECODE_CHAIN = 3          # layers the platform peels on its own; deeper ones stay with the model
+MAX_DECODE_CHAIN = 4          # layers the platform peels on its own; deeper ones stay with the model
+MAX_BLOBS = 4                 # encoded runs of a text or script the platform decodes before any model call
+MIN_BLOB = 24                 # 18 bytes of payload; shorter runs are names and paths, a hash decodes to nothing plausible
+MAX_DETERMINISTIC_FUNCS = 6   # largest functions decompiled before any model call, besides the entry point
 SAME_POINT = 0.75             # open points this similar say the same thing in other words
+_TEXT_TYPES = {"text", "unknown", "powershell", "vbscript", "javascript", "python", "bash", "batch", "html"}
+_COMPRESSED = {"gzip", "zlib"}
+_STRING_ROW = re.compile(r"^0x([0-9a-f]{8})\s+(\d+)\s+A\s{4}(.*)$")
+_RUN = re.compile(r"(?<![A-Za-z0-9+/_-])[A-Za-z0-9+/_-]{%d,}={0,2}" % MIN_BLOB)
+_FUNC_ROW = re.compile(r"^(0x[0-9a-fA-F]+)\s*\|\s*(\d+)\s*\|\s*([^|]+?)\s*\|")
 _NORM = re.compile(r"\s+")
 _DECODED = re.compile(r"^Decoded configuration field (\S+?)=(.*) \(([^()]*)\)\.$")
 _POINT_NOISE = re.compile(r"^(?:gap:\s*)?|\bf-\d+:?\s*", re.I)
@@ -58,6 +66,35 @@ def _same_point(a: str, known: list[str]) -> bool:
     """Two points about different values are different points, however alike the words are."""
     values = set(claimed_values(a))
     return any(set(claimed_values(k)) == values and difflib.SequenceMatcher(None, a, k).ratio() >= SAME_POINT for k in known)
+
+
+def blob_hits(strings_text: str) -> list[tuple[int, int]]:
+    """(offset, length) of long encoded runs in a strings_extract result, longest first. A run that reaches the end
+    of the shown (possibly cut) string is taken to the end of the printable run; decode_layer trims what follows."""
+    hits: dict[int, int] = {}
+    for line in strings_text.splitlines():
+        m = _STRING_ROW.match(line)
+        if not m:
+            continue
+        base, total, shown = int(m.group(1), 16), int(m.group(2)), m.group(3)
+        visible = shown.split("...[+", 1)[0]
+        for run in _RUN.finditer(visible):
+            length = total - run.start() if run.end() >= len(visible) else run.end() - run.start()
+            hits.setdefault(base + run.start(), length)
+    return sorted(hits.items(), key=lambda kv: (-kv[1], kv[0]))
+
+
+def top_functions(list_text: str, skip_entry: int = -1) -> list[tuple[str, str]]:
+    """(address, name) of the largest named functions in a list_functions result, thunks and the entry left out."""
+    rows = []
+    for line in list_text.splitlines():
+        m = _FUNC_ROW.match(line)
+        if not m or "[thunk]" in line:
+            continue
+        addr, size, name = m.group(1), int(m.group(2)), m.group(3).strip()
+        if size > 0 and int(addr, 16) != skip_entry:
+            rows.append((size, addr, name))
+    return [(addr, name) for _size, addr, name in sorted(rows, key=lambda r: (-r[0], r[1]))]
 
 
 def _asks_for(question: str, key: str) -> bool:
@@ -171,35 +208,61 @@ class JobEngine:
 
     def _deterministic(self, job_id: str, parent_id: str, detected: str) -> None:
         """Steps that need no model run before any model call, so budget goes to what only a model can do."""
-        if detected != "pe":      # shortcut: only PE overlays so far, add scripts when their blobs can be located reliably
+        if detected == "pe":
+            self._deterministic_pe(job_id, parent_id)
+        elif detected in _TEXT_TYPES:
+            self._deterministic_blobs(job_id, parent_id)
+        # shortcut: archives and resources are not decoded here, the recipes leave them to the model until a run shows
+        # a need.
+        self._record_layers(job_id)
+        self._record_fields(job_id)
+
+    def _decode_chain(self, job_id: str, parent_id: str, offset: int, length: int, what: str) -> None:
+        """Peel encoded layers from one place of the sample; each layer is its own evidence and derived file."""
+        path = "sample"
+        for layer in range(1, MAX_DECODE_CHAIN + 1):
+            d = self._triage_tool(job_id, parent_id, "decode_layer",
+                                  {"path": path, "method": "auto", "offset": offset, "length": length},
+                                  f"Deterministic: decode {what} layer {layer}", f"Decode {path} at offset {offset}",
+                                  may_fail=True)
+            if not d.ok or not (d.meta.get("looks_encoded") or d.meta.get("magic") in _COMPRESSED):
+                break
+            path, offset, length = d.meta["derived"], 0, 0
+
+    def _deterministic_blobs(self, job_id: str, parent_id: str) -> None:
+        """Long encoded runs of a script or text file are decoded before the model plans; it reads the results."""
+        r = self._triage_tool(job_id, parent_id, "strings_extract",
+                              {"path": "sample", "min_len": MIN_BLOB, "encoding": "ascii", "max_results": 60},
+                              "Deterministic: encoded runs", "Find long encoded runs in the sample", may_fail=True)
+        if not r.ok:
             return
-        args = {"path": "sample"}
-        r = self._triage_tool(job_id, parent_id, "pe_headers", args, "Deterministic: PE headers",
+        # shortcut: only the first page of ASCII strings and single-line runs; wrapped or UTF-16 blobs stay with the model.
+        for offset, length in blob_hits(r.text)[:MAX_BLOBS]:
+            self._decode_chain(job_id, parent_id, offset, length, f"run at 0x{offset:x}")
+
+    def _deterministic_pe(self, job_id: str, parent_id: str) -> None:
+        r = self._triage_tool(job_id, parent_id, "pe_headers", {"path": "sample"}, "Deterministic: PE headers",
                               "Read headers, overlay and packing signs", may_fail=True)
         if not r.ok:
             return
         self._record_packing(job_id, r)
         if r.meta.get("overlay_size"):
-            path, offset, length = "sample", r.meta["overlay_offset"], r.meta["overlay_size"]
-            for layer in range(1, MAX_DECODE_CHAIN + 1):
-                d = self._triage_tool(job_id, parent_id, "decode_layer",
-                                      {"path": path, "method": "auto", "offset": offset, "length": length},
-                                      f"Deterministic: decode overlay layer {layer}", f"Decode {path} at offset {offset}",
-                                      may_fail=True)
-                if not d.ok or not d.meta.get("looks_encoded"):
-                    break
-                path, offset, length = d.meta["derived"], 0, 0
-        self._record_fields(job_id)
+            self._decode_chain(job_id, parent_id, r.meta["overlay_offset"], r.meta["overlay_size"], "overlay")
         tools = {t.name for t in self.gateway.list_tools()}
         if "list_functions" not in tools:     # the Ghidra image is not built
             return
-        self._triage_tool(job_id, parent_id, "list_functions", {"path": "sample", "limit": 200}, "Deterministic: functions",
-                          "List the functions of the sample", may_fail=True)
-        entry = f"0x{(r.meta.get('image_base') or 0) + (r.meta.get('entry_rva') or 0):x}"
+        fl = self._triage_tool(job_id, parent_id, "list_functions", {"path": "sample", "limit": 200},
+                               "Deterministic: functions", "List the functions of the sample", may_fail=True)
+        entry_va = (r.meta.get("image_base") or 0) + (r.meta.get("entry_rva") or 0)
+        entry = f"0x{entry_va:x}"
         for tool in ("disassemble", "decompile"):
             if tool in tools:
                 self._triage_tool(job_id, parent_id, tool, {"function": entry, "path": "sample"},
                                   f"Deterministic: {tool} entry point", f"Run {tool} at {entry}", may_fail=True)
+        if fl.ok and "decompile" in tools:    # the largest functions hold the logic; the model reads them by evidence id
+            for addr, name in top_functions(fl.text, entry_va)[:MAX_DETERMINISTIC_FUNCS]:
+                self._triage_tool(job_id, parent_id, "decompile", {"function": addr, "path": "sample"},
+                                  f"Deterministic: decompile {name}", f"Decompile {name} at {addr}", may_fail=True)
 
     def _record_packing(self, job_id: str, r) -> None:
         line = next((x for x in r.text.splitlines() if x.startswith("Packing check:")), "")
@@ -223,6 +286,31 @@ class JobEngine:
                                            [{"evidence_id": ev["id"], "quote": quote}], "")
                     known.add(statement)
                     self._translate_new(job_id, ev["task_id"])
+
+    def _record_layers(self, job_id: str) -> None:
+        """Every derived file becomes a confirmed custody finding: where it came from, how, its size and hash. The
+        quote is the hash line of the tool that wrote it."""
+        known = {f["statement_en"] for f in self.store.list_findings(job_id)}
+        rows = self.store._q("SELECT * FROM evidence WHERE job_id=? AND tool IN ('decode_layer','extract_range','zip_extract') "
+                             "ORDER BY id", (job_id,))
+        for ev in rows:
+            meta = ev["source_ref"] or {}
+            if not meta.get("derived") or not meta.get("sha256"):
+                continue
+            src = meta.get("source_ref") or {}
+            kind = meta.get("result_kind") or (f"magic {meta['magic']}" if meta.get("magic") else "data")
+            how = f"method {meta['method']}" if meta.get("method") else ev["tool"]
+            statement = (f"Derived file {meta['derived']} ({kind}, {meta.get('size')} bytes, SHA-256 {meta['sha256']}) "
+                         f"came from {src.get('file', '?')} offset {src.get('offset', '?')} length {src.get('length', '?')} "
+                         f"by {how}.")
+            if statement in known:
+                continue
+            quote = locate_quote(f"SHA-256: {meta['sha256']}", ev["text"])
+            if quote and not self._injected(job_id, ev["task_id"], statement):
+                self.store.add_finding(job_id, ev["task_id"], statement, "confirmed", [ev["id"]],
+                                       [{"evidence_id": ev["id"], "quote": quote}], "")
+                known.add(statement)
+                self._translate_new(job_id, ev["task_id"])
 
     def _decoded_fields(self, job_id: str) -> list[tuple[str, str, str]]:
         hits = ((_DECODED.match(f["statement_en"]), f["id"]) for f in self.store.list_findings(job_id, "confirmed"))
@@ -271,7 +359,8 @@ class JobEngine:
     def _triage_artifacts(self, job_id: str, parent: dict) -> None:
         """Every new derived file gets hashes and a type (no model). Code and containers get their own task."""
         job = self.store.get_job(job_id)
-        self._record_fields(job_id)      # also for what a model decoded during the task
+        self._record_layers(job_id)      # also for what a model decoded during the task
+        self._record_fields(job_id)
         for f in self.gateway.list_files(job_id):
             path = f["path"]
             title = f"Triage artifact: {path}"
@@ -420,6 +509,10 @@ class JobEngine:
             task = self.store.next_pending_task(job_id)
             if why_stop and task:
                 self.store.log(job_id, f"stopping: {why_stop}", level="warn")
+                for t in self.store.queue(job_id):      # named in the report as not run, not left "pending" forever
+                    if t["status"] == "pending":
+                        self.store.update_task(t["id"], status="skipped", finished_at=utcnow(),
+                                               summary_en=f"skipped: {why_stop}")
                 return "partial"
             if not task:
                 if not why_stop and self._reopen_questions(job_id):

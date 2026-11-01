@@ -18,6 +18,8 @@ from sw_analyst.prompts.registry import DEFAULT_DONE_WHEN, SYSTEM_BASE, get_prom
 MAX_FOLLOWUPS = 2
 MAX_NEW_FROM_PRIORITIZER = 3
 MAX_PLANNED = 4
+REPLY_TOKENS = 3000            # thinking counts against this budget, like in the task runner
+REPLY_TOKENS_MAX = 4096        # after a cut-off reply
 PRIO_MIN, PRIO_MAX = 1, 999
 MODEL_ORIGINS = {"split", "evaluator", "prioritizer", "planner"}   # task text written by the model, not the platform
 
@@ -47,18 +49,30 @@ class HelperAgents:
                                     how=f"prompt={p.id}@{p.version} sha256={p.sha256[:12]}; model={self.llm.model}",
                                     why=why, input_preview=body)
         t0 = time.monotonic()
+        messages = [ChatMessage(role="system", content=SYSTEM_BASE + "\n" + SYSTEM_RULES_EN),
+                    ChatMessage(role="user", content=body)]
+        max_tokens, tries = REPLY_TOKENS, 0
         try:
-            resp = self.llm.chat([ChatMessage(role="system", content=SYSTEM_BASE + "\n" + SYSTEM_RULES_EN),
-                                  ChatMessage(role="user", content=body)], json_mode=True, think=think, max_tokens=2000)
+            while True:
+                tries += 1
+                resp = self.llm.chat(messages, json_mode=True, think=think, max_tokens=max_tokens)
+                obj = extract_json_object(resp.text)
+                # Thinking counts against the budget: a cut-off or empty reply gets one retry with more room.
+                if obj or tries > 1 or not (resp.done_reason == "length" or not resp.text.strip()):
+                    break
+                max_tokens = REPLY_TOKENS_MAX
+                messages = messages + [ChatMessage(role="assistant", content=resp.text or "(no output)"),
+                                       ChatMessage(role="user", content="Your reply was cut off by the token limit or "
+                                                   "empty. Think less and reply with the one JSON object only.")]
         except LLMError as e:
             self.store.finish_step(sid, status="error", duration_ms=int((time.monotonic() - t0) * 1000),
                                    output_preview=str(e))
             return None
-        obj = extract_json_object(resp.text)
         self.store.finish_step(sid, status="ok" if obj else "error", duration_ms=int((time.monotonic() - t0) * 1000),
                                output_preview=resp.text,
                                how=f"prompt={p.id}@{p.version} sha256={p.sha256[:12]}; model={self.llm.model}; "
-                                   f"tokens in/out={resp.prompt_tokens}/{resp.completion_tokens}")
+                                   f"tokens in/out={resp.prompt_tokens}/{resp.completion_tokens}"
+                                   + (f"; retried once with max_tokens={max_tokens}" if tries > 1 else ""))
         return obj
 
     # ---- self-evaluation ------------------------------------------------------------------

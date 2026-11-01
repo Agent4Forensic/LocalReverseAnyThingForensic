@@ -12,6 +12,7 @@ MAX_RAW_BYTES = 64 * 1024
 MAX_INT = 10**9
 MAX_STR = 4000
 _EV_ID = re.compile(r"EV-[0-9]{6}")
+_F_ID = re.compile(r"F-[0-9]{6}")
 _FENCE = re.compile(r"\A```(?:json|JSON)?[ \t]*\r?\n(.*?)\r?\n?[ \t]*```\Z", re.S)
 _PATH_PARAMS = {"path", "file", "member"}
 _CTRL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -290,8 +291,13 @@ def _validate_finish(obj: dict) -> dict:
         ans = obj["answer"]
         if not isinstance(ans, dict):
             raise _Bad("'answer' must be an object")
-        _keys(ans, {"text"}, "answer")
+        _keys(ans, {"text", "based_on"}, "answer")
         out["answer"] = {"text": _str(ans.get("text"), "answer text", 4000, required_nonblank=True)}
+        if ans.get("based_on") is not None:
+            ids = _list(ans["based_on"], "answer based_on", 10)
+            if not all(isinstance(x, str) and _F_ID.fullmatch(x) for x in ids):
+                raise _Bad("answer based_on entries must match F-000000")
+            out["answer"]["based_on"] = list(dict.fromkeys(ids))
     return out
 
 
@@ -330,7 +336,8 @@ def action_json_schema(tools: list) -> dict:
                         "findings": {"type": "array", "items": finding},
                         "annotations": {"type": "array", "items": annotation},
                         "subtasks": {"type": "array", "items": subtask},
-                        "answer": obj({"text": text}, "text")}, "action", "summary", "findings"))
+                        "answer": obj({"text": text, "based_on": {"type": "array", "items": {
+                            "type": "string", "pattern": "^F-[0-9]{6}$"}}}, "text")}, "action", "summary", "findings"))
     return {"anyOf": actions}
 
 

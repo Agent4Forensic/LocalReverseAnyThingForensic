@@ -1,6 +1,6 @@
 # Statusübersicht sw-analyst
 
-Stand: 2026-11-01 · Legende: `[x]` erledigt und geprüft · `[~]` begonnen · `[ ]` offen · `[!]` blockiert, braucht Jan
+Stand: 2026-11-01 (Expertenprüfung der Analyseschleife) · Legende: `[x]` erledigt und geprüft · `[~]` begonnen · `[ ]` offen · `[!]` blockiert, braucht Jan
 
 ## Phase P: Voraussetzungen (vor jeder Implementierung)
 
@@ -362,6 +362,32 @@ Offen:
 
 Risiko: Die Container auf dem Entwicklungsrechner ersetzen die Hyper-V-VM nicht. Abweichungen von den ADR-Vorgaben stehen in ADR-0006, Abschnitt Umsetzung.
 
+## Expertenprüfung der Analyseschleife (von Jan beauftragt, 2026-11-01)
+Auftrag: Algorithmus als RE-Experte prüfen, Fehler beheben, Verbesserungen umsetzen; Ziel ist eine vollständige, sichere Analyse bis zum Ende mit ordentlichem forensischem Bericht, Laufzeit kein Kriterium. Entscheidungen in [ADR-0012](adr/0012-expertenpruefung-analyseschleife.md), Branch `fix/job-j0001-findings`.
+
+Gefundene Fehler (im Code bestätigt, behoben, je mit Test in `tests/unit/test_expert_review.py`):
+- [x] `GAP:`-Aussagen des Modells ohne Beleg wurden verworfen und lösten Reparaturrunden aus, obwohl Systemregel f sie verlangt. Jetzt offener Punkt (`open`), dedupliziert, im Bericht.
+- [x] Hilfsagenten (Bewertung, Priorisierung, Planung) verloren bei abgeschnittener Antwort (Thinking über 2000 Token) still das Ergebnis. Jetzt 3000 Token und ein Wiederholungsversuch mit 4096, im Schritt vermerkt.
+- [x] Bei erschöpftem Budget blieben Aufgaben ewig `pending`. Jetzt `skipped` mit Grund, im Bericht sichtbar.
+- [x] Zielfrage verlangte ein zeichengenau abgeschriebenes Zitat in derselben Antwort; ein Tippfehler machte eine richtige Antwort `unresolved`. Jetzt `answer.based_on` mit IDs bestätigter Befunde (nur dieser Auftrag, nur `confirmed`; Wertprüfung bleibt).
+- [x] `decode_layer`: `looks_encoded` zählte Leerraum innerhalb eines Blobs mit (Kette brach ab); Kette lief nicht über gzip/zlib-Zwischenschichten.
+- [x] Testplan C3 (Hash abgeleiteter Dateien im Bericht) schlug bekannt fehl; jetzt Tabelle „Abgeleitete Dateien“ in R2, `xfail` entfernt.
+
+Verbesserungen:
+- [x] Deterministisches Dekodieren für Skripte und Text: `strings_extract` (neue Spalte `len`), bis zu 4 lange Läufe, bis zu 4 Schichten, `decode_layer` schneidet Zeilenrest nach dem Lauf ab und nennt den Bereich. Beispiele 01, 02, 04 werden ohne Modell bis zur innersten Schicht gepeelt.
+- [x] Custody-Befund je abgeleiteter Datei (Herkunft, Methode, Größe, SHA-256, Zitat der Hash-Zeile); Prompts listen abgeleitete Dateien mit Typ.
+- [x] Ghidra: die 6 größten Funktionen zusätzlich zur Einstiegsfunktion deterministisch dekompiliert.
+- [x] Kontextgrenzen skalieren mit `--num-ctx` (Faktor 1 bis 4); 12 Runden je Aufgabe; 60 bekannte Befunde; 30 Belege im Index; alte Modellantworten werden beim Verdichten gekürzt.
+- [x] Bericht: Anhang „verworfene Aussagen des Modells“ mit Grund, klar als Nicht-Ergebnis markiert.
+- [x] Prompt-Paket 1.3.0 (Regel g, Zusatz Regel f, Abschnitt Derived files, Antwortregel `based_on`); Rezept-Guides `script` und `generic` verweisen auf die vorab dekodierten Schichten.
+
+Geprüft: Testlauf `tests/unit tests/ctf tests/forensic tests/security` grün bis auf die 3 bekannten `test_bundle`-Fehler (Pfadlänge unter Windows). Nicht geprüft: kein Modelllauf mit dem neuen Stand; Ghidra-Mehrfachdekompilierung nur mit Parser-Test, kein Image auf dem Rechner.
+
+Offen (braucht Jan oder Messung):
+- [ ] `--num-ctx 32768` empfohlen, sobald VRAM frei (Blocker B2); Grenzen skalieren dann automatisch.
+- [ ] Modelllauf aller 5 Beispiele mit `example\start_eval.ps1 -Challenge all`, Messwerte in den Modellabschnitt.
+- [ ] Deterministisches Dekodieren von Ressourcen (`pe_resources`) und Archivmitgliedern.
+
 ## Probleme aus Job J-0001, Beispiel 03-pe-appended-config (von Jan gemeldet, 2026-11-01)
 Beobachtung aus dem Dashboard, im Code gegengeprüft und auf `fix/job-j0001-findings` behoben, Entscheidungen in [ADR-0011](adr/0011-deterministische-schritte-und-nachlauf.md). Messlauf: 26 min 42 s, 36 Modellaufrufe, 19 von 23 Aufgaben, 4 wegen Budget übersprungen, Status "Teilweise", Header "Beispiel 03: nicht bestanden".
 
@@ -420,4 +446,4 @@ Offen und nicht geprüft:
 - [ ] Disassembly im Bericht nur mit Testdaten geprüft: Auf dem Rechner sind derzeit keine `sw-analyst`-Images vorhanden.
 - [ ] Deterministisches Dekodieren nur für das PE-Overlay, nicht für Skripte und Ressourcen.
 - [ ] `tests/unit/test_bundle.py` (3 Fehler, nur unter Windows): Der Pfad zur Datei in `tool-cache` im Temp-Ordner von pytest ist 274 Zeichen lang und überschreitet die Grenze von 259. Im Projektordner sind es 232 Zeichen, ein echter Import funktioniert dort. Ein tieferer Installationsort würde aber scheitern, mit der irreführenden Meldung `io_error`.
-- [ ] Security-Review vor dem Merge nach `main` (CLAUDE.md, Arbeitsweise 9).
+- [~] Security-Review vor dem Merge nach `main` (CLAUDE.md, Arbeitsweise 9): `/claude-security` über das ganze Repository auf `f9a8afd` gelaufen (2026-11-01, Status `verified`), 27 Funde, 0 kritisch, 0 hoch, 16 mittel, 11 niedrig. Bericht lokal in `CLAUDE-SECURITY-20261101-102201/` (nicht im Repo). Bewertung und Behebung offen. F7, F8, F9 und F21 betreffen den neuen Code aus ADR-0011 und sollten vor dem Merge behoben werden.

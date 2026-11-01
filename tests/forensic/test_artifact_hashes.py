@@ -108,8 +108,8 @@ def test_c3_every_evidence_hash_matches_its_text(run):
 
 def test_c3_derived_artifact_hash_in_evidence_equals_recomputed_file_hash(run, tmp_path):
     store, gw, jid, _, _ = run
-    ders = _derived(store, jid)
-    assert len(ders) == 2
+    ders = _derived(store, jid)      # the platform decodes both layers before the model, the model decodes them again
+    assert {e["source_ref"]["derived"] for e in ders} == {"derived/layer01.bin", "derived/layer02.bin"}
     for e in ders:
         path = tmp_path / "jobs" / jid / e["source_ref"]["derived"]
         h = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -119,10 +119,8 @@ def test_c3_derived_artifact_hash_in_evidence_equals_recomputed_file_hash(run, t
     assert listed == {e["source_ref"]["derived"]: e["source_ref"]["sha256"] for e in ders}
 
 
-@pytest.mark.xfail(strict=True, reason="Finding: the report's custody hash table prints evidence.result_sha256 (hash of the "
-                   "tool OUTPUT TEXT) for decode_layer rows under the heading 'SHA-256'; the derived file hash itself "
-                   "appears nowhere in the report. Plan C3 requires it in the report.")
 def test_c3_derived_artifact_hash_appears_in_report(run):
+    """Fixed 2026-11-01: the custody section lists every derived file with its own hash (ADR-0012)."""
     store, _, jid, _, report = run
     for e in _derived(store, jid):
         assert e["source_ref"]["sha256"] in report

@@ -32,6 +32,9 @@ T = {
         "no_disasm": "Keine Disassembly erhoben: Das Ghidra-Image fehlte oder der Lauf war älter als dieser Schritt.",
         "cut": "gekürzt, vollständig im Beleg",
         "untranslated": "[EN]", "limits": "Grenzen: rein statische Analyse, offline, lokales Modell. Aussagen ohne Beleg wurden verworfen oder als Hypothese geführt; offene Punkte sind keine Aussagen und haben keinen Beleg.",
+        "derived": "Abgeleitete Dateien (Herkunft, Hash)", "file": "Datei", "from": "aus",
+        "rejected_h": "Anhang: verworfene Aussagen des Modells",
+        "rejected_note": "Diese Aussagen bestanden die Belegprüfung nicht und sind keine Ergebnisse dieses Berichts. Sie stehen hier, damit nachvollziehbar bleibt, was das Modell behauptet hat und warum es verworfen wurde.",
     },
     "en": {
         "title": "Forensic Analysis Report", "live": "LIVE STATE (analysis still running)", "summary": "Summary",
@@ -51,6 +54,9 @@ T = {
         "no_disasm": "No disassembly collected: the Ghidra image was missing or the run predates this step.",
         "cut": "cut, complete in the evidence",
         "untranslated": "", "limits": "Limits: static analysis only, offline, local model. Statements without evidence were rejected or kept as hypotheses; open points are not statements and have no evidence.",
+        "derived": "Derived files (origin, hash)", "file": "File", "from": "from",
+        "rejected_h": "Appendix: rejected statements of the model",
+        "rejected_note": "These statements failed the evidence check and are not results of this report. They are listed so that what the model claimed, and why it was rejected, stays on record.",
     },
 }
 
@@ -170,6 +176,15 @@ def build_report(store: Store, job_id: str, lang: str = "de", model_name: str = 
     if hashes:
         out += ["", f"| {t['evidence']} | {t['tool']} | SHA-256 |", "|---|---|---|"]
         out += [f"| {_tok(e['id'])} | {_tok(e['tool'])} | `{_hex(e['result_sha256'])}` |" for e in hashes]
+    derived = [e for e in evidence if (e["source_ref"] or {}).get("derived") and (e["source_ref"] or {}).get("sha256")]
+    if derived:
+        out += ["", f"**{t['derived']}**", "", f"| {t['file']} | {t['from']} | {t['tool']} | bytes | SHA-256 | {t['evidence']} |",
+                "|---|---|---|---|---|---|"]
+        for e in derived:
+            m, src = e["source_ref"], (e["source_ref"].get("source_ref") or {})
+            how = _tok(e["tool"]) + (f" {_tok(m['method'])}" if m.get("method") else "")
+            origin = f"{_cell(src.get('file', '-'))} @{_tok(src.get('offset', '-'))}+{_tok(src.get('length', '-'))}"
+            out.append(f"| {_cell(m['derived'])} | {origin} | {how} | {_tok(m.get('size', '-'))} | `{_hex(m['sha256'])}` | {_tok(e['id'])} |")
 
     out += ["", f"## {t['detect']}", "", f"| # | {t['task']} | {t['tool']} | {t['result']} | {t['evidence']} | {t['time']} |",
             "|---|---|---|---|---|---|"]
@@ -239,4 +254,9 @@ def build_report(store: Store, job_id: str, lang: str = "de", model_name: str = 
 
     out += ["", f"## {t['appendix']}", "", f"| ID | {t['tool']} | version | SHA-256 | bytes |", "|---|---|---|---|---|"]
     out += [f"| {_tok(e['id'])} | {_tok(e['tool'])} | {_tok(e['tool_version'])} | `{_hex(e['result_sha256'][:16])}...` | {len(e['text'])} |" for e in evidence]
+    rejected = [f for f in findings if f["status"] == "rejected" and not f["reject_reason"].startswith("refuted")]
+    if rejected:   # what the model claimed and could not prove: no statement of the report, but part of the record
+        out += ["", f"## {t['rejected_h']}", "", t["rejected_note"], ""]
+        out += [f"- {_tok(f['id'])} ({_tok(f['task_id'])}): {_cell(txt(f['statement_en'], f['statement_de']))}\n  - _{_cell(f['reject_reason'])}_"
+                for f in rejected]
     return "\n".join(out) + "\n"

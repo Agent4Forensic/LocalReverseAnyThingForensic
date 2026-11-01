@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 from sw_analyst.common.util import sha256_hex
 
-PROMPT_PACK_VERSION = "1.2.1"
+PROMPT_PACK_VERSION = "1.3.0"
 
 SYSTEM_BASE = """You are a static malware and software reverse-engineering analyst inside an offline forensic platform.
 You never execute the sample. You only read results of allowlisted read-only tools.
@@ -27,12 +27,13 @@ b. Indicators are not behaviour. An import, a string, a capability hint or high 
 c. A decoded layer or derived file is a new object: check it with identify_type and read it before interpreting it. Keep statements about different layers apart and name the file.
 d. Never guess a key, offset or value. Take it from a tool result and cite that result.
 e. Report what you did not find as "no X found in <what you searched>", never as "the sample has no X".
-f. If only running the sample could answer something, do not speculate and do not ask for it. Write one finding with status "hypothesis" and this statement: "GAP: static analysis could not determine <X>. Would be closed by <dynamic step>; question: <precise question>; input: <file, offset or line>."
+f. If only running the sample could answer something, do not speculate and do not ask for it. Write one finding with status "hypothesis" and this statement: "GAP: static analysis could not determine <X>. Would be closed by <dynamic step>; question: <precise question>; input: <file, offset or line>." Cite the evidence you searched; a GAP is kept as an open point even without one.
+g. Derived files (derived/layerNN.bin) listed in the task are already triaged by the platform: read them by path instead of decoding the same data again.
 """
 
 ACTION_SCHEMA = """Allowed replies (one JSON object):
 {"action":"tool","tool":"<tool name from the list>","args":{...},"why":"<one sentence: what you expect to learn>"}
-{"action":"finish","summary":"<2-4 sentences>","findings":[{"statement":"...","status":"confirmed|hypothesis","evidence":[{"id":"EV-000001","quote":"<verbatim text from that evidence>"}]}],"annotations":[{"file":"sample","line_start":1,"line_end":2,"text":"...","evidence_id":"EV-000001","kind":"finding|note|ioc|warning"}],"subtasks":[{"title":"...","goal":"...","reason":"...","done_when":"<observable result that ends the subtask>"}],"answer":{"text":"..."}}
+{"action":"finish","summary":"<2-4 sentences>","findings":[{"statement":"...","status":"confirmed|hypothesis","evidence":[{"id":"EV-000001","quote":"<verbatim text from that evidence>"}]}],"annotations":[{"file":"sample","line_start":1,"line_end":2,"text":"...","evidence_id":"EV-000001","kind":"finding|note|ioc|warning"}],"subtasks":[{"title":"...","goal":"...","reason":"...","done_when":"<observable result that ends the subtask>"}],"answer":{"text":"...","based_on":["F-000001"]}}
 Only "action", "summary" and "findings" (may be []) are mandatory for finish; leave out what you do not need.
 Quotes: 8 to 120 characters from ONE line, copied character by character from the tool output (without the line-number column). The checker compares them mechanically.
 
@@ -99,6 +100,8 @@ What is already established (confirmed findings with evidence and quote, newest 
 {known}
 Open hypotheses and gaps (unproven: test them when this task can, never cite them as fact):
 {hypotheses}
+Derived files (decoded or extracted so far, triaged by the platform; pass the path to a tool to read one):
+{derived_files}
 Evidence already collected (a repeated identical call returns the stored result at no cost):
 {evidence_index}
 {previous}
@@ -133,19 +136,22 @@ Job description: {description}
 Further information: {context_info}
 Confirmed findings you may rely on (id, statement, evidence and quote):
 {known}
+Derived files (decoded or extracted so far, triaged by the platform; pass the path to a tool to read one):
+{derived_files}
 Evidence already collected (a repeated identical call returns the stored result at no cost):
 {evidence_index}
 {previous}
 ## Rules
 - You have {max_turns} turns. Each tool result shows how many are left.
-- The answer needs a finding of THIS task with status "confirmed": copy id and quote of a listed finding into "findings", or use tools to derive it (cite new evidence). Otherwise finish with status unresolved.
+- The answer must rest on confirmed findings: put the ids of the listed findings that support it into "answer.based_on", or derive a new finding with tools and cite its evidence with a verbatim quote. Without either, finish with status unresolved.
+- Every value in the answer must appear in a tool result of this job. The checker looks it up; a value only you computed is refused.
 - Answer only what was asked. If the question assumes something the evidence does not support, say what was found instead.
 - For computed answers (decoding, flag reconstruction): show the derivation steps in the summary and cite the evidence of each input.
 - Never guess a value. A wrong confident answer is worse than "not determinable because ...".
 
 ## Output
 {action_schema}
-Put the final answer text in "answer": {{"text": "..."}} and the supporting findings in "findings". If you cannot answer, put "answer": {{"text": "UNRESOLVED: <reason and what is missing>"}}.
+Put the final answer text in "answer": {{"text": "...", "based_on": ["F-000001"]}} with the ids of the confirmed findings it rests on; new findings of this task go into "findings". If you cannot answer, put "answer": {{"text": "UNRESOLVED: <reason and what is missing>"}}.
 Available tools:
 {tools}
 """
