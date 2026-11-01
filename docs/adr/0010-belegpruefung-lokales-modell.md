@@ -21,11 +21,10 @@ Kleine Modelle scheitern außerdem oft am exakten Abschreiben: Ein Zitat weicht 
 3. **Bezug:** Ein `confirmed`-Zitat muss mit der Aussage zwei Inhaltswörter teilen (Stoppwörter ausgenommen) oder einen spezifischen Wert, also ein Wort mit Ziffer oder ab 8 Zeichen. Sonst wird die Aussage zur Hypothese herabgestuft.
 4. **Reparaturhilfe:** Wird ein Zitat nicht gefunden, schickt der Prüfer die ähnlichste echte Zeile dieser Evidence (difflib, Schwelle 0,55) als `untrusted_data`-Block in die Reparaturrunde. Das Modell kann sie wörtlich übernehmen, wenn sie die Aussage trägt. Bestätigt wird weiterhin nur, was wörtlich in der Evidence steht.
 5. **Indikator-Hinweise:** Nach jedem Werkzeugergebnis hängt die Plattform die per festen Mustern gefundenen IOCs (höchstens 8) als `untrusted_data`-Block an. Das Modell muss sie nicht selbst finden und abschreiben. Ein Indikator allein bleibt keine Verhaltensaussage (Prompt-Regel b).
-
 6. **Hex-Ansicht:** Ein Befundzitat wird in einer Datei nur gesucht, wenn sein Beleg genau diese Datei gelesen hat. Treffer heißen „Zitat-Fundstelle“ (Textsuche), nicht Fundort. Die Suche ist begrenzt (200 Zitate, 16 MiB) und wird zwischengespeichert.
 
 ## Folgen
-- **Strengere Prüfung:** Es gibt weniger falsche `confirmed`-Befunde. Einige bisher bestätigte, unpräzise Aussagen werden zur Hypothese. Zwei bestehende Tests waren genau so formuliert („x“, „The question is answered.“) und wurden an die Regel angepasst.
+- **Strengere Prüfung:** Es gibt weniger falsche `confirmed`-Befunde. Einige bisher bestätigte, unpräzise Aussagen werden zur Hypothese. Einige bestehende Tests nutzten genau solche vagen Aussagen („x“, „The file holds text.“) und wurden präzisiert.
 - **Prompt-Inhalte:** Die Hinweise sind Sample-Text und laufen durch `sanitize_untrusted`. Sie sind in der Größe gedeckelt (1200 Zeichen) und erweitern das Aktionsschema nicht. Die Gateway-Allowlist bleibt unberührt.
 - **Grenzen:** Die Bezugsregel ist lexikalisch. Sie prüft, ob Zitat und Aussage über dasselbe sprechen, nicht, ob die Aussage aus dem Zitat folgt. Eine Aussage, die nur in einer anderen Sprache als das Zitat formuliert ist, wird herabgestuft.
 - **Reproduzierbarkeit:** Das Prompt-Pack bleibt bei 1.2.1, weil sich nur die Laufzeitnachrichten ändern. Sie stehen vollständig in den gespeicherten Schritten.
