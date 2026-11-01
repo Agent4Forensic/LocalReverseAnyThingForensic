@@ -330,7 +330,7 @@ def test_batch_starts_ready_examples_in_difficulty_order(tmp_path):
                                                   "Beispiel 08-script-mini-vm", "Beispiel 09-matroschka-seven"]
     assert [x["id"] for x in r["skipped"]] == ["05-pe-xor-routine"]
     again = client.post("/api/examples-batch", json={}, headers=ORIGIN).json()
-    assert again["started"] == [] and len(again["skipped"]) == 5          # all queued already or not ready
+    assert again["started"] == [] and len(again["skipped"]) == 9          # all queued already or not ready
 
 
 def test_job_detail_names_the_example_and_its_result(tmp_path):
