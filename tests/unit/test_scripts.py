@@ -24,3 +24,10 @@ def test_cleanup_docker_only_touches_labeled_objects():
     for line in txt.splitlines():
         if "'prune'" in line and "'builder'" not in line:
             assert "$filter" in line, line
+
+
+def test_start_aborts_when_the_preflight_gives_no_result():
+    """ConvertFrom-Json returns null on empty output (a crash), which must never read as "no errors"."""
+    txt = (ROOT / "scripts" / "start.ps1").read_text(encoding="ascii")
+    assert "if ($null -ne $results) { return $results }" in txt
+    assert "if ($null -eq $results) { Exit-Fail 'CHECK'" in txt
