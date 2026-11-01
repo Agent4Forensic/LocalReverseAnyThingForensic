@@ -6,10 +6,12 @@ capa and YARA hits are hypotheses until code confirms them.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import io
 import json
 import os
+import struct
 import tarfile
 import threading
 import zipfile
@@ -29,6 +31,10 @@ GHIDRA_TOOLS = {"list_functions", "disassemble", "decompile", "xrefs", "basic_bl
 TRIAGE_TOOLS = {"capa_scan", "floss_decode", "yara_scan"}
 JADX_TOOLS = {"jadx_decompile"}
 ALL_TOOLS = GHIDRA_TOOLS | TRIAGE_TOOLS | JADX_TOOLS
+MAX_EMU_ARGS = 8
+EMU_ARCHES = {"auto", "x86", "x64", "arm", "arm64"}
+EMU_LAYERS = 5               # written regions saved as derived files per call; the rest stays visible by address and hash
+EMU_MIN_REGION = 4           # a saved register or a counter is no result worth a derived file
 MAX_CACHE_BYTES = 160 * 1024 * 1024   # a cached result is read into memory; jadx results are the largest (128 MiB text)
 RUN_SLOTS = threading.BoundedSemaphore(1)   # one container run at a time across every gateway of the process
 
@@ -337,6 +343,99 @@ class ContainerTools:
             L.append(f"[more available: continue with offset={a['offset'] + len(page)}]")
         return _Out("\n".join(L), {"source_ref": ref, "count": len(names)}, truncated=more, version=version)
 
+    # ---- Unicorn (ADR-0005 stage 2) ---------------------------------------------------------------------------
+    @staticmethod
+    def _emu_args(raw: str) -> list:
+        """Only numbers and two fixed words pass, so no model text reaches the container."""
+        out: list = []
+        for part in filter(None, (p.strip() for p in raw.split(","))):
+            if part in ("input", "input_len"):
+                out.append(part)
+                continue
+            try:
+                value = int(part, 0)
+            except ValueError:
+                raise ToolError("call_args takes numbers, input and input_len, separated by commas") from None
+            if not 0 <= value < 2 ** 64:
+                raise ToolError("call_args numbers must fit in 64 bits")
+            out.append(value)
+        if len(out) > MAX_EMU_ARGS:
+            raise ToolError(f"call_args takes at most {MAX_EMU_ARGS} values")
+        return out
+
+    def t_emulate_function(self, ctx: _Ctx, a: dict) -> _Out:
+        data, name = ctx.read_all(a["path"])
+        arch = a["arch"].strip().lower()
+        if arch not in EMU_ARCHES:
+            raise ToolError("Argument 'arch' must be one of: auto, x86, x64, arm, arm64")
+        start = _hex_addr(a["start"])
+        end = _hex_addr(a["end"]) if a["end"].strip() else None
+        call_args = self._emu_args(a["call_args"])
+        header = {"start": start, "end": end, "arch": arch, "args": call_args, "input_offset": a["input_offset"],
+                  "input_length": a["input_length"], "max_instructions": a["max_instructions"]}
+        head = json.dumps(header, sort_keys=True).encode("ascii")
+        frame = struct.pack("<I", len(head)) + head + data
+        version = self.runner.version("emulate")
+        digest = hashlib.sha256(frame).hexdigest()
+        path = ctx.root / "tool-cache" / f"emulate-{version.rsplit(':', 1)[-1]}-{digest}.json"
+        with self._lock:
+            file_lock = self._file_locks.setdefault(str(path), threading.Lock())
+        with file_lock:
+            res = self._cached_or_run("emulate", frame, path, str(path), None)
+        return self._emu_out(ctx, res, name, version, header)
+
+    def _emu_out(self, ctx: _Ctx, res: Any, name: str, version: str, header: dict) -> _Out:
+        ref = {"source_ref": {"file": name, "address": f"0x{header['start']:x}"}, "emulated": True, "hypothesis": True}
+        if not isinstance(res, dict):
+            raise ToolError("Emulator result has an unexpected shape")
+        if res.get("error"):
+            msg = f"Emulation refused: {clip(str(res['error']), 400)}"
+            return _Out(msg, ref, ok=False, error=msg, version=version)
+        regions = res.get("regions")
+        registers = res.get("registers")
+        if not isinstance(regions, list) or not isinstance(registers, dict):
+            raise ToolError("Emulator result has an unexpected shape")
+        fault = res.get("fault") if isinstance(res.get("fault"), dict) else None
+        L = [f"Emulation of {name} from 0x{header['start']:x} ({res.get('format')}, {res.get('arch')}, load base "
+             f"0x{int(res.get('load_base') or 0):x}). This is a simulated CPU without operating system, not a run of the "
+             "program. Treat every value as a hypothesis until code at a named address supports it.",
+             f"Stopped: {res.get('stop_reason')} at pc 0x{int(res.get('pc') or 0):x} after {res.get('elapsed_s')} s "
+             f"(budget {res.get('budget')} instructions)"]
+        if res.get("api"):
+            L.append(f"Call into an import, not emulated: {clip(str(res['api']), 160)}")
+        if fault:
+            L.append(f"Fault: {clip(str(res.get('engine_error')), 120)}; unmapped or protected access at "
+                     f"0x{int(fault.get('address') or 0):x}, size {fault.get('size')}")
+        L.append(f"Return register: 0x{int(res.get('return_value') or 0):x}")
+        L.append("Registers: " + " ".join(f"{k}=0x{int(v):x}" for k, v in registers.items() if isinstance(v, int)))
+        if isinstance(res.get("input"), dict) and res["input"].get("length"):
+            i = res["input"]
+            L.append(f"Input buffer: {i['length']} bytes from file offset {i['offset']}, mapped at 0x{int(i['address']):x}, "
+                     f"SHA-256 {i['sha256']}")
+        L.append(f"Memory written: {len(regions)} region(s)")
+        derived: list[str] = []
+        for r in sorted(regions, key=lambda x: x["kind"] == "stack"):     # results before scratch space
+            raw = base64.b64decode(r["data_b64"], validate=True)
+            if hashlib.sha256(raw).hexdigest() != r["sha256"]:
+                raise ToolError("Emulator result failed its hash check")
+            line = f"- {r['kind']} 0x{int(r['address']):x}, {len(raw)} bytes, SHA-256 {r['sha256']}"
+            if len(raw) >= EMU_MIN_REGION and len(derived) < EMU_LAYERS:
+                logical, _sha, _reused = ctx.write_layer(raw)
+                derived.append(logical)
+                line += f", saved as {logical}"
+            L.append(line)
+            shown = raw[:160].decode("latin-1").translate(_EMU_PRINTABLE)
+            L.append(f"  bytes: {shown}{' ...' if len(raw) > 160 else ''}")
+        if res.get("regions_truncated"):
+            L.append("[not every written byte is listed: output limit reached]")
+        ref.update({"stop_reason": res.get("stop_reason"), "derived_files": derived})
+        if derived:
+            ref["derived"] = derived[0]     # webui/lineage.py follows one producer per evidence
+        return _Out("\n".join(L), ref, truncated=bool(res.get("regions_truncated")), version=version)
+
+
+_EMU_PRINTABLE = {c: (c if 32 <= c < 127 else ord(".")) for c in range(256)}
+
 
 def attach_container_tools(gateway: DevGateway, runner: Optional[ContainerRunner] = None) -> list[str]:
     """Adds the tools whose image exists; returns their names. Without images the allowlist stays as it was."""
@@ -372,6 +471,20 @@ def attach_container_tools(gateway: DevGateway, runner: Optional[ContainerRunner
          {"path": _PATH, "class_file": _p("str", "Class file from the listing, e.g. com/example/Main.java.", default=""),
           "search": _p("str", "Case-insensitive text to find in all classes.", default=""), "limit": limit, "offset": offset},
          t.t_jadx_decompile),
+        ("emulate", "emulate_function", "Run ONE routine in a simulated CPU without operating system (decryptor, API hash, "
+         "unpack loop), never the program itself. Calls into imports stop the run. Returns the stop reason, registers and "
+         "written memory; written regions are saved as derived files. Results are hypotheses until code confirms them.",
+         {"start": _p("str", "Hex address of the routine, from list_functions, e.g. 0x401000. For raw code: 0x10000 plus the "
+                             "offset. Odd ARM addresses mean Thumb.", required=True),
+          "end": _p("str", "Hex address to stop at. Empty: run until the routine returns.", default=""),
+          "path": _PATH,
+          "call_args": _p("str", "Call arguments, comma separated: numbers, input (address of the input buffer), input_len.",
+                          default=""),
+          "input_offset": _p("int", "File offset of the input buffer, e.g. of an encrypted blob.", default=0, min=0),
+          "input_length": _p("int", "Length of the input buffer in bytes, 0 for none.", default=0, min=0, max=16 * 1024 * 1024),
+          "arch": _p("str", "auto reads PE or ELF headers; x86, x64, arm or arm64 treat the file as raw code.", default="auto"),
+          "max_instructions": _p("int", "Instruction budget.", default=1_000_000, min=1, max=20_000_000)},
+         t.t_emulate_function),
     ]
     added = []
     for op, name, desc, params, handler in specs:

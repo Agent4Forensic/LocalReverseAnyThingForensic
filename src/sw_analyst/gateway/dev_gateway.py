@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from sw_analyst.common.models import ToolResult, ToolSpec
-from sw_analyst.gateway.base import ToolError
+from sw_analyst.gateway.base import DYNAMIC_TOOLS, ToolError
 from sw_analyst.gateway.dev_tools import decoders
 from sw_analyst.gateway.dev_tools.axml import AxmlError, parse_axml
 from sw_analyst.gateway.dev_tools.decoders import DecodeError
@@ -253,13 +253,17 @@ class DevGateway:
         # shortcut: in memory, a restart resets the count; persist it when jobs survive restarts
         self._keys_used: dict[str, set[bytes]] = {}
         self._tools: dict[str, _Tool] = {}
+        # ADR-0005: closed unless create_app wires the dashboard switch in. Imports and --follow-up never open them.
+        self.dynamic_enabled: Callable[[], bool] = lambda: False
+        self.dynamic_allowed: Callable[[str], bool] = lambda _job_id: False
         self._register_tools()
 
     # ------------------------------------------------------------------ protocol
     def list_tools(self) -> list[ToolSpec]:
+        hidden = set() if self.dynamic_enabled() else DYNAMIC_TOOLS
         return [ToolSpec(name=t.name, description=t.description,
                          params={k: dict(v) for k, v in t.params.items()}, read_only=True)
-                for t in self._tools.values()]
+                for t in self._tools.values() if t.name not in hidden]
 
     def sample_path(self, job_id: str) -> str:
         self._check_job_id(job_id)
@@ -390,8 +394,10 @@ class DevGateway:
 
     def _call(self, job_id: str, name: str, args: Any) -> ToolResult:
         if not isinstance(name, str) or name not in self._tools:
-            known = ", ".join(self._tools)
+            known = ", ".join(t for t in self._tools if t not in DYNAMIC_TOOLS)
             raise ToolError(f"Unknown tool '{clip(str(name), 60)}'. Available tools: {known}")
+        if name in DYNAMIC_TOOLS and not self.dynamic_allowed(job_id):
+            raise ToolError(f"Tool '{name}' is not enabled for this job")
         tool = self._tools[name]
         ctx = self._ctx(job_id)
         clean = self._validate_args(tool, args, ctx)

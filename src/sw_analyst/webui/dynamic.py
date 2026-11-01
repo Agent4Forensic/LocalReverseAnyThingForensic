@@ -1,24 +1,26 @@
-"""Dynamic-analysis plan (execution OFF, decision Jan 2026-11-01, ADR-0005): built only from stored GAP findings.
+"""Dynamic-analysis plan (ADR-0005): the gaps from stored GAP findings and what was done about them.
 
 A GAP finding is written by the model in the format (prompts/registry.py SYSTEM_BASE rule f):
   "GAP: static analysis could not determine <X>. Would be closed by <dynamic step>; question: <q>; input: <i>."
-The parser is tolerant: missing or reordered parts leave the field empty, and nothing is ever run. All texts are
-defanged and shortened because they derive from sample content and model output.
+The parser is tolerant: missing or reordered parts leave the field empty. The app never runs anything: a dynamic run
+happens on the separate detonation host (detonation.py). All texts are defanged and shortened because they derive from
+sample content and model output.
 """
 from __future__ import annotations
 
 import re
 
 from sw_analyst.common.store import Store
+from sw_analyst.detonation import PROFILES
 from sw_analyst.report.defang import defang_text, redact_payloads
 
-REASON = "nicht ausgeführt, Analyse-VM fehlt (ADR-0005)"
+REASON = "nicht ausgeführt (ADR-0005)"
 REQUIREMENTS = [
-    "Isolierte Analyse-VM (Hyper-V) ohne Netzwerkkarte; die Probe wird nie auf dem Host gestartet.",
-    "Sauberer Snapshot der VM, auf den nach jedem Lauf zurückgesetzt wird.",
-    "Ausdrückliche Freigabe durch Jan je Lauf (ADR-0005); ohne Freigabe bleibt die Ausführung AUS.",
-    "Werkzeuge laufen in Containern (--network none, read-only, --cap-drop ALL, Ressourcenlimits) hinter dem Gateway.",
-    "Jeder Schritt landet im hash-verketteten Audit-Log; Ergebnisse werden wie statische Belege mit Hash gespeichert.",
+    "Schalter „Dynamische Analyse“ in der Übersicht ist an; Standard ist aus.",
+    "Eigener Detonationsrechner mit Hyper-V-VM ohne Netzwerkkarte; die Probe wird nie auf dem Entwicklungsrechner gestartet.",
+    "Bestandene Isolationsabnahme (infra/detonation/Test-DetonationIsolation.ps1) und sauberer Prüfpunkt mit gleichem Hash vor und nach jedem Lauf.",
+    "Ausdrückliche Freigabe je Lauf mit Begründung und festem Profil. Das Modell kann keinen Lauf starten.",
+    "Jeder Schritt landet im hash-verketteten Audit-Log; Laufergebnisse bleiben Hypothesen, bis Code sie belegt.",
 ]
 _GAP = re.compile(r"^\s*GAP\s*:\s*", re.I)
 _LABELS = (("close_by", re.compile(r"would\s+be\s+closed\s+by\b[:\s]*", re.I)),
@@ -51,7 +53,9 @@ def parse_gap(statement: str) -> dict | None:
     return {k: _clean(parts.get(k, "")) for k in ("what", "close_by", "question", "input")}
 
 
-def dynamic_plan(store: Store, rid: str) -> dict:
+def dynamic_plan(store: Store, rid: str, enabled: bool = False) -> dict:
+    runs = store.list_detonation_runs(rid)
+    run_of = {r["finding_id"]: r for r in runs}
     gaps, seen = [], set()
     for f in store.list_findings(rid):
         if f["status"] == "rejected" or f["id"] in seen:
@@ -60,5 +64,14 @@ def dynamic_plan(store: Store, rid: str) -> dict:
         if g is None:
             continue
         seen.add(f["id"])
-        gaps.append({"finding_id": f["id"], **g, "status": "not_executed"})
-    return {"enabled": False, "reason": REASON, "requirements": list(REQUIREMENTS), "gaps": gaps}
+        run = run_of.get(f["id"])
+        gaps.append({"finding_id": f["id"], **g, "status": run["status"] if run else "not_executed",
+                     "run_id": run["id"] if run else None})
+    return {"enabled": bool(enabled), "reason": "freigeschaltet (ADR-0005)" if enabled else REASON,
+            "requirements": list(REQUIREMENTS), "gaps": gaps,
+            "emulation": {"opted_in": (store.get_job(rid) or {}).get("spec", {}).get("emulation_opt_in") is True,
+                          "calls": len(store._q("SELECT id FROM evidence WHERE job_id=? AND tool='emulate_function' AND text NOT LIKE '[tool error]%'", (rid,)))},
+            "runs": [{k: r[k] for k in ("id", "finding_id", "status", "profile", "reason", "input_sha256", "evidence_id",
+                                        "clock_offset_s", "created_at", "updated_at", "folder")} for r in runs],
+            "profiles": [{"id": k, "label": v["label"], "platform": v["platform"], "max_seconds": v["max_seconds"]}
+                         for k, v in PROFILES.items()]}

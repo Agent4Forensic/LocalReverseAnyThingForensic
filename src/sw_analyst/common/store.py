@@ -56,10 +56,17 @@ CREATE TABLE IF NOT EXISTS guard_events (
   severity TEXT, action TEXT, snippet TEXT);
 CREATE TABLE IF NOT EXISTS translations (
   direction TEXT, text_sha256 TEXT, translated TEXT, PRIMARY KEY (direction, text_sha256));
+CREATE TABLE IF NOT EXISTS detonation_runs (
+  id TEXT PRIMARY KEY, job_id TEXT, finding_id TEXT, status TEXT, profile TEXT, reason TEXT, sample_sha256 TEXT,
+  input_sha256 TEXT, folder TEXT, evidence_id TEXT DEFAULT '', clock_offset_s REAL, created_at TEXT, updated_at TEXT);
+CREATE INDEX IF NOT EXISTS ix_runs_job ON detonation_runs(job_id);
 """
 
 # tables that hold the rows of one job (export/import); counters and translations are per installation
 EXPORT_TABLES = ("jobs", "tasks", "steps", "evidence", "findings", "annotations", "answers", "events", "guard_events")
+
+# Not in exports: the rows point to local folders; the evidence and finding of a run travel with their own tables.
+LOCAL_JOB_TABLES = ("detonation_runs",)
 
 _JSON_COLS = {"spec_json", "params_json", "source_ref_json", "injection_flags_json",
               "evidence_ids_json", "quotes_json", "finding_ids_json", "data_json"}
@@ -291,6 +298,31 @@ class Store:
                        "FROM evidence WHERE job_id=? ORDER BY id", (job_id,))
         return rows
 
+    # ---- detonation runs (ADR-0005 stage 3) ---------------------------------------------------
+    def add_detonation_run(self, job_id: str, finding_id: str, profile: str, reason: str, sample_sha256: str) -> dict:
+        """Claims the id and audits the approval first; the caller fills in the package afterwards."""
+        rid = f"R-{self._next('detonation'):04d}"
+        now = utcnow()
+        self._x("INSERT INTO detonation_runs(id,job_id,finding_id,status,profile,reason,sample_sha256,input_sha256,folder,"
+                "created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                (rid, job_id, finding_id, "approved", profile, reason, sample_sha256, "", "", now, now))
+        run = self.get_detonation_run(rid)
+        self.emit(job_id, "log", run, message=f"dynamic run {rid} approved: profile {profile}, gap {finding_id}")
+        return run
+
+    def get_detonation_run(self, run_id: str) -> Optional[dict]:
+        return self._one("SELECT * FROM detonation_runs WHERE id=?", (run_id,))
+
+    def list_detonation_runs(self, job_id: str) -> list[dict]:
+        return self._q("SELECT * FROM detonation_runs WHERE job_id=? ORDER BY id", (job_id,))
+
+    def update_detonation_run(self, run_id: str, message: str, **fields) -> dict:
+        cols = ",".join(f"{k}=?" for k in fields)
+        self._x(f"UPDATE detonation_runs SET {cols},updated_at=? WHERE id=?", (*fields.values(), utcnow(), run_id))
+        run = self.get_detonation_run(run_id)
+        self.emit(run["job_id"], "log", run, message=message)
+        return run
+
     # ---- findings, annotations, answers ----------------------------------------------------
     def add_finding(self, job_id: str, task_id: str, statement_en: str, status: str, evidence_ids: list[str],
                     quotes: list[dict], reject_reason: str = "") -> dict:
@@ -473,7 +505,7 @@ class Store:
         with self._lock:
             self._db.execute("BEGIN")
             try:
-                for t in reversed(EXPORT_TABLES):
+                for t in (*LOCAL_JOB_TABLES, *reversed(EXPORT_TABLES)):
                     col = "id" if t == "jobs" else "job_id"
                     counts[t] = self._db.execute(f"DELETE FROM {t} WHERE {col}=?", (job_id,)).rowcount
                 self._db.execute("COMMIT")

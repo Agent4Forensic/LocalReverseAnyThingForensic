@@ -13,6 +13,9 @@ from typing import Protocol
 from sw_analyst.common.models import ToolResult, ToolSpec
 
 
+DYNAMIC_TOOLS = frozenset({"emulate_function"})    # ADR-0005: offered only with the dashboard switch on and the job's opt-in
+
+
 class ToolError(Exception):
     """Raised for invalid arguments or jail violations. Message is safe to show to the AI."""
 

@@ -23,7 +23,8 @@ _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 # image key -> (tag, version shown in evidence). Tags must match infra/manifest.json tool_images (tested).
 IMAGES = {"ghidra": ("sw-analyst/ghidra:12.1.4", "ghidra-12.1.4"),
           "triage": ("sw-analyst/triage:1", "capa-10.0.0+floss-3.2.0+yara-x-1.22.1"),
-          "jadx": ("sw-analyst/jadx:1.5.6", "jadx-1.5.6")}
+          "jadx": ("sw-analyst/jadx:1.5.6", "jadx-1.5.6"),
+          "emu": ("sw-analyst/emu:1", "unicorn-2.1.4")}
 
 
 @dataclass(frozen=True)
@@ -41,7 +42,8 @@ _TRIAGE = dict(image="triage", memory="3g", cpus="2", pids=128, tmp_size="1g", t
 _JADX = dict(image="jadx", memory="4g", cpus="4", pids=256, tmp_size="2g", max_output=MAX_TAR_OUTPUT)
 OPS = {"ghidra": Op("ghidra", "6g", "4", 512, "4g"),
        "capa": Op(**_TRIAGE), "floss": Op(**_TRIAGE), "yara": Op(**_TRIAGE),
-       "jadx-apk": Op(**_JADX), "jadx-dex": Op(**_JADX), "jadx-jar": Op(**_JADX)}
+       "jadx-apk": Op(**_JADX), "jadx-dex": Op(**_JADX), "jadx-jar": Op(**_JADX),
+       "emulate": Op("emu", "1g", "1", 32, "16m")}     # ADR-0005 stage 2; the Unicorn JIT works in anonymous memory
 
 
 class ContainerError(Exception):

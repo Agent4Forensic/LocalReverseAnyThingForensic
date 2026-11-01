@@ -634,3 +634,15 @@ h3 { font-size: 13.5px; margin: 0 0 6px; }
 .hx-sw { display: none; }
 .hx-b.u-ev, .hx-a.u-ev { border-bottom: 2px solid var(--neutral); }
 .hx-key.r-evidence { box-shadow: none; border-bottom: 2px solid var(--neutral); }
+
+/* Schalter Dynamische Analyse */
+.switch-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.switch { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; }
+.switch-input { position: absolute; opacity: 0; width: 40px; height: 22px; margin: 0; cursor: pointer; }
+.switch-track { position: relative; display: inline-block; width: 40px; height: 22px; border-radius: 11px; background: var(--line-strong); transition: background .15s; flex: none; }
+.switch-track::after { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.switch-input:checked + .switch-track { background: var(--warn); }
+.switch-input:checked + .switch-track::after { transform: translateX(18px); }
+.switch-input:focus-visible + .switch-track { outline: 2px solid var(--focus); outline-offset: 2px; }
+.switch-input:disabled + .switch-track { opacity: .5; }
+@media (prefers-reduced-motion: reduce) { .switch-track, .switch-track::after { transition: none; } }

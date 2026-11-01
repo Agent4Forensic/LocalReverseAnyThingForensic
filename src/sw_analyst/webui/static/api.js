@@ -117,6 +117,9 @@
     postJson: function (path, obj) {
       return request('POST', path, null, JSON.stringify(obj || {}), false, 'application/json');
     },
+    putJson: function (path, obj) {
+      return request('PUT', path, null, JSON.stringify(obj || {}), false, 'application/json');
+    },
     /* Same-origin download link (export). Only paths under /api, built from encoded parts. */
     href: function (path, query) {
       return buildUrl(path, query);

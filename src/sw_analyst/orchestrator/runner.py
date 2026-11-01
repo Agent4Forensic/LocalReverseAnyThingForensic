@@ -16,6 +16,7 @@ from sw_analyst.gateway.base import ToolGateway
 from sw_analyst.guard import (SYSTEM_RULES_EN, TaskGuard, action_json_schema, sanitize_untrusted, validate_action)
 from sw_analyst.llm.base import ChatMessage, LLMClient, LLMError
 from sw_analyst.orchestrator.agents import MODEL_ORIGINS, task_text
+from sw_analyst.gateway.base import DYNAMIC_TOOLS
 from sw_analyst.orchestrator.verifier import MIN_QUOTE, answer_values_grounded, norm, quotable_text, verify_finding
 from sw_analyst.report.defang import find_iocs
 from sw_analyst.prompts.registry import ACTION_SCHEMA, DEFAULT_DONE_WHEN, SYSTEM_BASE, get_prompt
@@ -142,7 +143,9 @@ class TaskRunner:
     # ---- loop ------------------------------------------------------------------------------
     def run(self, job: dict, task: dict) -> TaskOutcome:
         job_id, task_id = job["id"], task["id"]
-        tools = self.gateway.list_tools()
+        # ADR-0005: the switch hides the tool from every job, the opt-in shows it to this one; the gateway checks both again.
+        opted_in = job["spec"].get("emulation_opt_in") is True
+        tools = [t for t in self.gateway.list_tools() if opted_in or t.name not in DYNAMIC_TOOLS]
         pid, pver, psha, body = self.render_task_prompt(job, task, tools)
         self.store.update_task(task_id, prompt_id=pid, prompt_version=pver, prompt_sha256=psha, prompt_text=body)
         system = SYSTEM_BASE + "\n" + SYSTEM_RULES_EN

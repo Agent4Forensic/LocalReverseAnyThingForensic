@@ -38,6 +38,43 @@
     );
   }
 
+  /* Schalter Dynamische Analyse (ADR-0005): Standard aus, Einschalten nur mit Begruendung, jede Aenderung im Audit-Log. */
+  function dynamicCard(sys) {
+    var d = (sys && sys.dynamic) || {};
+    var on = !!d.enabled;
+    var msg = h('div', { role: 'status' });
+    var reason = h('input', { type: 'text', id: 'dyn-reason', maxlength: '500', autocomplete: 'off', placeholder: 'z. B. Harmlose Testprobe, Entschlüsselung einer Konfiguration prüfen', value: '' });
+    var box = h('input', { type: 'checkbox', id: 'dyn-switch', role: 'switch', cls: 'switch-input' });
+    box.checked = on;
+    box.disabled = !!d.error;
+    box.addEventListener('change', function () {
+      var want = box.checked;
+      if (want && !reason.value.trim()) {
+        box.checked = false;
+        SW.dom.fill(msg, ui.errorBox('Zum Einschalten bitte eine Begründung angeben. Sie steht im Audit-Log.'));
+        reason.focus();
+        return;
+      }
+      box.disabled = true;
+      api.putJson('/settings/dynamic', { enabled: want, reason: want ? reason.value.trim() : '' }).then(function () {
+        store.refreshGlobal();
+      }, function (err) {
+        box.checked = !want;
+        box.disabled = false;
+        SW.dom.fill(msg, ui.errorBox('Nicht geändert: ' + err.message));
+      });
+    });
+    return h('div', { cls: 'stack' },
+      h('div', { cls: 'switch-row' },
+        h('label', { cls: 'switch', for: 'dyn-switch' }, box, h('span', { cls: 'switch-track', 'aria-hidden': 'true' }), h('strong', { text: 'Dynamische Analyse ' + (on ? 'an' : 'aus') })),
+        on ? h('span', { cls: 'badge tone-warn', text: 'Freigeschaltet' }) : h('span', { cls: 'badge tone-neutral', text: 'Gesperrt' })),
+      d.error ? ui.errorBox('Audit-Kette des Schalters ist beschädigt, der Schalter bleibt aus: ' + d.error) : null,
+      on ? h('p', { cls: 'muted small' }, 'Begründung: ', h('span', { text: d.reason || '–' }), d.changed_at ? ' · seit ' + fmt.dateTime(d.changed_at) : '')
+        : h('div', { cls: 'field' }, h('label', { for: 'dyn-reason', text: 'Begründung zum Einschalten' }), reason),
+      h('p', { cls: 'hint', text: 'Ein: Neue Aufträge können einzelne Routinen in einer simulierten CPU emulieren (' + (d.emulator_ready ? 'Emulator-Image geladen' : 'Emulator-Image fehlt: Der nächste Start von scripts\\start.ps1 baut es') + '), und zu GAP-Befunden lassen sich Läufe freigeben. Ein Lauf findet nur auf dem getrennten Detonationsrechner statt, nie auf diesem Rechner, und braucht je Lauf eine eigene Freigabe. Das Modell kann weder diesen Schalter bedienen noch einen Lauf starten.' }),
+      msg);
+  }
+
   var BUSY = ['queued', 'running', 'uploading'];
   SW.canDeleteJob = function (j) { return !j.imported && BUSY.indexOf(j.status) < 0; };
   /* Loescht einen Auftrag nach Bestaetigung; danach Liste neu laden und zur Uebersicht. */
@@ -77,11 +114,19 @@
     var statusHost = h('div');
     var currentHost = h('div');
     var listHost = h('div');
+    var dynamicHost = h('div');
+    var dynamicKey = null;
     var curDetail = null;
     var curActivity = null;
     var curId = null;
 
-    function paintStatus() { SW.dom.fill(statusHost, statusTiles(store.state.system, store.state.systemError)); }
+    function paintStatus() {
+      SW.dom.fill(statusHost, statusTiles(store.state.system, store.state.systemError));
+      /* Nur bei Aenderung neu zeichnen: Die Statusabfrage laeuft periodisch und wuerde sonst die Eingabe der Begruendung loeschen. */
+      var d = (store.state.system && store.state.system.dynamic) || null;
+      var key = JSON.stringify(d);
+      if (d && key !== dynamicKey) { dynamicKey = key; SW.dom.fill(dynamicHost, dynamicCard(store.state.system)); }
+    }
 
     function paintCurrent() {
       var run = store.state.jobs.filter(function (j) { return j.status === 'running'; })[0];
@@ -161,6 +206,7 @@
         h('a', { cls: 'btn primary', href: '#/new' }, icon('plus'), 'Neuer Auftrag')),
       importMsg,
       ui.section('Systemstatus', statusHost),
+      ui.section('Dynamische Analyse', dynamicHost),
       ui.section('Aktueller Auftrag', currentHost),
       ui.section('Aufträge', listHost, ui.seg('Filter', [['all', 'Alle'], ['active', 'Aktiv'], ['done', 'Fertig'], ['bad', 'Fehler']], filter, function (v) { filter = v; paintList(); }))
     );
@@ -176,7 +222,8 @@
     var qid = 0;
     var qs = [];
     var errBox = h('div', { role: 'alert' });
-    var dropInfo = h('p', { cls: 'drop-info muted', text: 'Datei hierher ziehen oder auswählen. Maximal 64 MiB. Das Sample wird derzeit nicht ausgeführt: Die dynamische Ausführung ist deaktiviert, bis die Analyse-VM steht.' });
+    var DROP_HINT = 'Datei hierher ziehen oder auswählen. Maximal 64 MiB. Das Sample wird auf diesem Rechner nie ausgeführt.';
+    var dropInfo = h('p', { cls: 'drop-info muted', text: DROP_HINT });
     var fileInput = h('input', { type: 'file', id: 'f-sample', cls: 'sr-only', tabindex: '-1' });
     var drop = h('div', { cls: 'drop', role: 'button', tabindex: '0', 'aria-describedby': 'drop-hint', 'aria-label': 'Sample auswählen oder ablegen' },
       icon('upload', { size: 26 }), h('div', { id: 'drop-hint' }, h('strong', { text: 'Sample ablegen' }), dropInfo), fileInput);
@@ -191,7 +238,7 @@
       }
       file = f || null;
       drop.classList.remove('is-bad');
-      SW.dom.fill(dropInfo, file ? file.name + ' · ' + fmt.bytes(file.size) : 'Datei hierher ziehen oder auswählen. Maximal 64 MiB. Das Sample wird derzeit nicht ausgeführt: Die dynamische Ausführung ist deaktiviert, bis die Analyse-VM steht.');
+      SW.dom.fill(dropInfo, file ? file.name + ' · ' + fmt.bytes(file.size) : DROP_HINT);
       drop.classList.toggle('has-file', !!file);
     }
     drop.addEventListener('click', function () { fileInput.click(); });
@@ -232,6 +279,9 @@
       focus: h('input', { type: 'text', id: 'f-focus', maxlength: '2000', autocomplete: 'off' })
     };
 
+    var sysDyn = (store.state.system && store.state.system.dynamic) || {};
+    var emuBox = h('input', { type: 'checkbox', id: 'f-emu' });
+    emuBox.checked = !!sysDyn.enabled;
     var form = h('form', { cls: 'stack newjob', novalidate: true },
       h('section', { cls: 'card' }, h('div', { cls: 'card-h' }, h('h2', { text: 'Auftrag' })), h('div', { cls: 'card-b' },
         h('div', { cls: 'field' }, h('label', { for: 'f-title', text: 'Titel *' }), f.title),
@@ -243,6 +293,9 @@
         h('button', { type: 'button', cls: 'btn sm', on: { click: function () { addQuestion('', ''); } } }, icon('plus'), 'Frage hinzufügen')),
         h('div', { cls: 'card-b' }, h('p', { cls: 'hint', text: 'Jede Frage wird als eigene Aufgabe geplant und mit Belegen beantwortet. Eine erwartete Antwort (optional) wird nur zum Abgleich genutzt, nicht als Vorgabe.' }), qHost)),
       h('section', { cls: 'card' }, h('div', { cls: 'card-h' }, h('h2', { text: 'Sample' })), h('div', { cls: 'card-b' }, drop)),
+      sysDyn.enabled ? h('section', { cls: 'card' }, h('div', { cls: 'card-h' }, h('h2', { text: 'Emulation' })), h('div', { cls: 'card-b' },
+        h('label', { cls: 'row', for: 'f-emu' }, emuBox, h('span', { text: 'Das Modell darf einzelne Routinen in einer simulierten CPU ausführen' })),
+        h('p', { cls: 'hint', text: 'Kein Programmlauf, kein Betriebssystem, Offline-Container. Ergebnisse bleiben Hypothesen, bis Code sie belegt. Die Freigabe steht im Bericht.' }))) : null,
       h('section', { cls: 'card' }, h('div', { cls: 'card-h' }, h('h2', { text: 'Budget' })), h('div', { cls: 'card-b budget' },
         num('f-bt', 'Aufgaben', 60, 5, 300, 'maximale Anzahl'), num('f-bs', 'Schritte', 600, 20, 5000, 'maximale Anzahl'), num('f-bm', 'Laufzeit', 120, 1, 1440, 'Minuten'))),
       errBox,
@@ -273,7 +326,7 @@
           if (q.expected.trim()) o.expected = q.expected.trim();
           return o;
         }),
-        emulation_opt_in: false,
+        emulation_opt_in: !!sysDyn.enabled && emuBox.checked,
         budget_max_tasks: readInt('f-bt', 5, 300, 60), budget_max_steps: readInt('f-bs', 20, 5000, 600), budget_max_minutes: readInt('f-bm', 1, 1440, 120)
       };
       var fd = new FormData();

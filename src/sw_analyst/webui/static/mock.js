@@ -613,12 +613,20 @@
     return out.join('\n') + '\n';
   }
 
+  var mockDynamic = { enabled: false, reason: '', changed_at: null, error: '', audit_head: null };
   function route(method, path, q, body) {
     var m;
+    if (path === '/settings/dynamic') {
+      if (method === 'PUT') {
+        var dyn = JSON.parse(body || '{}');
+        mockDynamic = { enabled: !!dyn.enabled, reason: dyn.reason || '', changed_at: new Date().toISOString(), error: '', audit_head: null };
+      }
+      return mockDynamic;
+    }
     if (method === 'GET' && path === '/system') {
       var runJob = JOB_ORDER.map(function (id) { return JOBS[id]; }).filter(function (j) { return j.status === 'running'; })[0];
       return {
-        version: '0.1.0-mock', worker: { state: runJob ? 'running' : 'idle', job_id: runJob ? runJob.id : null },
+        version: '0.1.0-mock', dynamic: Object.assign({ emulator_ready: false }, mockDynamic), worker: { state: runJob ? 'running' : 'idle', job_id: runJob ? runJob.id : null },
         llm: { reachable: true, model: 'qwen3:14b', base_url: '127.0.0.1:11434' },
         guard: { active: true, rules: 24, version: '1.4.0' }, gateway: { kind: 'dev', tools: 11 },
         queue_length: JOB_ORDER.filter(function (id) { return JOBS[id].status === 'queued'; }).length

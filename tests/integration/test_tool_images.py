@@ -54,7 +54,7 @@ def harmless_pe() -> bytes:
 @pytest.fixture(scope="module")
 def pe_gw(tmp_path_factory):
     gw = DevGateway(tmp_path_factory.mktemp("data"))
-    assert len(attach_container_tools(gw, RUNNER)) == 9
+    assert len(attach_container_tools(gw, RUNNER)) == 10
     gw.store_sample("pe", harmless_pe())
     return gw
 
@@ -108,7 +108,7 @@ def _probe(op: str, script_free_payload: bytes = b"x") -> subprocess.CompletedPr
     return build_argv(op, RUNNER.image_ids[OPS[op].image], f"sw-analyst-probe-{uuid.uuid4().hex}")
 
 
-@pytest.mark.parametrize("op", ["capa", "ghidra", "jadx-jar"])
+@pytest.mark.parametrize("op", ["capa", "ghidra", "jadx-jar", "emulate"])
 def test_sandbox_from_inside_no_network_read_only_noexec_not_root(op):
     argv = _probe(op)
     image, _ = argv[-2], argv[-1]
@@ -132,3 +132,62 @@ def test_garbage_input_is_a_clean_tool_error(tmp_path):
     gw.store_sample("junk", base64.b64encode(b"not a program at all") * 4)
     r = gw.call("junk", "capa_scan", {})
     assert not r.ok and "exit code" in r.error
+
+
+# ---- emulate_function (ADR-0005 stage 2): a simulated CPU, the file is never started -------------------------------------
+XOR_X86 = bytes.fromhex("8B742404" "8B4C2408" "807C0EFF00".replace("7C", "74").replace("FF00", "FF55") + "E2F9" "B82A000000" "C3")
+SECRET = b"hidden-config"
+
+
+def _emu_gw(tmp_path, sample):
+    gw = DevGateway(tmp_path)
+    attach_container_tools(gw, RUNNER)
+    gw.dynamic_enabled = lambda: True
+    gw.dynamic_allowed = lambda _job: True
+    gw.store_sample("emu", sample)
+    return gw
+
+
+def test_emulator_decrypts_a_blob_and_saves_the_result(tmp_path):
+    blob = bytes(c ^ 0x55 for c in SECRET)
+    gw = _emu_gw(tmp_path, XOR_X86.ljust(0x40, b"\x90") + blob)
+    r = gw.call("emu", "emulate_function", {"start": "0x10000", "arch": "x86", "call_args": "input,input_len",
+                                            "input_offset": 0x40, "input_length": len(blob)})
+    assert r.ok, r.error
+    assert "Stopped: returned" in r.text and "Return register: 0x2a" in r.text and "hypothesis" in r.text
+    assert r.meta["emulated"] is True and SECRET.decode() in r.text
+    saved = gw.read_bytes("emu", r.meta["derived"], 0, 4096)["data"]
+    assert saved.startswith(SECRET)
+
+
+def test_emulator_stops_at_budget_fault_and_imports(tmp_path):
+    gw = _emu_gw(tmp_path, bytes.fromhex("EBFE") + bytes.fromhex("A100000000"))    # endless loop; read of address 0
+    loop = gw.call("emu", "emulate_function", {"start": "0x10000", "arch": "x86", "max_instructions": 1000})
+    assert "Stopped: budget" in loop.text
+    fault = gw.call("emu", "emulate_function", {"start": "0x10002", "arch": "x86"})
+    assert "Stopped: fault" in fault.text and "Fault:" in fault.text
+    outside = gw.call("emu", "emulate_function", {"start": "0x7000000", "arch": "x86"})
+    assert not outside.ok and "outside the mapped file" in outside.error
+
+
+def test_emulator_names_the_import_instead_of_calling_it(tmp_path):
+    pe = bytearray(harmless_pe())
+    pe[0x200:0x206] = bytes.fromhex("FF1560204000")                # call [0x402060]
+    struct.pack_into("<II", pe, 0x98 + 96 + 8, 0x2000, 40)         # import directory
+    struct.pack_into("<IIIII", pe, 0x400, 0x2040, 0, 0, 0x2080, 0x2060)
+    struct.pack_into("<I", pe, 0x440, 0x20A0)                      # lookup table: one name
+    struct.pack_into("<I", pe, 0x460, 0x20A0)                      # import address table
+    pe[0x480:0x48D] = b"kernel32.dll\0"
+    pe[0x4A2:0x4A8] = b"Sleep\0"
+    gw = _emu_gw(tmp_path, bytes(pe))
+    r = gw.call("emu", "emulate_function", {"start": "0x401000"})
+    assert r.ok, r.error
+    assert "Stopped: api_call" in r.text and "kernel32.dll!Sleep" in r.text
+
+
+def test_emulator_refuses_garbage_cleanly(tmp_path):
+    gw = _emu_gw(tmp_path, b"no headers here")
+    r = gw.call("emu", "emulate_function", {"start": "0x10000"})
+    assert not r.ok and "not a PE or ELF" in r.error
+    bad = gw.call("emu", "emulate_function", {"start": "0x10000", "arch": "x86", "call_args": "rm -rf /"})
+    assert not bad.ok and "call_args" in bad.error

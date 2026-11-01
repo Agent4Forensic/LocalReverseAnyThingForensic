@@ -46,6 +46,34 @@
       "license": "Apache-2.0",
       "target": "docker image sw-analyst/jadx:1.5.6"
     },
+    "unicorn": {
+      "version": "2.1.4",
+      "url": "https://pypi.org/project/unicorn/2.1.4/",
+      "sha256": "9d6e6dea140560de4ebd8446661f7ef84a357d428c14a3ef09dacd306ec8c239",
+      "license": "GPL-2.0 (engine), BSD (Python binding)",
+      "target": "docker image sw-analyst/emu:1, pinned in infra/tools/emu/requirements.lock"
+    },
+    "android-sdk-tools": {
+      "version": "pending",
+      "url": "pending",
+      "sha256": "pending",
+      "target": "detonation host, Android guest (ADR-0005)",
+      "status": "pending: pin and review required before an Android guest is provisioned"
+    },
+    "android-system-image": {
+      "version": "pending",
+      "url": "pending",
+      "sha256": "pending",
+      "target": "detonation host, Android guest (ADR-0005)",
+      "status": "pending: pin and review required before an Android guest is provisioned"
+    },
+    "frida-server": {
+      "version": "pending",
+      "url": "pending",
+      "sha256": "pending",
+      "target": "detonation host, Android guest (ADR-0005)",
+      "status": "pending: planned, not built; pin and review required"
+    },
     "rea": {
       "version": "pending",
       "source": "morluto/rea",
@@ -58,7 +86,8 @@
   "tool_images": {
     "ghidra": "sw-analyst/ghidra:12.1.4",
     "triage": "sw-analyst/triage:1",
-    "jadx": "sw-analyst/jadx:1.5.6"
+    "jadx": "sw-analyst/jadx:1.5.6",
+    "emu": "sw-analyst/emu:1"
   },
   "models": {
     "note": "Tags are real Ollama library tags (qwen3 family). gemma4/ornith from the research were never verified and are not used until a pull succeeds; see docs/adr/0001-modellwahl.md.",

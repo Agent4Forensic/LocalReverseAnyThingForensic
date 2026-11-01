@@ -25,7 +25,15 @@ def main() -> None:
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--check", action="store_true", help="run the preflight checks and exit")
     ap.add_argument("--json", action="store_true", help="with --check: machine-readable output")
+    ap.add_argument("--acceptance-packages", metavar="DIR", help="write the harmless isolation-probe packages for the "
+                    "detonation host (ADR-0005, docs/runbooks/detonation.md) and exit")
     args = ap.parse_args()
+
+    if args.acceptance_packages:
+        from sw_analyst.detonation import write_acceptance_packages
+        for folder in write_acceptance_packages(Path(args.acceptance_packages), PROJECT_ROOT / "infra" / "detonation" / "isolation_probe.ps1"):
+            print(folder)
+        sys.exit(0)
 
     data = resolve_data_dir(args.data_dir)
     if args.check:

@@ -31,7 +31,7 @@ T = {
         "self_eval": "Ziel (Selbstbewertung des Modells)", "reached": "erreicht", "not_reached": "nicht erreicht", "not_rated": "nicht bewertet", "done_when": "Abnahmekriterium", "origin": "Herkunft", "reason": "Begründung",
         "abstract": "Kurzfassung", "qa": "Fragestellungen und Kurzantworten", "mandate": "R6 Auftrag und Probe", "approach": "R7 Vorgehen und Methodik",
         "results": "R4 Ergebnisse je Thema", "limits_h": "Grenzen und offene Punkte", "appx": "Anhang", "terms": "Begriffe in diesem Bericht",
-        "dynamic": "Dynamische Analyse", "tasks_h": "Aufgaben und Zeitverlauf", "tools_h": "Eingesetzte Werkzeuge", "calls": "Aufrufe", "purpose": "Zweck",
+        "dynamic": "Dynamische Analyse", "gap_label": "Lücke", "checkpoint": "Prüfpunkt", "clock": "Uhrversatz", "stop": "Ende", "approval": "Freigabe", "tasks_h": "Aufgaben und Zeitverlauf", "tools_h": "Eingesetzte Werkzeuge", "calls": "Aufrufe", "purpose": "Zweck",
         "belegtab": "Belegtabelle", "guard_h": "Prompt-Schutz", "gap_what": "Offen", "gap_close": "Würde geklärt durch", "gap_q": "Frage", "gap_in": "Eingabe",
         "no_findings": "Zu diesem Thema liegen keine Befunde vor.", "no_questions": "Es wurden keine Zielfragen gestellt; die Analyse folgte dem Rezept.",
         "untranslated": "[EN]", "limits": "Grenzen: rein statische Analyse, offline, lokales Modell. Aussagen ohne Beleg wurden verworfen oder als Hypothese geführt; offene Punkte sind keine Aussagen und haben keinen Beleg.",
@@ -52,7 +52,7 @@ T = {
         "self_eval": "Goal (model's self-assessment)", "reached": "reached", "not_reached": "not reached", "not_rated": "not rated", "done_when": "Acceptance criterion", "origin": "origin", "reason": "reason",
         "abstract": "Abstract", "qa": "Questions and short answers", "mandate": "R6 Mandate and sample", "approach": "R7 Approach and methodology",
         "results": "R4 Results by topic", "limits_h": "Open questions and limits", "appx": "Appendix", "terms": "Terms used in this report",
-        "dynamic": "Dynamic analysis", "tasks_h": "Tasks and timeline", "tools_h": "Tools used", "calls": "Calls", "purpose": "Purpose",
+        "dynamic": "Dynamic analysis", "gap_label": "gap", "checkpoint": "checkpoint", "clock": "clock offset", "stop": "end", "approval": "approval", "tasks_h": "Tasks and timeline", "tools_h": "Tools used", "calls": "Calls", "purpose": "Purpose",
         "belegtab": "Evidence table", "guard_h": "Prompt guard", "gap_what": "Open", "gap_close": "Would be closed by", "gap_q": "Question", "gap_in": "Input",
         "no_findings": "There are no findings for this topic.", "no_questions": "No target questions were asked; the analysis followed the recipe.",
         "untranslated": "", "limits": "Limits: static analysis only, offline, local model. Statements without evidence were rejected or kept as hypotheses; open points are not statements and have no evidence.",
@@ -112,7 +112,7 @@ def build_report(store: Store, job_id: str, lang: str = "de", model_name: str = 
     from collections import Counter
 
     from sw_analyst.report.derivation import _TOOLS, _FALLBACK
-    from sw_analyst.webui.dynamic import REASON, dynamic_plan
+    from sw_analyst.webui.dynamic import dynamic_plan
 
     t = T["de" if lang == "de" else "en"]
     de = lang == "de"
@@ -128,6 +128,9 @@ def build_report(store: Store, job_id: str, lang: str = "de", model_name: str = 
     evidence = [store.get_evidence(e["id"]) for e in store.list_evidence(job_id)]
     audit = verify_file(store.audit_path(job_id))
     plan = dynamic_plan(store, job_id)
+    # From the evidence, not the local run table: exports carry only the evidence, and this sentence must stay true after an import.
+    run_evidence = [e for e in evidence if e["tool"] == "detonation_run"]
+    emu_calls = sum(1 for e in evidence if e["tool"] == "emulate_function" and not e["text"].startswith("[tool error]"))
     gap_ids = {g["finding_id"] for g in plan["gaps"]}
 
     def txt(en: str, de_txt: str) -> str:
@@ -144,16 +147,20 @@ def build_report(store: Store, job_id: str, lang: str = "de", model_name: str = 
     typ, rec = _tok(job["detected_type"]) or "-", _tok(job["recipe"]) or "-"
     if de:
         sentences = [f"Untersucht wurde die Probe {_cell(job['sample_name'])} (SHA-256 `{_hex(job['sample_sha256'][:16])}…`), erkannt als {typ}; Rezept {rec}.",
-                     "Die Analyse war rein statisch und offline: Die Probe wurde nie ausgeführt.",
+                     ("Die Probe lief auf dem getrennten Detonationsrechner; was dort beobachtet wurde, steht als Hypothese unter „Dynamische Analyse“." if run_evidence
+                      else f"Die Probe wurde nie als Programm ausgeführt; {emu_calls} einzelne Routine(n) liefen in einer simulierten CPU." if emu_calls
+                      else "Die Analyse war rein statisch und offline: Die Probe wurde nie ausgeführt."),
                      (f"Von {len(answers)} Zielfragen sind {n_ans} beantwortet und {n_unres} ungeklärt." if answers else t["no_questions"]),
                      f"Befunde: {n_conf} bestätigt, {n_hyp} als Hypothese geführt.",
-                     (f"Lücken, die nur eine dynamische Analyse klärt: {len(gap_ids)}; sie ist {REASON}." if gap_ids else "Dynamische Analyse: " + REASON + ".")]
+                     (f"Lücken, die nur eine dynamische Analyse klärt: {len(gap_ids)}." if gap_ids else "Dynamische Analyse: keine Lücken gemeldet.")]
     else:
         sentences = [f"The sample {_cell(job['sample_name'])} (SHA-256 `{_hex(job['sample_sha256'][:16])}…`) was examined; detected as {typ}, recipe {rec}.",
-                     "The analysis was purely static and offline: the sample was never executed.",
+                     ("The sample ran on the separate detonation host; what was observed there is listed as hypotheses under dynamic analysis." if run_evidence
+                      else f"The sample was never executed as a program; {emu_calls} single routine(s) ran in a simulated CPU." if emu_calls
+                      else "The analysis was purely static and offline: the sample was never executed."),
                      (f"Of {len(answers)} target questions, {n_ans} are answered and {n_unres} unresolved." if answers else t["no_questions"]),
                      f"Findings: {n_conf} confirmed, {n_hyp} kept as hypotheses.",
-                     (f"Gaps that only a dynamic analysis can close: {len(gap_ids)}; it is not executed (analysis VM missing, ADR-0005)." if gap_ids else "Dynamic analysis: not executed (analysis VM missing, ADR-0005).")]
+                     (f"Gaps that only a dynamic analysis can close: {len(gap_ids)}." if gap_ids else "Dynamic analysis: no gaps reported.")]
 
     out: list[str] = [f"# {t['title']} {_tok(job['id'])}: {_cell(spec.get('title'))}"]
     if live:
@@ -207,8 +214,23 @@ def build_report(store: Store, job_id: str, lang: str = "de", model_name: str = 
     out += ["", f"### {t['terms']}", ""] + _glossary(de)
 
     out += ["", f"### {t['dynamic']}", ""]
-    out.append(("Status: **nicht ausgeführt, Analyse-VM fehlt (ADR-0005).** Was nur ein Programmlauf klären kann, wird hier als Lücke geführt, nicht geraten. Ein Lauf bräuchte eine Analyse-VM ohne Netzwerkkarte, einen Snapshot und die Freigabe durch den Auftraggeber."
-                if de else "Status: **not executed, analysis VM missing (ADR-0005).** What only a program run can settle is kept here as a gap, not guessed. A run would need an analysis VM without network card, a snapshot and approval by the client."))
+    if de:
+        out.append((f"Status: **{len(run_evidence)} Programmlauf/-läufe ausgewertet, {emu_calls} Emulation(en) einzelner Routinen (ADR-0005).** " if run_evidence or emu_calls
+                    else "Status: **nicht ausgeführt (ADR-0005).** ")
+                   + "Was nur ein Programmlauf klären kann, wird hier als Lücke geführt, nicht geraten. Dynamische und emulierte Aussagen bleiben Hypothesen, bis Code sie belegt. Ein Negativbefund gilt nur für Laufzeit und Umgebung des Laufs.")
+    else:
+        out.append((f"Status: **{len(run_evidence)} program run(s) evaluated, {emu_calls} emulation(s) of single routines (ADR-0005).** " if run_evidence or emu_calls
+                    else "Status: **not executed (ADR-0005).** ")
+                   + "What only a program run can settle is kept here as a gap, not guessed. Dynamic and emulated statements stay hypotheses until code supports them. A negative result holds only for the run time and environment of that run.")
+    if plan["emulation"]["opted_in"]:
+        out += ["", "Emulation für diesen Auftrag freigegeben (Opt-in im Auftrag vermerkt)." if de else "Emulation approved for this job (opt-in recorded in the job)."]
+    for e in run_evidence:
+        p = e.get("params") or {}
+        offset = p.get("clock_offset_s")
+        unknown = "unbekannt" if de else "unknown"
+        out += ["", f"- **{_tok(p.get('run_id'))}** ({_tok(e['id'])}), {t['gap_label']} {_tok(p.get('gap'))}: {_cell(p.get('profile'))}; "
+                    f"{t['checkpoint']} `{_hex(p.get('checkpoint_sha256') or '')[:16]}…`; {t['clock']} {unknown if offset is None else str(offset) + ' s'}; "
+                    f"{t['stop']} {_cell(p.get('stop_reason'))}; {t['approval']}: {_cell(p.get('approval_reason'))}"]
     if plan["gaps"]:
         out.append("")
         for g in plan["gaps"]:

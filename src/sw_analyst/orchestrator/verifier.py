@@ -101,6 +101,9 @@ def _iocs_missing_from(text: str, source: str) -> list[str]:
     return [i["value"] for i in find_iocs(text) if _ioc_form(i["value"]) not in plain]
 
 
+DYNAMIC_EVIDENCE = {"emulate_function", "detonation_run"}
+
+
 @dataclass
 class VerifiedFinding:
     statement: str
@@ -157,6 +160,10 @@ def verify_finding(store: Store, job_id: str, raw: dict) -> VerifiedFinding:
                                        "downgraded from confirmed: the quote shares too little with the statement "
                                        "(two words, or one value such as a name with digits, an address or a long "
                                        "identifier); quote the line that shows the stated fact")
+            # ADR-0005: what a simulated or real run showed stays a hypothesis until a quote from static evidence backs it.
+            if all(store.get_evidence(q["evidence_id"])["tool"] in DYNAMIC_EVIDENCE for q in good_quotes):
+                return VerifiedFinding(statement, "hypothesis", ids, good_quotes,
+                                       "downgraded from confirmed: dynamic evidence alone; quote code that supports it")
             return VerifiedFinding(statement, "confirmed", ids, good_quotes)
         reason = "; ".join(problems) or "no evidence cited"
         # Unverifiable claim is not kept as fact. If evidence exists it survives as a hypothesis.

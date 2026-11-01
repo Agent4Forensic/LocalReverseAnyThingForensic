@@ -5,6 +5,7 @@
 #   docker build --target ghidra -t sw-analyst/ghidra:12.1.4 infra/tools
 #   docker build --target triage -t sw-analyst/triage:1 infra/tools
 #   docker build --target jadx   -t sw-analyst/jadx:1.5.6 infra/tools
+#   docker build --target emu    -t sw-analyst/emu:1 infra/tools     (ADR-0005 stage 2, used only with the dashboard switch on)
 
 FROM debian:bookworm-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3 AS fetch
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl unzip && rm -rf /var/lib/apt/lists/*
@@ -54,3 +55,11 @@ RUN chmod 0555 /opt/sw/entry.sh
 ENV HOME=/tmp JAVA_OPTS=-Xmx3g
 USER 10001:10001
 ENTRYPOINT ["/opt/sw/entry.sh"]
+
+FROM python:3.12-slim-bookworm@sha256:e697c81897302a4c4333bade000d98038fbb21eb064f8ee1fd42d02ebcd9d337 AS emu
+COPY emu/requirements.lock emu/emulate.py /opt/sw/
+RUN pip install --no-cache-dir --no-deps --only-binary=:all: --require-hashes -r /opt/sw/requirements.lock \
+ && python -c "import unicorn; assert unicorn.__version__.startswith('2.1.4')" && chmod 0444 /opt/sw/emulate.py
+ENV HOME=/tmp
+USER 10001:10001
+ENTRYPOINT ["python", "-I", "/opt/sw/emulate.py"]

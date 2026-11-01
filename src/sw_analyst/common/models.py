@@ -74,7 +74,7 @@ class JobSpec(BaseModel):
     context_info: str = ""                     # further information (origin, scenario, hints)
     target_questions: list[TargetQuestion] = Field(default_factory=list)
     focus: str = ""
-    emulation_opt_in: bool = False             # always False in this phase
+    emulation_opt_in: bool = False             # ADR-0005: only with the dashboard switch on
     budget_max_tasks: int = 60
     budget_max_steps: int = 600
     budget_max_minutes: int = 120

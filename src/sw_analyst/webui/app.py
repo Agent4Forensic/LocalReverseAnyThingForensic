@@ -21,13 +21,15 @@ from fastapi.responses import JSONResponse, PlainTextResponse, Response, Streami
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 
+from sw_analyst import detonation as det
 from sw_analyst.common.audit import verify_file
+from sw_analyst.common.dynamic import DynamicSwitch
 from sw_analyst.common.models import JobSpec, TargetQuestion
 from sw_analyst.common.paths import PROJECT_ROOT
 from sw_analyst.common.store import Store
 from sw_analyst.common.util import sha256_hex
 from sw_analyst.gateway.base import ToolError
-from sw_analyst.guard import GUARD_VERSION, rule_count
+from sw_analyst.guard import GUARD_VERSION, rule_count, scan
 from sw_analyst.prompts.registry import PROMPTS, list_prompts
 from sw_analyst.report.builder import build_report
 from sw_analyst.webui import hexmap
@@ -63,6 +65,17 @@ class JobIn(BaseModel):
     budget_max_tasks: int = Field(default=60, ge=5, le=300)
     budget_max_steps: int = Field(default=600, ge=20, le=5000)
     budget_max_minutes: int = Field(default=120, ge=1, le=1440)
+
+
+class DynamicSwitchIn(BaseModel):
+    enabled: bool
+    reason: str = Field(default="", max_length=500)
+
+
+class RunApproval(BaseModel):
+    finding_id: str = Field(pattern=r"^F-[0-9]{1,12}$")
+    profile: str = Field(max_length=40)
+    reason: str = Field(min_length=10, max_length=500)
 
 
 class ExampleStart(BaseModel):
@@ -116,6 +129,13 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
     allowed_origins = {f"http://127.0.0.1:{port}", f"http://localhost:{port}"}
     data_dir = Path(data_dir) if data_dir else store.db_path.parent
     examples = examples or Examples(registry_file=data_dir / "examples.json")
+    dynamic_switch = DynamicSwitch(data_dir)
+    gateway.dynamic_enabled = dynamic_switch.is_on
+
+    def _opted_in(job_id: str) -> bool:
+        job = store.get_job(job_id)
+        return dynamic_switch.is_on() and bool(job) and job["spec"].get("emulation_opt_in") is True
+    gateway.dynamic_allowed = _opted_in
     app = FastAPI(title="sw-analyst", docs_url=None, redoc_url=None, openapi_url=None)
     import_slot = asyncio.Lock()
 
@@ -137,9 +157,10 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
                 return JSONResponse({"error": {"code": "forbidden_origin", "message": "invalid Origin"}}, status_code=403)
             # Refuse oversized uploads before Starlette spools them to disk (F-20). Without Content-Length
             # (chunked) the size is unknown until everything is spooled, so upload routes require it.
-            limit = MAX_BUNDLE if request.url.path == "/api/imports" else MAX_SAMPLE
+            result_upload = request.url.path.startswith("/api/jobs/") and request.url.path.endswith("/result")
+            limit = MAX_BUNDLE if request.url.path == "/api/imports" or result_upload else MAX_SAMPLE
             raw_len = request.headers.get("content-length")
-            if raw_len is None and request.url.path in ("/api/jobs", "/api/imports"):
+            if raw_len is None and (request.url.path in ("/api/jobs", "/api/imports") or result_upload):
                 return JSONResponse({"error": {"code": "length_required", "message": "Content-Length is required"}},
                                     status_code=411)
             try:
@@ -214,8 +235,21 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
                 "gateway": {"kind": "dev", "tools": len(names), "ghidra": "list_functions" in names,
                             "container_tools": sorted(names & {"list_functions", "decompile", "capa_scan",
                                                                "floss_decode", "yara_scan", "jadx_decompile"})},
+                "dynamic": {**dynamic_switch.state(), "emulator_ready": "emulate_function" in getattr(gateway, "_tools", {})},
                 "storage": {"data_dir": _rel(data_dir), "inside_project": _inside(data_dir)},
                 "queue_length": len([j for j in store.list_jobs() if j["status"] == "queued"])}
+
+    # ---- the switch for dynamic analysis (ADR-0005): off by default, only this route flips it ----------
+    @app.get("/api/settings/dynamic")
+    def dynamic_get():
+        return dynamic_switch.state()
+
+    @app.put("/api/settings/dynamic")
+    def dynamic_put(body: DynamicSwitchIn):
+        try:
+            return dynamic_switch.set(body.enabled, body.reason)
+        except ValueError as e:
+            raise _err(409 if dynamic_switch.error else 422, "dynamic_switch_refused", str(e))
 
     # ---- jobs ----------------------------------------------------------------------------------------
     @app.get("/api/jobs")
@@ -247,8 +281,8 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
             data_in = JobIn.model_validate_json(spec)
         except ValidationError as e:
             raise _err(422, "invalid_spec", e.errors()[0]["msg"] + " @ " + ".".join(map(str, e.errors()[0]["loc"])))
-        if data_in.emulation_opt_in:
-            raise _err(422, "emulation_disabled", "emulation is not available in this phase")
+        if data_in.emulation_opt_in and not dynamic_switch.is_on():
+            raise _err(422, "emulation_disabled", "dynamic analysis is switched off in the dashboard")
         data = bytearray()
         while chunk := await sample.read(1024 * 1024):
             data += chunk
@@ -261,7 +295,7 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
         if len({q.id for q in qs}) != len(qs):
             raise _err(422, "duplicate_question_id", "question ids must be unique")
         jspec = JobSpec(title=data_in.title, description=data_in.description, context_info=data_in.context_info,
-                        focus=data_in.focus, target_questions=qs, emulation_opt_in=False,
+                        focus=data_in.focus, target_questions=qs, emulation_opt_in=data_in.emulation_opt_in,
                         budget_max_tasks=data_in.budget_max_tasks, budget_max_steps=data_in.budget_max_steps,
                         budget_max_minutes=data_in.budget_max_minutes)
         job = _new_job(jspec, safe_sample_name(sample.filename), bytes(data))
@@ -431,10 +465,83 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
 
     @app.get("/api/jobs/{job_id}/dynamic")
     def dynamic_route(job_id: str):
-        """Dynamic analysis is shown but disabled (ADR-0005, decision of Jan 2026-11-01): the gaps and the plan."""
+        """The gaps a run could close, what was approved and what came back (ADR-0005)."""
         ref = resolve(job_id)
         from sw_analyst.webui import dynamic
-        return dynamic.dynamic_plan(ref.store, ref.rid)
+        return dynamic.dynamic_plan(ref.store, ref.rid, dynamic_switch.is_on() and not ref.imported)
+
+    def _run_gate(job_id: str) -> JobRef:
+        ref = resolve(job_id)
+        writable(ref)
+        if not dynamic_switch.is_on():
+            raise _err(409, "dynamic_disabled", "dynamic analysis is switched off in the dashboard")
+        return ref
+
+    @app.post("/api/jobs/{job_id}/dynamic/runs")
+    def run_approve(job_id: str, body: RunApproval):
+        """Jan's approval of one run: writes the package for the detonation host. Starts nothing, and the model cannot reach it."""
+        from sw_analyst.webui.dynamic import parse_gap
+        ref = _run_gate(job_id)
+        if body.profile not in det.PROFILES:
+            raise _err(422, "unknown_profile", "unknown run profile")
+        finding = store.get_finding(body.finding_id)
+        if not finding or finding["job_id"] != ref.rid or not (parse_gap(finding["statement_en"]) or parse_gap(finding["statement_de"])):
+            raise _err(422, "no_gap", "a run needs a GAP finding of this job")
+        if any(r["finding_id"] == body.finding_id for r in store.list_detonation_runs(ref.rid)):
+            raise _err(409, "already_approved", "this gap already has a run")
+        kind = det.SAMPLE_KINDS.get((ref.job.get("detected_type") or "").lower())
+        if not kind:
+            raise _err(422, "not_runnable", f"samples of type '{ref.job.get('detected_type') or 'unknown'}' have no run profile")
+        if kind[0] != det.PROFILES[body.profile]["platform"]:
+            raise _err(422, "wrong_platform", f"this sample needs a {kind[0]} profile")
+        try:
+            sample = Path(gateway.sample_path(ref.rid)).read_bytes()
+        except (ToolError, OSError):
+            raise _err(409, "no_sample", "the sample of this job is not available")
+        run = store.add_detonation_run(ref.rid, body.finding_id, body.profile, " ".join(body.reason.split()), ref.job["sample_sha256"])
+        folder = Path(gateway.sample_path(ref.rid)).parent / "detonation" / run["id"]
+        manifest = det.new_manifest(run["id"], ref.rid, body.profile, ref.job["sample_sha256"], kind[1])
+        try:
+            info = det.write_package(folder, manifest, sample, {"reason": run["reason"], "finding_id": body.finding_id})
+        except (OSError, det.DetonationError) as e:
+            store.update_detonation_run(run["id"], f"dynamic run {run['id']}: package failed", status="failed")
+            raise _err(500, "package_failed", str(e))
+        return store.update_detonation_run(run["id"], f"dynamic run {run['id']}: package written, input {info['input_vhd_sha256']}",
+                                            status="packaged", input_sha256=info["input_vhd_sha256"],
+                                            folder=_rel(folder))
+
+    @app.post("/api/jobs/{job_id}/dynamic/runs/{run_id}/result")
+    async def run_result(job_id: str, run_id: str, output: UploadFile = File(...), run_log: UploadFile = File(...)):
+        """Reads the returned output disk as bytes, never as a file system. Everything in it is untrusted text."""
+        ref = _run_gate(job_id)
+        run = store.get_detonation_run(run_id)
+        if not run or run["job_id"] != ref.rid:
+            raise _err(404, "not_found", f"run {run_id} does not exist in this job")
+        if run["status"] != "packaged":
+            raise _err(409, "wrong_state", f"run {run_id} is {run['status']}, it takes no result")
+        raw = await output.read(det.MAX_OUTPUT_FILE + 1)
+        log_raw = await run_log.read(det.MAX_RUN_LOG + 1)
+        try:
+            log = det.parse_run_log(log_raw)
+            det.check_run_log(log, run, sha256_hex(raw))
+            result = det.parse_output(raw)
+            if result is not None and result["run_id"] != run_id:
+                raise det.DetonationError("output disk belongs to another run")
+        except det.DetonationError as e:
+            store.log(ref.rid, f"dynamic run {run_id}: result refused: {e}", level="warn", output_sha256=sha256_hex(raw))
+            raise _err(422, "result_refused", str(e))
+        offset = det.clock_offset(result["guest_start_utc"], log["host_start_utc"]) if result else None
+        text = det.evidence_text(result, log, offset)
+        params = {"run_id": run_id, "profile": run["profile"], "checkpoint_sha256": log["checkpoint_sha256_after"],
+                  "input_sha256": log["input_sha256"], "output_sha256": log["export_sha256"], "clock_offset_s": offset,
+                  "stop_reason": log["stop_reason"], "environment": log["vm_name"], "gap": run["finding_id"],
+                  "approval_reason": run["reason"]}
+        ev = store.add_evidence(ref.rid, None, "detonation_run", (result or {}).get("agent_version") or "no-guest-result", params,
+                                text, source_ref={"run_id": run_id, "gap": run["finding_id"]},
+                                injection_flags=sorted({d.rule for d in scan(text)}))
+        store.add_finding(ref.rid, "", det.summary_statement(run_id, run["profile"], result), "hypothesis", [ev["id"]], [])
+        return store.update_detonation_run(run_id, f"dynamic run {run_id}: result imported as {ev['id']}", status="imported",
+                                           evidence_id=ev["id"], clock_offset_s=offset)
 
     @app.get("/api/jobs/{job_id}/replay")
     def replay_route(job_id: str, include_sample: int = Query(0, ge=0, le=1)):

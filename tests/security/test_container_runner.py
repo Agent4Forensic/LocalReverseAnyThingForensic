@@ -9,6 +9,7 @@ import pytest
 
 import sw_analyst
 from sw_analyst.gateway import container_runner as cr
+from sw_analyst.gateway.base import DYNAMIC_TOOLS
 from sw_analyst.gateway.container_runner import IMAGES, OPS, ContainerError, ContainerRunner, build_argv
 from sw_analyst.gateway.container_tools import ALL_TOOLS, ContainerTools, attach_container_tools
 from sw_analyst.gateway.dev_gateway import DevGateway
@@ -67,7 +68,11 @@ def test_container_allowlist_is_exactly_this_and_takes_no_command_like_argument(
     base = {t.name for t in gw.list_tools()}
     added = attach_container_tools(gw, ContainerRunner(IMAGE_IDS))
     tools = gw.list_tools()
-    assert set(added) == ALL_TOOLS and {t.name for t in tools} == base | ALL_TOOLS
+    # ADR-0005: emulate_function is attached with its image, but stays hidden until the dashboard switch opens it.
+    assert set(added) == ALL_TOOLS | DYNAMIC_TOOLS and {t.name for t in tools} == base | ALL_TOOLS
+    gw.dynamic_enabled = lambda: True
+    assert {t.name for t in gw.list_tools()} == base | ALL_TOOLS | DYNAMIC_TOOLS
+    tools = gw.list_tools()
     assert all(t.read_only for t in tools)
     params = {p for t in tools for p in t.params}
     assert not params & {"cmd", "command", "script", "url", "host", "port", "code", "args", "exec", "rules", "image", "op"}
@@ -101,7 +106,12 @@ def test_entry_script_runs_only_fixed_operations():
     entry = (REPO / "infra" / "tools" / "entry.sh").read_text(encoding="utf-8")
     assert "\r" not in entry
     assert "eval" not in entry and '$2' not in entry and '$@' not in entry
-    assert set(OPS) <= {line.strip().split(")")[0] for line in entry.splitlines() if ")" in line}
+    # emulate has its own fixed entry: it takes numbers in a frame on stdin, and its argv is checked there.
+    assert set(OPS) - {"emulate"} <= {line.strip().split(")")[0] for line in entry.splitlines() if ")" in line}
+    emu = (REPO / "infra" / "tools" / "emu" / "emulate.py").read_text(encoding="utf-8")
+    assert 'sys.argv[1:] != ["emulate"]' in emu
+    for word in ("subprocess", "os.system", "eval(", "exec(", "__import__", "socket", "ctypes"):
+        assert word not in emu, word
 
 
 def test_jadx_tar_is_read_in_memory_and_names_cannot_escape(tmp_path):
