@@ -3,8 +3,8 @@
   "title": "PE-Datei mit angehängter Konfiguration",
   "level": "mittel",
   "description": "Eine minimale, nicht lauffähige PE32-Datei (NOP-Rumpf, ein Import: KERNEL32!ExitProcess). Hinter der letzten Sektion hängt ein Overlay mit Präfix CFG: und einer Base64-kodierten JSON-Konfiguration.",
-  "goal": "Die KI soll mit pe_headers den Import und das Overlay finden, das Overlay mit decode_layer (genau ab dem Blob) dekodieren und den Wert id der Konfiguration belegen.",
-  "tests": "Rezept exe, PE-Parser, Overlay-Erkennung, gezieltes Dekodieren mit Offset und Länge.",
+  "goal": "Die Plattform findet das Overlay, dekodiert es ohne Modell und belegt den Wert id (ADR-0011). Die KI soll den Import aus pe_headers belegen.",
+  "tests": "Rezept exe, PE-Parser, Overlay-Erkennung, deterministisches Dekodieren mit Kennung, Antwort aus dem Dekodier-Beleg.",
   "sample": {"name": "bench.exe.bin", "builder": "pe_appended_config"},
   "job_description": "PE file with appended data.",
   "questions": [

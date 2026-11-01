@@ -56,7 +56,9 @@ class HelperAgents:
             return None
         obj = extract_json_object(resp.text)
         self.store.finish_step(sid, status="ok" if obj else "error", duration_ms=int((time.monotonic() - t0) * 1000),
-                               output_preview=resp.text)
+                               output_preview=resp.text,
+                               how=f"prompt={p.id}@{p.version} sha256={p.sha256[:12]}; model={self.llm.model}; "
+                                   f"tokens in/out={resp.prompt_tokens}/{resp.completion_tokens}")
         return obj
 
     # ---- self-evaluation ------------------------------------------------------------------

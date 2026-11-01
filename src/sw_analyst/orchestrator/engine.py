@@ -5,6 +5,7 @@ its reason, so the dashboard and the report can show what was done, why and how 
 """
 from __future__ import annotations
 
+import difflib
 import json
 import re
 import time
@@ -19,6 +20,7 @@ from sw_analyst.llm.base import LLMClient
 from sw_analyst.orchestrator.agents import HelperAgents
 from sw_analyst.orchestrator.recipes import load_recipe, recipe_id_for
 from sw_analyst.orchestrator.runner import TaskOutcome, TaskRunner, check_answer_grounding
+from sw_analyst.orchestrator.verifier import claimed_values, field_values, locate_quote, verify_finding
 from sw_analyst.prompts.registry import SYNTHESIS_GOAL, SYNTHESIS_GUIDE
 
 MAX_ATTEMPTS = 2
@@ -32,11 +34,37 @@ BUDGET_RESERVE_FROM = 0.75    # from here on the rest of the budget belongs to t
 # Derived files of these types get their own task. Text and data stay with the task that decoded them.
 RECURSE_TYPES = {"pe", "elf", "apk", "jar", "zip", "dex", "pdf", "macho", "ole2",
                  "powershell", "vbscript", "javascript", "python", "bash", "batch", "html"}
+MAX_DECODE_CHAIN = 3          # layers the platform peels on its own; deeper ones stay with the model
+SAME_POINT = 0.75             # open points this similar say the same thing in other words
 _NORM = re.compile(r"\s+")
+_DECODED = re.compile(r"^Decoded configuration field (\S+?)=(.*) \(([^()]*)\)\.$")
+_POINT_NOISE = re.compile(r"^(?:gap:\s*)?|\bf-\d+:?\s*", re.I)
+_ABOUT_DECODING = re.compile(r"decod|base64|config|overlay", re.I)
+_DECODING_THE_OVERLAY = re.compile(r"(?=.*decod)(?=.*overlay)", re.I | re.S)
+_ABOUT_PACKING = re.compile(r"\bpack(?:ing|ed|er)\b", re.I)
+_QUESTION_REF = re.compile(r"\bq(\d+)\b", re.I)
+_WORD = re.compile(r"[a-z0-9_-]+")
 
 
 def _norm_title(t: str) -> str:
     return _NORM.sub(" ", t.lower()).strip()
+
+
+def _point_key(statement: str) -> str:
+    return _norm_title(_POINT_NOISE.sub("", statement))
+
+
+def _same_point(a: str, known: list[str]) -> bool:
+    """Two points about different values are different points, however alike the words are."""
+    values = set(claimed_values(a))
+    return any(set(claimed_values(k)) == values and difflib.SequenceMatcher(None, a, k).ratio() >= SAME_POINT for k in known)
+
+
+def _asks_for(question: str, key: str) -> bool:
+    """The question asks directly for this field. A sample chooses its own keys, so a key that merely occurs as a word
+    of the question ("file", "the") must not make the sample's value the answer."""
+    return re.search(rf"\b(?:what|which)\s+is\s+(?:the\s+)?{re.escape(key)}(?:\s+value)?\s*(?:[?.:]|$|\s+(?:in|of|for|from)\b)",
+                     question, re.I) is not None
 
 
 class JobEngine:
@@ -57,11 +85,48 @@ class JobEngine:
             self._translate_inputs(job_id)
             self._triage(job_id)
             self._plan(job_id)
+            self._answer_from_fields(job_id)
             status = self._loop(job_id, t_job)
+            self._reconcile(job_id)
         except Exception as e:  # noqa: BLE001 - a job must end in a stored state, never crash the worker
             self.store.log(job_id, f"job crashed: {e}", level="error", trace=traceback.format_exc()[-1500:])
             status = "failed"
         return self._finalize(job_id, status, t_job)
+
+    def follow_up(self, job_id: str) -> str:
+        """Re-check a finished job with today's rules and the deterministic steps, no model involved.
+
+        Append-only: evidence, findings and tasks are added, a changed finding or answer keeps its earlier state in the
+        event log and the audit chain. Time and duration of the original run stay."""
+        job = self.store.get_job(job_id)
+        if not job:
+            raise KeyError(job_id)
+        if job["status"] in ("queued", "uploading", "running"):
+            raise ValueError(f"job {job_id} is still {job['status']}")
+        title = "Follow-up: deterministic re-check"
+        if any(t["title"] == title and t["status"] == "done" for t in self.store.list_tasks(job_id)):
+            self.store.log(job_id, "follow-up already done, nothing changed", level="warn")
+            return job["status"]
+        t0 = time.monotonic()
+        grp = self.store.add_task(job_id, title=title, goal="Re-check findings and answers without a model", kind="group",
+                                  origin="triage", priority=1, reason="requested after the job ended")
+        self.store.log(job_id, "follow-up started", previous_status=job["status"], previous_summary=job["summary_en"])
+        for f in self.store.list_findings(job_id, "confirmed"):
+            if f["statement_en"].startswith("Prompt injection attempt"):   # written by the platform, not a model claim
+                continue
+            vf = verify_finding(self.store, job_id, {"statement": f["statement_en"], "status": "confirmed", "evidence": [
+                {"id": q["evidence_id"], "quote": q["quote"]} for q in f["quotes"]]})
+            if vf.status != "confirmed":
+                self.store.set_finding_status(f["id"], vf.status, vf.reject_reason)
+        self._deterministic(job_id, grp["id"], job["detected_type"])
+        self._triage_artifacts(job_id, grp)
+        for t in self.store.queue(job_id):
+            if t["status"] == "pending":
+                self.store.update_task(t["id"], status="skipped", finished_at=utcnow(),
+                                       summary_en="skipped: a follow-up runs no model")
+        self._reconcile(job_id)
+        self.store.update_task(grp["id"], status="done", finished_at=utcnow())
+        return self._finalize(job_id, "done", t0, follow_up=True)
 
     # ---- translation of inputs ----------------------------------------------------------------------
     def _tr(self, job_id: str, text: str, what: str, direction: str = "en") -> str:
@@ -100,9 +165,92 @@ class JobEngine:
                 detected = str(r.meta.get("type") or "unknown").lower()
         recipe = recipe_id_for(detected)
         self.store.update_job(job_id, detected_type=detected, recipe=recipe)
+        self._deterministic(job_id, group["id"], detected)
+        self._triage_artifacts(job_id, group)
         self.store.update_task(group["id"], status="done", finished_at=utcnow())
 
-    def _triage_tool(self, job_id: str, parent_id: str, tool: str, args: dict, title: str, goal: str):
+    def _deterministic(self, job_id: str, parent_id: str, detected: str) -> None:
+        """Steps that need no model run before any model call, so budget goes to what only a model can do."""
+        if detected != "pe":      # shortcut: only PE overlays so far, add scripts when their blobs can be located reliably
+            return
+        args = {"path": "sample"}
+        r = self._triage_tool(job_id, parent_id, "pe_headers", args, "Deterministic: PE headers",
+                              "Read headers, overlay and packing signs", may_fail=True)
+        if not r.ok:
+            return
+        self._record_packing(job_id, r)
+        if r.meta.get("overlay_size"):
+            path, offset, length = "sample", r.meta["overlay_offset"], r.meta["overlay_size"]
+            for layer in range(1, MAX_DECODE_CHAIN + 1):
+                d = self._triage_tool(job_id, parent_id, "decode_layer",
+                                      {"path": path, "method": "auto", "offset": offset, "length": length},
+                                      f"Deterministic: decode overlay layer {layer}", f"Decode {path} at offset {offset}",
+                                      may_fail=True)
+                if not d.ok or not d.meta.get("looks_encoded"):
+                    break
+                path, offset, length = d.meta["derived"], 0, 0
+        self._record_fields(job_id)
+        tools = {t.name for t in self.gateway.list_tools()}
+        if "list_functions" not in tools:     # the Ghidra image is not built
+            return
+        self._triage_tool(job_id, parent_id, "list_functions", {"path": "sample", "limit": 200}, "Deterministic: functions",
+                          "List the functions of the sample", may_fail=True)
+        entry = f"0x{(r.meta.get('image_base') or 0) + (r.meta.get('entry_rva') or 0):x}"
+        for tool in ("disassemble", "decompile"):
+            if tool in tools:
+                self._triage_tool(job_id, parent_id, tool, {"function": entry, "path": "sample"},
+                                  f"Deterministic: {tool} entry point", f"Run {tool} at {entry}", may_fail=True)
+
+    def _record_packing(self, job_id: str, r) -> None:
+        line = next((x for x in r.text.splitlines() if x.startswith("Packing check:")), "")
+        if line:
+            # Confirmed is what the rule reported. It is a heuristic and no proof that the file is unpacked.
+            self.store.add_finding(job_id, r.meta["task_id"], f"Platform rule, recipe exe: {line} Heuristic, not proof of absence.",
+                                   "confirmed", [r.meta["evidence_id"]], [{"evidence_id": r.meta["evidence_id"], "quote": line}], "")
+
+    def _record_fields(self, job_id: str) -> None:
+        """Each field of a decoded JSON object becomes a confirmed finding that quotes the decode evidence."""
+        known = {f["statement_en"] for f in self.store.list_findings(job_id)}
+        for ev in self.store._q("SELECT * FROM evidence WHERE job_id=? AND tool='decode_layer' ORDER BY id", (job_id,)):
+            meta = ev["source_ref"] or {}
+            for key, value in (meta.get("json_fields") or {}).items():
+                statement = f"Decoded configuration field {key}={value} ({meta.get('derived')})."
+                if statement in known:
+                    continue
+                quote = locate_quote(f"{key} = {value}", ev["text"])
+                if quote and not self._injected(job_id, ev["task_id"], key, value):
+                    self.store.add_finding(job_id, ev["task_id"], statement, "confirmed", [ev["id"]],
+                                           [{"evidence_id": ev["id"], "quote": quote}], "")
+                    known.add(statement)
+                    self._translate_new(job_id, ev["task_id"])
+
+    def _decoded_fields(self, job_id: str) -> list[tuple[str, str, str]]:
+        hits = ((_DECODED.match(f["statement_en"]), f["id"]) for f in self.store.list_findings(job_id, "confirmed"))
+        return [(m.group(1).lower(), m.group(2), fid) for m, fid in hits if m]
+
+    def _answer_from_fields(self, job_id: str) -> None:
+        """A question that names exactly one decoded field is answered from the decode evidence, without a model."""
+        fields = self._decoded_fields(job_id)
+        for t in self.store.list_tasks(job_id) if fields else []:
+            if t["kind"] != "question" or t["status"] not in ("pending", "done", "skipped"):
+                continue
+            ans = self.store.get_answer(job_id, t["params"].get("question_id")) or {}
+            question = ans.get("text_en") or ans.get("text_orig") or ""
+            hits = {(value, fid) for key, value, fid in fields if _asks_for(question, key)}
+            if len({value for value, _ in hits}) != 1:
+                continue
+            value, fid = sorted(hits)[0]
+            if ans.get("status") == "answered" and ans.get("answer_en") == value:
+                continue
+            self.store.log(job_id, f"question {ans['question_id']} answered from decoded field {fid}",
+                           previous_answer=ans.get("answer_en") or "")
+            self._apply_answer(job_id, t, TaskOutcome("done", answer_text=value, confirmed_ids=[fid]))
+            if self.store.get_answer(job_id, ans["question_id"])["status"] == "answered":   # otherwise the model still tries
+                self.store.update_task(t["id"], status="done", finished_at=utcnow(),
+                                       summary_en=f"answered from decoded field {fid}, no model involved")
+
+    def _triage_tool(self, job_id: str, parent_id: str, tool: str, args: dict, title: str, goal: str,
+                     may_fail: bool = False):
         t = self.store.add_task(job_id, title=title, goal=goal, kind="triage", origin="triage", priority=1,
                                 parent_id=parent_id, reason="deterministic first look, no model involved")
         self.store.update_task(t["id"], status="running", started_at=utcnow(), attempts=1)
@@ -115,21 +263,31 @@ class JobEngine:
                                      r.text if r.ok else f"[tool error] {r.error}", source_ref=r.meta)
         self.store.finish_step(sid, status="ok" if r.ok else "error", duration_ms=ms, output_preview=ev["text"],
                                evidence_id=ev["id"])
-        self.store.update_task(t["id"], status="done" if r.ok else "failed", finished_at=utcnow(), duration_ms=ms,
+        self.store.update_task(t["id"], status="done" if r.ok or may_fail else "failed", finished_at=utcnow(), duration_ms=ms,
                                summary_en=(ev["text"].splitlines() or [""])[0][:200])
+        r.meta.update(task_id=t["id"], evidence_id=ev["id"])
         return r
 
     def _triage_artifacts(self, job_id: str, parent: dict) -> None:
         """Every new derived file gets hashes and a type (no model). Code and containers get their own task."""
         job = self.store.get_job(job_id)
+        self._record_fields(job_id)      # also for what a model decoded during the task
         for f in self.gateway.list_files(job_id):
             path = f["path"]
             title = f"Triage artifact: {path}"
-            if f["kind"] != "derived" or self.store.has_similar_task(job_id, _norm_title(title)):
+            strings = f"Strings artifact: {path}"
+            if f["kind"] != "derived":
                 continue
-            r = self._triage_tool(job_id, parent["id"], "identify_type", {"path": path}, title,
-                                  f"Identify {path}, derived during {parent['id']}")
-            self._triage_tool(job_id, parent["id"], "hash_file", {"path": path}, f"Hash artifact: {path}", f"Hash {path}")
+            new = not self.store.has_similar_task(job_id, _norm_title(title))
+            if new:
+                r = self._triage_tool(job_id, parent["id"], "identify_type", {"path": path}, title,
+                                      f"Identify {path}, derived during {parent['id']}")
+                self._triage_tool(job_id, parent["id"], "hash_file", {"path": path}, f"Hash artifact: {path}", f"Hash {path}")
+            if not self.store.has_similar_task(job_id, _norm_title(strings)):
+                self._triage_tool(job_id, parent["id"], "strings_extract", {"path": path}, strings, f"Strings of {path}",
+                                  may_fail=True)
+            if not new:
+                continue
             kind = str(r.meta.get("type") or "unknown").lower() if r.ok else "unknown"
             self.store.log(job_id, f"artifact {path}: type {kind}", sha256=f["sha256"], parent=parent["id"])
             recipe_id = recipe_id_for(kind)
@@ -372,18 +530,78 @@ class JobEngine:
         points = ev["gaps"] or ([f"Goal of task {task_id} not reached: {ev['assessment']}"]
                                 if ev["goal_reached"] is False and ev["assessment"] else [])
         findings = self.store.list_findings(job_id)
-        known = {f["statement_en"] for f in findings}
+        known = [_point_key(f["statement_en"]) for f in findings if f["status"] != "rejected"]
         open_count = sum(1 for f in findings if f["status"] == "open")
         for point in points:
-            if point in known or self._injected(job_id, task_id, point):
+            key = _point_key(point)
+            if _same_point(key, known):
+                self.store.log(job_id, f"open point already known, not recorded again: {point}", level="debug")
+                continue
+            if self._injected(job_id, task_id, point):
                 continue
             if open_count >= MAX_OPEN_POINTS_JOB:
                 self.store.log(job_id, f"open point limit reached, not recorded: {point}", level="warn")
                 continue
             self.store.add_finding(job_id, task_id, point, "open", [], [], "")
             open_count += 1
-            known.add(point)
+            known.append(key)
         self._translate_new(job_id, task_id)
+
+    # ---- end of the analysis: settle what the findings left open ---------------------------------------------
+    def _reconcile(self, job_id: str) -> None:
+        self._answer_from_fields(job_id)
+        self._resolve_conflicts(job_id)
+        self._close_points(job_id)
+
+    def _resolve_conflicts(self, job_id: str) -> None:
+        """Two values for one field: the decode evidence decides. Without it the job cannot end as done (_finalize)."""
+        decoded = {key: (value, fid) for key, value, fid in self._decoded_fields(job_id)}
+        seen: dict[str, dict[str, list[str]]] = {}
+        findings = self.store.list_findings(job_id)
+        for f in findings:
+            if f["status"] in ("confirmed", "hypothesis"):
+                for key, value in field_values(f["statement_en"]):
+                    seen.setdefault(key, {}).setdefault(value, []).append(f["id"])
+        known = {f["statement_en"] for f in findings}
+        for key, values in seen.items():
+            if len(values) < 2:
+                continue
+            won = decoded.get(key)
+            if won and won[0] in values:
+                for value, ids in values.items():
+                    for fid in ids if value != won[0] else []:
+                        self.store.set_finding_status(fid, "rejected", f"refuted by {won[1]}: decode evidence shows {key}={won[0]}")
+                continue
+            statement = f"CONFLICT: field {key} has different values: {', '.join(sorted(values))}."
+            if statement not in known and not self._injected(job_id, None, statement):
+                self.store.add_finding(job_id, None, statement, "open", [], [], "")
+        refuted = {f["id"] for f in self.store.list_findings(job_id, "rejected") if f["reject_reason"].startswith("refuted")}
+        for a in self.store.list_answers(job_id):
+            if a["status"] == "answered" and set(a["finding_ids"]) & refuted:
+                self.store.update_answer(job_id, a["question_id"], status="unresolved", answer_en="", answer_de="",
+                                         evaluation_en="Answer withdrawn: its findings were refuted by decode evidence.")
+
+    def _close_points(self, job_id: str) -> None:
+        """A gap or question stays open only while nothing answers it: decoded fields, answered questions, the packing check."""
+        fields = self._decoded_fields(job_id)
+        keys = {key for key, _, _ in fields}
+        by_field = fields[0][2] if fields else ""
+        answered = {a["question_id"].lower() for a in self.store.list_answers(job_id) if a["status"] == "answered"}
+        findings = self.store.list_findings(job_id)
+        packing = next((f["id"] for f in findings if f["statement_en"].startswith("Platform rule, recipe exe: Packing check: no sign")), "")
+        for f in findings:
+            text = f["statement_en"]
+            if f["status"] not in ("open", "hypothesis") or text.startswith(("GUARD:", "CONFLICT:")):
+                continue
+            words = set(_WORD.findall(text.lower()))
+            refs = {f"q{n}" for n in _QUESTION_REF.findall(text)}
+            if refs and refs <= answered:
+                self.store.set_finding_status(f["id"], "closed", f"closed: {', '.join(sorted(refs)).upper()} answered")
+            # Only what names a decoded field or decoding the overlay: "layer 3 could not be decoded" stays open.
+            elif by_field and ((keys & words and _ABOUT_DECODING.search(text)) or _DECODING_THE_OVERLAY.match(text)):
+                self.store.set_finding_status(f["id"], "closed", f"closed: decode evidence answers it, see {by_field}")
+            elif packing and _ABOUT_PACKING.search(text):
+                self.store.set_finding_status(f["id"], "closed", f"closed: see the packing check {packing}")
 
     def _add_subtasks(self, job_id: str, parent: dict, subs: list[dict], origin: str, depth: int) -> None:
         if depth >= MAX_DEPTH:
@@ -492,7 +710,7 @@ class JobEngine:
             if new != g["status"]:
                 self.store.update_task(g["id"], status=new)
 
-    def _finalize(self, job_id: str, status: str, t_job: float) -> str:
+    def _finalize(self, job_id: str, status: str, t_job: float, follow_up: bool = False) -> str:
         for a in self.store.list_answers(job_id):
             if a["status"] == "pending":
                 self.store.update_answer(job_id, a["question_id"], status="unresolved",
@@ -503,20 +721,26 @@ class JobEngine:
         work = [t for t in self.store.list_tasks(job_id) if t["kind"] != "group" and t["origin"] != "triage"]
         finished = [t for t in work if t["status"] == "done"]
         evaluated = [t["params"]["goal_reached"] for t in work if t["params"].get("goal_reached") is not None]
+        # A follow-up runs no model: budget-skipped tasks stay named in the summary, but only they may stay undone.
+        unfinished = [t for t in work if t["status"] != "done" and not (follow_up and t["status"] == "skipped")]
+        conflict = [f for f in self.store.list_findings(job_id, "open") if f["statement_en"].startswith("CONFLICT:")]
         if status in ("done", "partial") and work and not finished:
             status = "failed"              # nothing was analysed, e.g. the model was unreachable
-        elif status == "done" and (len(finished) < len(work) or any(a["status"] != "answered" for a in answers)):
+        elif status == "done" and (unfinished or conflict or any(a["status"] != "answered" for a in answers)):
             status = "partial"
         prog = self.store.progress(job_id)
+        triaged = sum(1 for t in self.store.list_tasks(job_id) if t["title"].startswith("Triage artifact:"))
         summary = (f"{prog['done']} of {prog['tasks_total']} tasks done, {prog['failed']} failed, "
                    f"{prog['blocked']} blocked; {sum(1 for a in answers if a['status'] == 'answered')} of "
                    f"{len(answers)} questions answered; {len(self.store.list_findings(job_id, 'confirmed'))} confirmed findings. "
                    f"Coverage: {len(finished)} of {len(work)} analysis tasks done, "
-                   f"{sum(1 for t in work if t['origin'] == 'artifact' and t['status'] == 'done')} artifacts analysed, "
+                   f"{triaged} derived files triaged, "
+                   f"{sum(1 for t in work if t['origin'] == 'artifact' and t['status'] == 'done')} of them analysed in depth, "
                    f"{sum(1 for t in work if t['status'] == 'skipped')} skipped for budget. "
-                   f"Goals reached by the model's own assessment in {sum(evaluated)} of {len(evaluated)} evaluated tasks.")
-        self.store.update_job(job_id, status=status, finished_at=utcnow(),
-                              duration_ms=int((time.monotonic() - t_job) * 1000), summary_en=summary,
-                              summary_de=self._tr(job_id, summary, "translate job summary", "de"))
+                   f"Goals reached by the model's own assessment in {sum(evaluated)} of {len(evaluated)} evaluated tasks."
+                   + (" Status after a deterministic follow-up without a model." if follow_up else ""))
+        timing = {} if follow_up else {"finished_at": utcnow(), "duration_ms": int((time.monotonic() - t_job) * 1000)}
+        self.store.update_job(job_id, status=status, summary_en=summary,
+                              summary_de=self._tr(job_id, summary, "translate job summary", "de"), **timing)
         self.store.log(job_id, f"job finished: {status}", summary=summary)
         return status

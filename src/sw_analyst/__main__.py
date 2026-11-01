@@ -8,12 +8,36 @@ Normally started through scripts\\start.ps1, which sets SW_LOG_FILE so stage lin
 from __future__ import annotations
 
 import argparse
+import socket
 import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
 from sw_analyst.common.paths import PROJECT_ROOT, prepare_runtime, resolve_data_dir
 from sw_analyst.preflight import log, main_check
+
+
+def follow_up(data: Path, job_id: str, port: int) -> int:
+    from sw_analyst.common.store import Store
+    from sw_analyst.gateway.container_runner import ContainerRunner
+    from sw_analyst.gateway.container_tools import attach_container_tools
+    from sw_analyst.gateway.dev_gateway import DevGateway
+    from sw_analyst.orchestrator.engine import JobEngine
+
+    # A running app keeps its own open audit chain for the job; a second writer would break it.
+    with socket.socket() as s:
+        if s.connect_ex(("127.0.0.1", port)) == 0:
+            print(f"Port {port} is in use: stop the app first (scripts\\stop.ps1).", file=sys.stderr)
+            return 2
+    gateway = DevGateway(data)
+    attach_container_tools(gateway, ContainerRunner.detect())
+    try:
+        status = JobEngine(Store(data / "sw_analyst.db", data / "logs"), None, gateway).follow_up(job_id)
+    except (KeyError, ValueError) as e:
+        print(f"Follow-up refused: {e}", file=sys.stderr)
+        return 2
+    print(f"{job_id}: {status}")
+    return 0
 
 
 def main() -> None:
@@ -25,11 +49,14 @@ def main() -> None:
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--check", action="store_true", help="run the preflight checks and exit")
     ap.add_argument("--json", action="store_true", help="with --check: machine-readable output")
+    ap.add_argument("--follow-up", metavar="JOB", help="re-check a finished job without a model (append-only) and exit")
     args = ap.parse_args()
 
     data = resolve_data_dir(args.data_dir)
     if args.check:
         sys.exit(main_check(PROJECT_ROOT, data, args.port, urlparse(args.ollama_url).port or 11435, args.model, args.json))
+    if args.follow_up:
+        sys.exit(follow_up(data, args.follow_up, args.port))
     if not args.model:
         ap.error("--model is required (unless --check)")
 

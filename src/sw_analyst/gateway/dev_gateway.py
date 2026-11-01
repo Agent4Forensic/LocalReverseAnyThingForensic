@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import heapq
 import io
+import json
 import math
 import os
 import re
@@ -55,6 +56,15 @@ LINE_DISPLAY_LIMIT = 2000
 TIME_BUDGET_S = 5.0
 HIGH_ENTROPY = 7.2
 ENTROPY_MAX_ROWS = 256
+PACKED_ENTROPY = HIGH_ENTROPY
+PACKED_MIN_RAW = 4096
+PACKER_SECTION = re.compile(r"^\.?(?:upx\d*|aspack|adata|mpress\d*|nsp\d|themida|vmp\d*|petite)$", re.I)
+MAX_JSON_FIELD_INPUT = 1024 * 1024
+MAX_JSON_FIELDS = 50
+_BLOBS = {"base64": re.compile(rb"[A-Za-z0-9+/_\-]{8,}={0,2}"),
+          "base32": re.compile(rb"[A-Z2-7]{8,}={0,6}"),
+          "hex": re.compile(rb"(?:[0-9A-Fa-f]{2}){4,}")}
+_LABEL = re.compile(rb"\s*[A-Za-z][A-Za-z0-9_.-]{1,15}[:=](?![/\\])\s*")
 
 _JOB_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 _DERIVED_NAME_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,99}")
@@ -837,8 +847,13 @@ class DevGateway:
             ctx.notes.append(f"input limited to {MAX_DECODE_INPUT // (1024 * 1024)} MiB")
         if not chunk:
             raise ToolError("No input bytes to decode")
-        sref = {"file": name, "offset": offset, "length": len(chunk)}
         pre: list[str] = []
+        chunk, skipped = self._strip_label(chunk, method)
+        if skipped:
+            offset += len(skipped)
+            pre.append(f"Skipped label {_clean(skipped.decode('latin-1'))!r} ({len(skipped)} bytes) in front of the data; "
+                       f"decoding starts at offset {offset} (0x{offset:x})")
+        sref = {"file": name, "offset": offset, "length": len(chunk)}
         meta_extra: dict[str, Any] = {}
         if method == "auto":
             cands = self._auto_candidates(chunk)
@@ -882,11 +897,54 @@ class DevGateway:
         L += extra
         L.append("Preview:")
         L.append(preview)
+        if kind.endswith("text"):
+            L.append(f"Hex (first {min(32, len(out))} of {len(out)} bytes): {out[:32].hex(' ')}")
+        fields, total = self._json_fields(out)
+        if fields:
+            L.append(f"JSON fields ({len(fields)} of {total}; nested, long or multi-line values only in the preview):")
+            L += [f"  {k} = {v}" for k, v in fields.items()]
         meta = {"source_ref": sref, "derived": logical, "sha256": sha, "size": len(out),
                 "method": used, "reused_existing": reused, "result_kind": "text" if kind.endswith("text") else "binary",
-                "magic": magic[0] if magic else None}
+                "magic": magic[0] if magic else None, "json_fields": fields,
+                "looks_encoded": len(out.strip()) % 4 == 0 and self._is_blob("base64", out)}
         meta.update(meta_extra)
         return _Out("\n".join(L), meta)
+
+    @staticmethod
+    def _is_blob(name: str, data: bytes) -> bool:
+        return _BLOBS[name].fullmatch(b"".join(data.split())) is not None
+
+    @staticmethod
+    def _strip_label(chunk: bytes, method: str) -> tuple[bytes, bytes]:
+        """'CFG:eyJ...' fails the decoder because of the label. Removed only when exactly a clean blob stays behind."""
+        names = list(_BLOBS) if method == "auto" else [method] if method in _BLOBS else []
+        m = _LABEL.match(chunk)
+        is_blob = DevGateway._is_blob
+        if m and any(not is_blob(n, chunk) and is_blob(n, chunk[m.end():]) for n in names):
+            return chunk[m.end():], m.group(0)
+        return chunk, b""
+
+    @staticmethod
+    def _json_fields(out: bytes) -> tuple[dict[str, str], int]:
+        """Flat key = value lines of a decoded JSON object, so the value is read and not worked out. A value is listed
+        whole or not at all, and an object with a repeated key gives none: which value counts is not a fact."""
+        if len(out) > MAX_JSON_FIELD_INPUT or out.lstrip()[:1] != b"{":
+            return {}, 0
+
+        def unique(pairs: list) -> dict:
+            if len({k for k, _ in pairs}) != len(pairs):
+                raise ValueError("repeated key")
+            return dict(pairs)
+        try:
+            obj = json.loads(out, object_pairs_hook=unique)
+        except (ValueError, RecursionError):
+            return {}, 0
+        fields: dict[str, str] = {}
+        for k, v in list(obj.items())[:MAX_JSON_FIELDS]:
+            key, text = _clean(str(k)), _clean(str(v))
+            if isinstance(v, (str, int, float, bool)) and len(key) <= 60 and len(text) <= 300 and "\n" not in key + text:
+                fields[key] = text
+        return fields, len(obj)
 
     @staticmethod
     def _short(data: bytes, n: int = 40) -> str:
@@ -1107,15 +1165,34 @@ class DevGateway:
                         ok=False, error=msg)
         try:
             text = format_pe(info, len(data))
+            signs = self._packing_signs(info)
         except Exception:  # noqa: BLE001 - formatting must not leak exceptions either
             msg = "PE headers could not be formatted (corrupt structure)"
             return _Out(msg, {}, ok=False, error=msg)
+        text += "\nPacking check: " + (f"{len(signs)} sign(s): " + "; ".join(signs) if signs else "no sign found") + "."
         end = info.get("section_table_offset", 0) + 40 * len(info.get("sections", []))
         meta = {"source_ref": {"file": name, "offset": 0, "length": min(len(data), max(end, 64))},
-                "machine": info["machine_name"], "is_dll": info["is_dll"],
+                "machine": info["machine_name"], "is_dll": info["is_dll"], "image_base": info.get("image_base"),
                 "entry_rva": info.get("entry_rva"), "sections": [s["name"] for s in info.get("sections", [])],
-                "overlay_offset": info.get("overlay_offset"), "overlay_size": info.get("overlay_size", 0)}
+                "overlay_offset": info.get("overlay_offset"), "overlay_size": info.get("overlay_size", 0),
+                "packing_signs": signs}
         return _Out(text, meta)
+
+    @staticmethod
+    def _packing_signs(info: dict) -> list[str]:
+        """Recipe exe, step static_triage. Entropy of a small section says little, so it needs a minimum size."""
+        sections = info.get("sections", [])
+        out = [f"section {s['name']} has entropy {s['entropy']} on {s['raw_size']} raw bytes" for s in sections
+               if s["entropy"] > PACKED_ENTROPY and s["raw_size"] >= PACKED_MIN_RAW]
+        out += [f"section name {s['name']}" for s in sections if PACKER_SECTION.search(s["name"])]
+        imported = {fn for i in info.get("imports", []) for fn in i["functions"]}
+        if len(imported) <= 8 and imported & {"LoadLibraryA", "GetProcAddress", "VirtualAlloc"}:
+            out.append("few imports including a loader API")
+        rva = info.get("entry_rva") or 0
+        if sections and not any(s["virtual_address"] <= rva < s["virtual_address"] + max(s["virtual_size"], s["raw_size"])
+                                and s["flags"] & 0x20000000 for s in sections):
+            out.append("entry point outside the executable sections")
+        return out
 
     def _open_zip(self, ctx: _Ctx, logical: Any) -> tuple[zipfile.ZipFile, str]:
         data, name = ctx.read_all(logical)

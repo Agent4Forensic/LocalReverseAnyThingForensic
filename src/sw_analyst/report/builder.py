@@ -28,6 +28,9 @@ T = {
         "no": "abweichend", "na": "kein Sollwert", "unresolved": "NICHT KLÄRBAR", "answered": "beantwortet",
         "confirmed": "bestätigt", "hypothesis": "Hypothese", "open_s": "offen", "rejected": "verworfen",
         "self_eval": "Ziel (Selbstbewertung des Modells)", "reached": "erreicht", "not_reached": "nicht erreicht", "not_rated": "nicht bewertet", "done_when": "Abnahmekriterium", "origin": "Herkunft", "reason": "Begründung",
+        "refuted": "widerlegt", "closed": "Geschlossen", "code": "R6 Code-Auszüge (Ghidra)",
+        "no_disasm": "Keine Disassembly erhoben: Das Ghidra-Image fehlte oder der Lauf war älter als dieser Schritt.",
+        "cut": "gekürzt, vollständig im Beleg",
         "untranslated": "[EN]", "limits": "Grenzen: rein statische Analyse, offline, lokales Modell. Aussagen ohne Beleg wurden verworfen oder als Hypothese geführt; offene Punkte sind keine Aussagen und haben keinen Beleg.",
     },
     "en": {
@@ -44,6 +47,9 @@ T = {
         "no": "differs", "na": "no expected value", "unresolved": "NOT DETERMINABLE", "answered": "answered",
         "confirmed": "confirmed", "hypothesis": "hypothesis", "open_s": "open", "rejected": "rejected",
         "self_eval": "Goal (model's self-assessment)", "reached": "reached", "not_reached": "not reached", "not_rated": "not rated", "done_when": "Acceptance criterion", "origin": "origin", "reason": "reason",
+        "refuted": "refuted", "closed": "Closed", "code": "R6 Code excerpts (Ghidra)",
+        "no_disasm": "No disassembly collected: the Ghidra image was missing or the run predates this step.",
+        "cut": "cut, complete in the evidence",
         "untranslated": "", "limits": "Limits: static analysis only, offline, local model. Statements without evidence were rejected or kept as hypotheses; open points are not statements and have no evidence.",
     },
 }
@@ -76,6 +82,41 @@ def _hex(s) -> str:
 def _para(s) -> str:
     """A cell value that stands at the start of a line: a leading Markdown block marker is escaped."""
     return _BLOCK_START.sub(lambda m: m.group(1) + "\\" + m.group(2), _cell(s))
+
+
+_CODE_TOOLS = {"list_functions": "text", "disassemble": "asm", "decompile": "c"}
+_CODE_LINES = 200
+_CODE_BLOCKS = 12
+_CODE_LINE = 500
+_CODE_WARNINGS = 5
+_DECODED_FIELD = re.compile(r"(field )(\S+=\S+)")
+
+
+def _tool_warnings(text: str) -> list[str]:
+    """Lines read by hand: tool output holds sample text, a regex over it could backtrack for long."""
+    found = (line.partition("WARNING:")[2].strip().removesuffix("*/").strip()[:200] for line in text.splitlines() if "WARNING:" in line)
+    return list(dict.fromkeys(w for w in found if w))[:_CODE_WARNINGS]
+
+
+def _code_section(evidence: list[dict], t: dict) -> list[str]:
+    """Tool output as code blocks: same defanging as every other text, no fence can be closed from inside."""
+    rows = [e for e in evidence if e["tool"] in _CODE_TOOLS and not e["text"].startswith("[tool error]")]
+    if not rows:
+        return []
+    out = ["", f"## {t['code']}", ""]
+    if not any(e["tool"] == "disassemble" for e in rows):
+        out += [f"> [!NOTE] {t['no_disasm']}", ""]
+    for e in rows[:_CODE_BLOCKS]:
+        lines = defang_text(redact_payloads(e["text"])).replace("`", "'").splitlines()
+        version = re.sub(r"\s+", "_", _tok(e["tool_version"]))
+        out += [f"```{_CODE_TOOLS[e['tool']]} ev={_tok(e['id'])} tool={_tok(e['tool'])} version={version} sha256={_hex(e['result_sha256'])}"]
+        out += [line[:_CODE_LINE] for line in lines[:_CODE_LINES]]
+        if len(lines) > _CODE_LINES:
+            out.append(f"[... {len(lines) - _CODE_LINES} {t['cut']}]")
+        out += ["```", ""]
+        warnings = _tool_warnings(e["text"])
+        out += [f"> [!WARNING] {_tok(e['id'])}: {_cell(w)}" for w in warnings] + ([""] if warnings else [])
+    return out
 
 
 def _dur(ms: int) -> str:
@@ -145,11 +186,18 @@ def build_report(store: Store, job_id: str, lang: str = "de", model_name: str = 
             continue
         out += [f"### {stat_name[status]}", ""]
         for f in rows:
-            out.append(f"- **{_tok(f['id'])}** ({', '.join(_tok(x) for x in f['evidence_ids']) or t['none']}): {_cell(txt(f['statement_en'], f['statement_de']))}")
+            statement = _cell(txt(f["statement_en"], f["statement_de"]))
+            out.append(f"- **{_tok(f['id'])}** ({', '.join(_tok(x) for x in f['evidence_ids']) or t['none']}): "
+                       + (_DECODED_FIELD.sub(r"\1==\2==", statement) if f["statement_en"].startswith("Decoded configuration") else statement))
             for q in f["quotes"]:
                 out.append(f"  - {_tok(q.get('evidence_id'))}: `{_cell(q.get('quote')).replace('`', chr(39))[:240]}`")
             if f["reject_reason"]:
                 out.append(f"  - _{_cell(f['reject_reason'])}_")
+        out.append("")
+    refuted = [f for f in findings if f["status"] == "rejected" and f["reject_reason"].startswith("refuted")]
+    if refuted:
+        out += [f"### {t['refuted']}", ""]
+        out += [f"- **{_tok(f['id'])}**: {_cell(txt(f['statement_en'], f['statement_de']))}\n  - _{_cell(f['reject_reason'])}_" for f in refuted]
         out.append("")
 
     out += [f"## {t['answers']}", ""]
@@ -176,6 +224,12 @@ def build_report(store: Store, job_id: str, lang: str = "de", model_name: str = 
     out += ["", f"## {t['open']}", ""]
     ops = [f for f in findings if f["status"] in ("hypothesis", "open")]
     out += [f"- {_tok(f['id'])}: {_cell(txt(f['statement_en'], f['statement_de']))}" for f in ops] or [f"- {t['none']}"]
+    closed = [f for f in findings if f["status"] == "closed"]
+    if closed:
+        out += ["", f"### {t['closed']}", ""]
+        out += [f"- {_tok(f['id'])}: {_cell(txt(f['statement_en'], f['statement_de']))} (_{_cell(f['reject_reason'])}_)" for f in closed]
+
+    out += _code_section(evidence, t)
 
     out += ["", f"## {t['method']}", "", f"| {t['task']} | {t['status']} | {t['origin']} | {t['self_eval']} | {t['duration']} | {t['reason']} | {t['done_when']} |", "|---|---|---|---|---|---|---|"]
     out += [f"| {_tok(x['id'])} {_cell(x['title'])} | {_tok(x['status'])} | {_tok(x['origin'])} | {({True: t['reached'], False: t['not_reached']}.get(x['params'].get('goal_reached'), t['not_rated']))} | {_dur(x['duration_ms'])} | {_cell(x['reason'])[:100]} | {_cell(x['params'].get('done_when'))[:100]} |" for x in tasks]

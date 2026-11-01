@@ -35,14 +35,14 @@ steps:
     title: Resources and overlay
     goal: Inspect overlay and high-entropy regions for embedded payloads or configuration blobs and record their offsets, sizes and entropy.
     done_when: Offset, size and entropy of the overlay and high-entropy regions are recorded with evidence, or a finding states none exist in the sample or names the tool limit that prevented inspection.
-    guide: pe_headers gives the overlay offset and pe_resources lists resources with offset and size. Look at them with hexdump. If one holds encoded text, call decode_layer with offset and length of exactly that blob (skip any prefix) and read the result. If it holds an unencoded file, save it with extract_range. A result with its own magic is a new artifact; the platform triages it. Do not guess keys.
+    guide: The platform already decoded the overlay when it holds an encoded blob; read that evidence and its JSON fields first, do not decode it again. pe_headers gives the overlay offset and pe_resources lists resources with offset and size. Look at them with hexdump. If another region holds encoded text, call decode_layer with its offset and length (a label such as CFG is skipped for you) and read the value from the result, never work it out yourself. If it holds an unencoded file, save it with extract_range. A result with its own magic is a new artifact; the platform triages it. Do not guess keys.
     priority: 150
     tools_hint: [pe_headers, pe_resources, entropy_map, hexdump, decode_layer, extract_range]
   - id: ghidra_full
     title: Code of the relevant functions
     goal: Find the functions behind the indicated capabilities, read their decompiled code and establish what they do, from which callers, with which control flow.
     done_when: The entry point and each function behind an indicated capability are named with address and quoted code, or a finding names which function could not be read and why.
-    guide: Start with list_functions (the first call can take minutes), then decompile the entry point and the functions at capa locations or those using suspicious imports. Follow callers with xrefs. Use disassemble when decompiled output is missing and basic_blocks for control flow. Quote code as evidence; a behaviour is confirmed only by code that performs it, and decompiler output only approximates the code. Follow key handling to its source before using a key with decode_layer.
+    guide: The platform already stored list_functions plus disassemble and decompile of the entry point when the Ghidra image exists; use that evidence first. Start with list_functions (the first call can take minutes), then decompile the entry point and the functions at capa locations or those using suspicious imports. Follow callers with xrefs. Use disassemble when decompiled output is missing and basic_blocks for control flow. Quote code as evidence; a behaviour is confirmed only by code that performs it, and decompiler output only approximates the code. Follow key handling to its source before using a key with decode_layer.
     priority: 160
     tools_hint: [list_functions, decompile, xrefs, disassemble, basic_blocks]
     requires_tools: [list_functions, decompile, xrefs, disassemble, basic_blocks]

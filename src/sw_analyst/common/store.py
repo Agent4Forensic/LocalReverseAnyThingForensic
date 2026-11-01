@@ -7,6 +7,7 @@ Thread-safe: one connection guarded by a re-entrant lock.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import threading
 from pathlib import Path
@@ -61,6 +62,7 @@ CREATE TABLE IF NOT EXISTS translations (
 # tables that hold the rows of one job (export/import); counters and translations are per installation
 EXPORT_TABLES = ("jobs", "tasks", "steps", "evidence", "findings", "annotations", "answers", "events", "guard_events")
 
+_TOKENS = re.compile(r"tokens in/out=(\d+)/(\d+)")
 _JSON_COLS = {"spec_json", "params_json", "source_ref_json", "injection_flags_json",
               "evidence_ids_json", "quotes_json", "finding_ids_json", "data_json"}
 
@@ -311,6 +313,13 @@ class Store:
             return self._q("SELECT * FROM findings WHERE job_id=? AND status=? ORDER BY id", (job_id, status))
         return self._q("SELECT * FROM findings WHERE job_id=? ORDER BY id", (job_id,))
 
+    def set_finding_status(self, fid: str, status: str, reason: str) -> dict:
+        """The row shows the newest state; every earlier state stays in the event log and the audit chain."""
+        self._x("UPDATE findings SET status=?, reject_reason=? WHERE id=?", (status, reason, fid))
+        f = self.get_finding(fid)
+        self.emit(f["job_id"], "finding", f, message=f"finding {fid} [{status}]: {reason}"[:300])
+        return f
+
     def set_finding_de(self, fid: str, text_de: str) -> dict:
         self._x("UPDATE findings SET statement_de=? WHERE id=?", (text_de, fid))
         f = self.get_finding(fid)
@@ -410,6 +419,12 @@ class Store:
                       "COALESCE(SUM(duration_ms),0) AS ms FROM steps WHERE job_id=?", (job_id,))
         return {"steps": r["steps"], "tool_calls": r["tools"] or 0, "llm_calls": r["llm"] or 0,
                 "duration_ms": r["ms"]}
+
+    def model_tokens(self, job_id: str) -> dict[str, int]:
+        """Token counts the runner and the helper agents wrote into the step records."""
+        pairs = [_TOKENS.search(r["how"] or "") for r in self._q("SELECT how FROM steps WHERE job_id=? AND how LIKE "
+                                                                 "'%tokens in/out=%'", (job_id,))]
+        return {"tokens_in": sum(int(m.group(1)) for m in pairs if m), "tokens_out": sum(int(m.group(2)) for m in pairs if m)}
 
     # ---- export / import of one job (sw_analyst.webui.bundle) --------------------------------
     def export_rows(self, job_id: str) -> dict[str, list[dict]]:

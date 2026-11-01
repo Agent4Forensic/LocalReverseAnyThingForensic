@@ -576,7 +576,7 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
                 "end": end_info(S, rid, j) if state == "finished" else None,
                 "task": ({"id": running["id"], "title": running["title"], "goal": running["goal"], "origin": running["origin"],
                           "started_at": running["started_at"], "elapsed_ms": elapsed(running["started_at"])} if running else None),
-                "step": step, "model": {"name": ref.model}, "recent": recent,
+                "step": step, "model": {"name": ref.model, **S.model_tokens(rid)}, "recent": recent,
                 "queue_length": len(S.queue(rid)), "next": nxt}
 
     # ---- log, timeline, guard, audit ---------------------------------------------------------------------
