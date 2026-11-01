@@ -499,7 +499,7 @@ def test_unresolved_question_reopens_once_after_new_confirmed_finding(tmp_path):
         if "answers one target question" in t:
             if "The file holds text." not in t:
                 return UNRESOLVED
-            return _found(t, "The question is answered.", answer={"text": "plain harmless text"})
+            return _found(t, "The question is answered: the file holds plain text.", answer={"text": "plain harmless text"})
         return _helpers(messages) or NOTHING
 
     q = TargetQuestion(id="Q1", text_orig="What is it?")

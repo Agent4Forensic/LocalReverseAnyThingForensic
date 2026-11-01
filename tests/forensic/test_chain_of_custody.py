@@ -103,9 +103,9 @@ def test_g1_quote_is_whitespace_normalised_but_otherwise_verbatim(tmp_path):
     store = Store(tmp_path / "t.db", tmp_path / "logs")
     j = _job(store)
     ev = _ev(store, j["id"], "key =\n   VALUE_ONE")
-    ok = verify_finding(store, j["id"], {"statement": "x", "status": "confirmed",
+    ok = verify_finding(store, j["id"], {"statement": "key holds VALUE_ONE", "status": "confirmed",
                                          "evidence": [{"id": ev["id"], "quote": "key = VALUE_ONE"}]})
-    bad = verify_finding(store, j["id"], {"statement": "x", "status": "confirmed",
+    bad = verify_finding(store, j["id"], {"statement": "key holds VALUE_TWO", "status": "confirmed",
                                           "evidence": [{"id": ev["id"], "quote": "key = VALUE_TWO"}]})
     assert ok.status == "confirmed" and bad.status == "hypothesis"
 
