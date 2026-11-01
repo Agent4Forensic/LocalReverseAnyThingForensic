@@ -14,7 +14,8 @@ param(
     [switch]$NoBrowser,
     [switch]$NoCleanup,     # skip the cleanup of orphans, scratch files, old logs and own Docker leftovers
     [switch]$NoDocker,      # do not start Docker Desktop (the container tools then stay unavailable)
-    [switch]$BuildTools     # build missing tool images (ADR-0006, needs Docker and network once, can take 10 minutes)
+    [switch]$NoBuild,       # do not build missing tool images (default: built once, needs Docker and network, up to 10 minutes)
+    [switch]$BuildTools     # kept for old command lines: missing tool images are built on every start anyway
 )
 $ErrorActionPreference = 'Stop'
 
@@ -171,14 +172,18 @@ function Wait-Docker([int]$LimitSec = 180) {
 }
 
 function Install-ToolImages {
+    if ($NoBuild -or $NoDocker) { Write-Stage 'INSTALL' 'tool images not checked (-NoBuild / -NoDocker)'; return }
     if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { Write-Stage 'INSTALL' "docker not found; tool images skipped. $($InstallHints.docker)" 'WARN'; return }
     if (-not (Test-Docker @('info', '--format', '{{.ServerVersion}}'))) { Write-Stage 'INSTALL' 'docker daemon not reachable; start Docker Desktop, tool images skipped' 'WARN'; return }
     foreach ($p in $Manifest.tool_images.PSObject.Properties) {
         if (Test-Docker @('image', 'inspect', $p.Value)) { Write-Stage 'INSTALL' "image $($p.Value) present" 'OK'; continue }
         if ($Offline) { Write-Stage 'INSTALL' "image $($p.Value) missing and -Offline is set" 'WARN'; continue }
         Write-Stage 'INSTALL' "building $($p.Value) from pinned sources (network, can take minutes)"
-        Invoke-Native 'powershell.exe' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $Root 'infra\tools\build-images.ps1'), '-Only', $p.Name)
-        Write-Stage 'INSTALL' "image $($p.Value) built" 'OK'
+        # A failed build must not stop the platform: it runs with the Python tools and the preflight reports the gap.
+        try {
+            Invoke-Native 'powershell.exe' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $Root 'infra\tools\build-images.ps1'), '-Only', $p.Name)
+            Write-Stage 'INSTALL' "image $($p.Value) built" 'OK'
+        } catch { Write-Stage 'INSTALL' "image $($p.Value) not built: $($_.Exception.Message); container tools for it stay unavailable" 'WARN' }
     }
 }
 function Install-Ollama($c) {
@@ -226,7 +231,6 @@ try {
     if (Test-Path $OllamaExe) { Write-Stage 'INSTALL' "ollama $($ol.version) present" 'OK' }
     elseif ($older.Count -gt 0) { Write-Stage 'INSTALL' "ollama $($ol.version) missing, older $($older[0].Name) present; see UPDATE" 'WARN' }
     else { Install-Ollama $ol }
-    if ($BuildTools) { Install-ToolImages }
 
     # ---- 3. UPDATE (report; apply only with -Update, only pinned versions) ----
     if ($SkipUpdateCheck) { Write-Stage 'UPDATE' 'skipped (-SkipUpdateCheck)' }
@@ -308,6 +312,7 @@ try {
     } catch { Write-Stage 'MODEL' "warm-up failed: $($_.Exception.Message)" 'WARN' }
 
     Wait-Docker
+    Install-ToolImages   # needs the daemon, so after Wait-Docker; builds only what is missing
 
     # ---- 5. APP ----
     $appPidFile = Join-Path $RunDir 'app.pid'

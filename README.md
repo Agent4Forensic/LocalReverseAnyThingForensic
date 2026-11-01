@@ -164,7 +164,7 @@ Was `start.ps1` selbst installiert: `.venv` mit `requirements.lock`, Ollama und 
 Container-Werkzeuge einmalig bauen (Docker muss laufen, Netz nötig, ca. 3 GB, bis zu 10 Minuten):
 
 ```powershell
-scripts\start.ps1 -BuildTools     # oder allein: infra\tools\build-images.ps1
+scripts\start.ps1               # baut fehlende Tool-Images selbst (-NoBuild lässt das aus); von Hand: infra\tools\build-images.ps1
 ```
 
 Schalter `start.ps1`: `-NoCleanup`, `-Offline`, `-Update`, `-SkipUpdateCheck`, `-NoBrowser`, `-BuildTools`, `-Model`, `-Port`, `-OllamaPort`.

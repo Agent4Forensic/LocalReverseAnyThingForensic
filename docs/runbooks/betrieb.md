@@ -9,7 +9,7 @@ Gilt für den Entwicklungsrechner (Windows 11). Echte Proben gehören nicht hier
 - uv (optional, schneller als pip): `winget install --id astral-sh.uv --exact`
 - Git: `winget install --id Git.Git --exact`
 - Docker Desktop (optional, nur für Ghidra, capa, FLOSS, YARA und jadx): `winget install --id Docker.DockerDesktop --exact`, danach starten
-- Werkzeug-Images einmalig bauen (Netz nötig, ca. 3 GB, kann 10 Minuten dauern): `infra\tools\build-images.ps1` oder `scripts\start.ps1 -BuildTools`. Ohne Images oder bei gestopptem Docker läuft die Plattform mit den eigenen Python-Werkzeugen weiter; der Preflight meldet das als Warnung.
+- Werkzeug-Images einmalig bauen (Netz nötig, ca. 3 GB, kann 10 Minuten dauern): `scripts\start.ps1` baut fehlende Images beim Start selbst (nach dem Docker-Start; `-NoBuild` überspringt das, `-Offline` baut nichts, ein fehlgeschlagener Bau verhindert den Start nicht). Von Hand: `infra\tools\build-images.ps1`. Ohne Images oder bei gestopptem Docker läuft die Plattform mit den eigenen Python-Werkzeugen weiter; der Preflight meldet das als Warnung.
 - Testwerkzeuge: `uv pip install --python .venv\Scripts\python.exe --require-hashes -r requirements-dev.lock`
 - Ollama (portabel unter `D:\Tools\sw-analyst`, wird von `start.ps1` aus `infra/manifest.json` installiert, Hash geprüft)
 - NVIDIA-GPU. Die Modellstufe richtet sich nach dem freien VRAM (siehe unten)
@@ -110,7 +110,7 @@ Läuft ohne Modell und ohne GPU (Skript-Modell, harmlose Proben aus dem Speicher
 | `Port 11435 already in use` | läuft schon ein Ollama der Plattform. Nicht ein zweites starten. |
 | Modell fehlt | `start.ps1` lädt es nach, oder `ollama pull <tag>` mit `OLLAMA_HOST=127.0.0.1:11435`. |
 | Hash-Abweichung beim Install | Datei wurde gelöscht, nichts installiert. Pin in `infra/manifest.json` und Quelle prüfen, nicht umgehen. |
-| Tab „Datei“: „Ghidra-Werkzeuge sind nicht geladen“ | Docker Desktop starten, einmalig `scripts\start.ps1 -BuildTools`, dann Server neu starten. Hex, Größe und Art gehen auch ohne. |
+| Tab „Datei“: „Ghidra-Werkzeuge sind nicht geladen“ | Docker Desktop starten, `scripts\start.ps1` neu starten (baut fehlende Images selbst). Hex, Größe und Art gehen auch ohne. |
 | Tab „Datei“: „Kein Maschinencode“ | Text, Skript oder Container: Assembler und Pseudocode gibt es nur für PE, ELF, Mach-O. Text zeigt der Tab „Code“. |
 | Import abgelehnt (`checksum_mismatch`, `audit_invalid`) | Paket verändert oder beschädigt. Nicht reparieren, beim Absender ein neues Paket anfordern und den Paket-SHA-256 vergleichen. |
 | Auftrag nach Neustart `failed` mit „job interrupted by restart“ | Server wurde während des Laufs beendet. Ein Lauf lässt sich nicht sicher fortsetzen; neu starten. Daten und Audit-Kette bis zum Abbruch bleiben erhalten. |

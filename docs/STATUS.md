@@ -394,6 +394,8 @@ Belegt (Diff, `tests/unit/test_preflight.py` grün):
 - [x] Scheitert `start.ps1` nach dem Ollama-Start, räumt es selbst per `stop.ps1 -Force` auf (Ollama, GPU und Docker bleiben nicht zurück).
 - [x] `preflight.py`: neue Log-Stufe `DATA`, weil `__main__` den Datenordner darunter loggt; Test ergänzt. Runbook `docs/runbooks/betrieb.md` beschreibt den Ablauf.
 
+- [x] `start.ps1` baut fehlende Tool-Images selbst, nachdem der Docker-Daemon bereit ist (`-NoBuild` und `-NoDocker` überspringen, `-Offline` baut nichts; ein Fehler beim Bau ist nur eine Warnung). `-BuildTools` bleibt als wirkungsloser Schalter für alte Aufrufe. Geprüft: PowerShell-Syntax. Nicht geprüft: echter Lauf mit fehlenden Images.
+
 Offen und nicht geprüft:
 - [ ] Die Skripte wurden nicht in einem echten Lauf getestet (Start mit gestopptem Docker, Stopp, Fenster schließen). Geprüft sind nur der Diff und die Python-Tests.
 - [ ] Fenster schließen statt `Strg+C`: Der Hook auf `PowerShell.Exiting` startet ein verstecktes `stop.ps1 -Force`. Das ist Best Effort, Windows gibt dem Host nur wenige Sekunden; nicht belegt.
