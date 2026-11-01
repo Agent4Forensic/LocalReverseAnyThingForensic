@@ -17,7 +17,7 @@ Stand: 2026-10-31. Jede Komponente wurde vor der Installation statisch geprüft 
 
 | Repository | Commit | Lizenz | Prüfung | Entscheidung |
 |---|---|---|---|---|
-| morluto/rea | 60149282fcfc (2026-11-01 laut Commit-Metadaten) | MIT | Enthält Funktionen zum Starten von Anwendungen und Netzwerk-Capture (DISCLAIMER.md, Abschnitt "Runtime, network, and device operations"). `npx rea-agents setup` ändert Agent-Konfigurationen. | Nur statische Tools, nur hinter dem Gateway, Version pinnen, kein `setup`. Details in ADR-0000. |
+| morluto/rea | Audit-Stand 160d821ac9a0 (Tag `rea-agents-6.8.0`); 60149282fcfc war nur der damalige Repo-HEAD und gilt nicht | MIT | Enthält Funktionen zum Starten von Anwendungen und Netzwerk-Capture (DISCLAIMER.md, Abschnitt "Runtime, network, and device operations"). `npx rea-agents setup` ändert Agent-Konfigurationen. | Nur statische Tools, nur hinter dem Gateway, Version pinnen, kein `setup`. Details in ADR-0000. |
 
 ## Laufzeit auf dem Dev-Rechner
 
@@ -104,20 +104,21 @@ Stand: 2026-10-31. Abgleich von `infra/manifest.json`, `requirements.lock` und d
 | Komponente | Version | Quelle (URL) | SHA-256 | Commit-SHA | Prüfstatus |
 |---|---|---|---|---|---|
 | Ollama (Server) | 0.40.13 | https://github.com/ollama/ollama/releases/download/v0.40.13/ollama-windows-amd64.zip | 7afa38624fa62ee5d8293422d0ab084c1bb4603134c7f4dafce11a033b57cc19 | nicht erfasst | Bestätigt: Pin in `infra/manifest.json`. Offen: Download nicht gegen Hash geprüft. Installierter Client ist 0.35.1, Abweichung zum Pin. |
-| Ghidra 12.1.4 (Ziel) | 12.1.4 (2026-09-21) | Repo laut Manifest: NationalSecurityAgency/ghidra. Download-URL nicht erfasst (`pending`). | ddac49f903da9d5bac833e5cc79395098b9c33cfd3279be5f31bd00387d2d4db | nicht erfasst | Bestätigt: Hash in Manifest und Doku identisch. Offen: URL und Zielpfad sind `pending`. |
+| Ghidra 12.1.4 | 12.1.4 (2026-09-21), Apache-2.0 | https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.1.4_build/ghidra_12.1.4_PUBLIC_20260921.zip | ddac49f903da9d5bac833e5cc79395098b9c33cfd3279be5f31bd00387d2d4db | nicht erfasst | Bestätigt: im Image `sw-analyst/ghidra:12.1.4`, Hash beim Build geprüft, Lauf mit harmloser Probe grün. |
 | Ghidra 12.2 (nur Doku) | 12.2 (2026-10-22) | nicht erfasst (Asset `ghidra_12.2_PUBLIC_20261016.zip`) | 2c2cd776db3c1f6a097ba418922378ac3649cadd5e844a6f5f088ae628a7be67 | nicht erfasst | Offen: nicht gepinnt, MCP-Kompatibilität nicht belegt. Nicht einbinden. |
-| JDK | Temurin 17.0.20 (installiert) | nicht erfasst | nicht erfasst | nicht erfasst | Offen: Ghidra 12.1.4 braucht laut Doku JDK 21, ein JDK-21-Pin fehlt. |
+| JDK für Ghidra | Temurin 21 im Image | `eclipse-temurin:21-jdk-noble@sha256:bd6ac06e2a2df928af21c75c4a8a0f2829a93377a65761d6a577bb32281e2ac3` | Digest im Dockerfile | nicht erfasst | Bestätigt: JDK 21 liegt im Image, das Host-JDK 17 bleibt davon unberührt. |
 | Python / Node | 3.11.9 / 24.19.0 (installiert) | nicht erfasst | nicht erfasst | nicht erfasst | Offen: keine Pins oder Hashes erfasst. |
 | Python-Abhängigkeiten | annotated-doc 0.0.5, annotated-types 0.8.0, anyio 4.15.1, click 8.5.0, fastapi 0.128.0, h11 0.16.0, idna 3.20, pydantic 2.14.2, pydantic-core 2.50.2, python-multipart 0.0.33, pyyaml 6.0.3, starlette 0.50.0, typing-extensions 4.16.0, typing-inspection 0.4.4, uvicorn 0.40.0 | PyPI-Index (nicht in `requirements.lock` erfasst) | in `requirements.lock` je Paket (nicht kopiert) | nicht erfasst | Bestätigt: Versionen und Hashes in Lock-Datei vorhanden. Offen: Index-URL fehlt, `requirements.in` nicht gegen Lock abgeglichen. |
 | pyghidra-mcp | v0.2.7 | GitHub clearbluejar/pyghidra-mcp | nicht erfasst | nicht erfasst | Offen: Commit-Pin und Hash fehlen. Empfohlener Primärweg, vor Nutzung testen. |
 | bethington/ghidra-mcp | v7.0.0 | GitHub bethington/ghidra-mcp, Release v7.0.0 | Präfix `d133c4c8` (GhidraMCP-7.0.0.zip) und `a7505006` (Bridge-Wheel), volle Hashes nicht erfasst | 19e64c75f1be1fcbe413e845f65e549f2361b928 | Bestätigt: Tag und Commit in Doku. Offen: volle Hashes beim Einbau aus dem Release eintragen. Tag unsigniert. |
-| morluto/rea (npm `rea-agents`) | 6.8.0 | npm `rea-agents@6.8.0` (URL nicht erfasst) | nicht erfasst (npm-Integrity ist sha512 und steht im Audit-Abschnitt) | 160d821ac9a0 (Tag `rea-agents-6.8.0`) | Offen: `infra/manifest.json` ist `pending`, SHA-256 fehlt. Doku nennt zusätzlich Repo-Commit 60149282fcfc mit Datum 2026-11-01, das nach dem Stand liegt. Widerspruch klären. |
+| morluto/rea (npm `rea-agents`) | 6.8.0 | npm `rea-agents@6.8.0` (URL nicht erfasst) | nicht erfasst (npm-Integrity ist sha512 und steht im Audit-Abschnitt) | 160d821ac9a0 (Tag `rea-agents-6.8.0`) | Zurückgestellt (Entscheidung von Jan, ADR-0006): `infra/manifest.json` bleibt `pending`, kein Einbau. Für ein späteres Audit gilt 160d821ac9a0. |
 | REA: jadx-MCP-JAR | nicht erfasst | nicht erfasst | 6e5eacf500b64292bfb73c49797c1958f6ee44646e43e868039ae7feb573ff75 (Prüfwert aus REA-Audit) | nicht erfasst | Offen: Datei und Herkunft nicht erfasst, nur Prüfwert bekannt. |
-| jadx | v1.5.6 | GitHub skylot/jadx | nicht erfasst | nicht erfasst | Offen: nicht eingebunden, Pin fehlt. |
+| jadx | v1.5.6, Apache-2.0 | https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip | 545ea2be9c242511bc145755cf4bda2485ade42966e096f8b4d3da2a230e8974 | nicht erfasst | Bestätigt: im Image `sw-analyst/jadx:1.5.6`, Lauf mit harmlosem JAR grün. Offen: APK-Lauf mit echtem DEX. |
 | apktool | v3.0.3 | GitHub iBotPeaches/Apktool | nicht erfasst | nicht erfasst | Offen: nicht eingebunden, Pin fehlt. |
-| capa / capa-rules | v10.0.0 | GitHub mandiant/capa | nicht erfasst | nicht erfasst | Offen: nicht eingebunden, Pin fehlt. |
-| FLOSS | v3.2.0 | GitHub mandiant/flare-floss | nicht erfasst | nicht erfasst | Offen: nicht eingebunden, Pin fehlt. |
-| yara-x | v1.22.1 | GitHub VirusTotal/yara-x | nicht erfasst | nicht erfasst | Offen: nicht eingebunden, Pin fehlt. |
+| capa (Regeln im Binary) | v10.0.0, Apache-2.0 | https://github.com/mandiant/capa/releases/download/v10.0.0/capa-v10.0.0-linux.zip | 96cb5115f495024a478b0e9f9f77f9027058155589235fbd4c50e7382055fcca | nicht erfasst | Bestätigt: im Image `sw-analyst/triage:1`, Regeltreffer auf harmloser Probe. |
+| FLOSS | v3.2.0, Apache-2.0 | https://github.com/mandiant/flare-floss/releases/download/v3.2.0/floss-v3.2.0-linux.zip | c449366960b688769b6510662cd6db6a3bf9edada4e8a8878056becd324df52c | nicht erfasst | Bestätigt: im Image `sw-analyst/triage:1`, Lauf grün. Offen: bisher keine dekodierte Zeichenkette in einer echten Ausgabe gesehen, das Ausgabeformat dieser Felder ist nur aus der Doku angenommen. |
+| yara-x | v1.22.1, BSD-3-Clause | https://github.com/VirusTotal/yara-x/releases/download/v1.22.1/yara-x-v1.22.1-x86_64-unknown-linux-gnu.tar.gz | c0ff80408d57b94f8348b9b19b5c70fb03e6471e7fdd761c97e0b4876804eecf | nicht erfasst | Bestätigt: im Image `sw-analyst/triage:1`, eigener Regelsatz trifft harmlose Probe. |
+| Basis-Images Triage/jadx | Ubuntu 24.04, Temurin 21 JRE; Download-Stufe Debian bookworm-slim | `ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852`, `eclipse-temurin:21-jre-noble@sha256:161310cd5bd41fd549d19cf9f90b614897cb4a1532555c613b43b7e0628fe5d6`, `debian:bookworm-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3` | Digest im Dockerfile | nicht erfasst | Bestätigt: per Digest gepinnt. Offen: `apt-get` in der Download-Stufe ist nicht versionsgepinnt, gelangt aber nicht ins Laufzeit-Image. |
 | radare2 | 6.2.4 | GitHub radareorg/radare2 | nicht erfasst | nicht erfasst | Offen: nicht eingebunden, Pin fehlt. |
 | binwalk | v3.1.0 | GitHub ReFirmLabs/binwalk | nicht erfasst | nicht erfasst | Offen: nicht eingebunden, Pin fehlt. |
 | LIEF / pefile / androguard | 1.0.0 / 2024.8.26 / 4.1.4 | PyPI bzw. GitHub (Index nicht erfasst) | nicht erfasst | nicht erfasst | Offen: nicht eingebunden, Pin fehlt. |
@@ -135,10 +136,9 @@ Stand: 2026-10-31. Abgleich von `infra/manifest.json`, `requirements.lock` und d
 - Die Commit-Pins für ponytail, caveman und bethington/ghidra-mcp v7.0.0 stehen in diesem Dokument.
 
 ### Offen
-- `infra/manifest.json`: Ghidra (`url`, `target`) und REA (`version`, `url`, `sha256`, `target`) stehen auf `pending`. Das Feld `target` von Ollama enthält einen lokalen Pfad. Er gehört nicht in ein Repo-Dokument und wurde hier nicht übernommen.
+- `infra/manifest.json`: REA (`version`, `url`, `sha256`, `target`) steht bewusst auf `pending`. Das Feld `target` von Ollama enthält einen lokalen Pfad. Er gehört nicht in ein Repo-Dokument und wurde hier nicht übernommen.
 - Ollama: installierter Client 0.35.1 weicht vom Pin 0.40.13 ab.
-- JDK: Ghidra 12.1.4 braucht JDK 21, installiert ist Temurin 17.
-- REA: zwei Commits in der Doku (60149282fcfc und 160d821ac9a0). Klären, welcher gilt. Kein SHA-256 für das npm-Paket.
+- REA: zurückgestellt, kein SHA-256 für das npm-Paket.
 - Modelle und Docker-Testimage haben keine Digests.
-- Analyse-Werkzeuge sind nur recherchiert, nicht eingebunden. Ihnen fehlen URLs und Hashes.
+- apktool, radare2, binwalk, LIEF, pefile und androguard sind nur recherchiert, nicht eingebunden. Ihnen fehlen URLs und Hashes.
 - `requirements.in` wurde nicht gegen `requirements.lock` abgeglichen.

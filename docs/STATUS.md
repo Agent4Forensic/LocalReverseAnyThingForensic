@@ -1,6 +1,6 @@
 # Statusübersicht sw-analyst
 
-Stand: 2026-10-31 · Legende: `[x]` erledigt und geprüft · `[~]` begonnen · `[ ]` offen · `[!]` blockiert, braucht Jan
+Stand: 2026-11-01 · Legende: `[x]` erledigt und geprüft · `[~]` begonnen · `[ ]` offen · `[!]` blockiert, braucht Jan
 
 ## Phase P: Voraussetzungen (vor jeder Implementierung)
 
@@ -35,10 +35,10 @@ Stand: 2026-10-31 · Legende: `[x]` erledigt und geprüft · `[~]` begonnen · `
 - [!] Hyper-V: Dienst `vmms` läuft, Admin-Rechte fehlen für VM-Anlage. Admin-Skript wird erzeugt (Phase 1).
 
 ### P5 Analyse-Werkzeuge (Dev-Test mit harmlosen Proben)
-- [~] Ghidra: Version recherchiert und gepinnt (12.1.4, JDK 21, SHA-256 verifiziert), Docker-Image noch nicht gebaut
+- [x] Ghidra: 12.1.4 mit JDK 21 gepinnt, Image `sw-analyst/ghidra:12.1.4` gebaut, Lauf mit harmloser Probe grün (ADR-0006)
 - [~] REA: von Jan freigegeben (nur statisch, ohne Live-Teile). Tiefenaudit fertig (6.8.0, Pin, Familien- und Tool-Allowlist, Auflagen in dev-environment.md). Einbau ins Docker-Image und manuelles Quellcode-Review stehen aus.
 - [ ] jadx, apktool, capa, YARA, FLOSS, radare2, binwalk, pefile, lief, androguard im Image
-- [~] Ghidra-MCP: Empfehlung pyghidra-mcp v0.2.7 (kleinste Angriffsfläche, keine Code-Ausführung); ADR folgt nach Funktionstest
+- [x] Ghidra-MCP: entfällt, `analyzeHeadless` mit festem Export statt pyghidra-mcp; MCP bleibt intern, keine `.mcp.json` (Entscheidung von Jan, ADR-0006)
 - [~] Alle Downloads mit SHA-256 in `docs/dev-environment.md`: erfasst, Lücken stehen unter „Weitere Tests aus dem Plan“
 
 ### P6 Abschluss Voraussetzungen
@@ -79,7 +79,7 @@ Abnahme: CTF-Probe (zwei Base64-Schichten, Flagge) wird mit lokalem Modell gelö
 | R6 | `start.ps1` und `stop.ps1` scharf testen (CHECK, INSTALL aus Pins, OLLAMA, APP, Strg+C, `-Force`) | ein Befehl startet alles | R2, R3 |
 | R7 | Abnahme: alle Tests grün, `/claude-security` auf dem Diff, Tag `v0.1.0`, `feat/*` per `--no-ff` nach `main`, Push | lauffähiger `main` | R1 bis R6 |
 
-Danach (Priorität 2, in dieser Reihenfolge): P1-Anpassungen aus `docs/review/platform-adjustments.md` (Guard-Schema, Store-Tabellen, Endpunkte, Antwortbudget), forensische Tests Block 1 und 2, Ghidra-Image und Disassembler-Tools hinter dem Gateway (ADR und Freigabe nötig), Dashboard V2 (Lernpfad, Diagramme), Hyper-V-VM, dynamische Analyse (ADR-0005).
+Danach (Priorität 2, in dieser Reihenfolge): P1-Anpassungen aus `docs/review/platform-adjustments.md` (Guard-Schema, Store-Tabellen, Endpunkte, Antwortbudget), forensische Tests Block 1 und 2, Dashboard V2 (Lernpfad, Diagramme), Hyper-V-VM, dynamische Analyse (ADR-0005).
 
 ## Strukturierte Code-Review durch alle Modelle (von Jan beauftragt, 2026-10-31)
 Ziel: Jedes verfügbare Modell prüft denselben Code nach demselben Raster. Unterschiedliche Modelle finden unterschiedliche Fehler; der Abgleich zeigt, was mehrfach bestätigt ist und was nur ein Modell sieht. Annahme: "alle Modelle" = die Claude-Modelle Fable 5.1, Opus 5.5, Sonnet 5.5, Haiku 5.5. Falls auch die lokalen Ollama-Modelle gemeint sind, bitte melden (anderer Ablauf, siehe Risiken).
@@ -146,9 +146,50 @@ Jedes Modell prüft **blind** (kein Zugriff auf die Ergebnisse der anderen), dan
 
 ## Dashboard-Lücken (Stand 2026-10-31 20:15, per Screenshot geprüft)
 - [x] App startete nicht: `python-multipart` fehlte (Upload-Route). Gepinnt auf 0.0.32 (Apache-2.0, 0.0.33 vom selben Tag bewusst übersprungen), Test `tests/unit/test_webui_boot.py` sichert den Start ab.
-- [ ] `index.html` lädt drei nicht vorhandene Skripte (`mock_v2.js`, `view_diagrams.js`, `view_log.js`, 404). Die Tabs Diagramme, Log und Guard fehlen deshalb; Aktivität zeigt "Noch keine Daten", bis der `/activity`-Endpunkt Daten liefert.
-- [ ] Kopfzeile des Auftrags und Tab-Leiste mit Layoutfehlern (Texte laufen ineinander, Tabs ohne Abstand), Systemstatus als eine lange Spalte statt Kacheln.
-- [ ] Neuer Auftrag: Sample-Upload und Absenden im Browser noch nicht getestet.
+- [x] `index.html` lud drei nicht vorhandene Skripte. Behoben auf `feat/dashboard-integration` (2026-10-31): `view_log.js` (Tabs Log und Schutz) neu, tote Verweise entfernt, Test `test_every_script_and_style_in_index_html_exists`.
+- [x] Layoutfehler: Das CSS für Auftragskopf, Tabs, Aktivität, Baum, Code, Schritte, Kacheln und Formulare fehlte ganz. Ergänzt in `styles.css`, per Headless-Chromium gegen das echte Backend geprüft.
+- [x] Neuer Auftrag: Upload über das Formular im Browser bis zum Bericht geprüft (Playwright, Skript-Modell, 0 Konsolenfehler).
+
+### Stand Dashboard-Nacharbeit (2026-10-31 22:30, Worktree `sw-analyst-dashboard`, Branch `feat/dashboard-start`)
+Ursache der Layoutfehler: Das CSS für Auftragsansicht, Tabs, Baum, Code-Viewer, Schritte und Bericht-Karten wurde nie geschrieben (Commit `1f2940f` brachte nur JS). Behoben im Worktree: `view_log.js` (Tabs Log und Guard), tote Skript-Verweise entfernt, rund 120 Zeilen CSS, Typo "Werkzeugaufrufe", Test `test_every_script_in_index_html_is_served`. Per Headless-Edge mit Mock-Daten geprüft (Übersicht, Aktivität, Baum, Code, Guard).
+- [ ] **Merge-Konflikt klären:** Eine zweite Sitzung merged `main` in `feat/dashboard-start` (Konflikte in `docs/dev-environment.md`, `example/README.md`, `example/run_eval.py`, `example/samples.py`). Erst abschließen oder abbrechen, bevor jemand dort committet.
+- [ ] **Uncommittet im Worktree:** `styles.css` (neue Regeln), `view_job.js` (Typo), `tests/unit/test_webui_boot.py` (neuer Test). Einzeln committen, nicht mit dem Merge vermischen. `view_log.js` und der `index.html`-Fix sind bereits in `21f8506`.
+- [ ] **4 Testfehler** in `tests/forensic/test_api_security.py` (Traversal-Fälle, `test_index_html_is_csp_clean_and_self_contained`). Datei stammt aus der anderen Sitzung. Prüfen, ob die `index.html`-Änderung die CSP-Prüfung auslöst.
+- [ ] **Security-Review** der Dashboard-Änderungen (XSS über `textContent`, Pfade, CSP), Pflicht vor dem Merge nach `main`.
+- [ ] **Merge `feat/dashboard-start` nach `main`** (`--no-ff`) nach grünen Tests und Review. ADR-0006 doppelt, vorher umnummerieren. Nicht pushen (siehe Punkt zum Push von `main`).
+- [ ] **Dashboard V2 fehlt:** Diagramme (`view_diagrams.js`), Funktionsliste und Lernpfad. Backend `/diagrams`, `/functions`, `/walkthroughs` gibt es nicht.
+- [ ] **Mock ohne `/activity`:** Live-Aktivität zeigt im `?mock=1`-Modus "Noch keine Daten". Mock ergänzen oder echtes Backend im Browser prüfen.
+- [ ] **Echtes Backend im Browser prüfen:** Bisher nur Mock-Daten per Screenshot gesehen, Dashboard nicht gegen laufende App getestet.
+
+## Prüfung Frontend-Backend-Anbindung (von Jan beauftragt, 2026-10-31 abends, Cloud-Sitzung)
+Branch `feat/dashboard-integration` (von `main`, mit `feat/static-tools` gemergt). Entscheidungen in [ADR-0008](adr/0008-dashboard-dateiansicht-export-import.md), von Jan am 2026-11-01 freigegeben. Auf Anweisung von Jan per `--no-ff` nach `main` gemergt (2026-11-01), damit kommt auch `feat/static-tools` nach `main`. `feat/dashboard-start` liegt nur lokal bei Jan und ist nicht auf GitHub; beide Stände überschneiden sich in `webui/app.py`, `view_job.js`, `index.html` und `styles.css`.
+
+Bestätigt (Tests und Browserlauf gegen das echte Backend mit Skript-Modell, kein Ollama in der Cloud):
+- [x] Code-Viewer zeigte keine Zeilen (Vertrag `{n, text}` verletzt, Binärdateien gaben 400). Behoben, bisheriger strikter xfail aufgelöst.
+- [x] Laufzeitordner: relatives `--data-dir` zählt ab Projekt-Root, alle Ordner entstehen beim Start, Temp und Upload-Spool in `data/tmp` statt `%TEMP%` (`common/paths.py`). Server aus `/tmp` gestartet legte die Ordner im Projekt an.
+- [x] Beispiele im Dashboard: sortiert leicht, mittel, schwer, mit Größe, SHA-256 und Ort des Codes, Quelltext und Probe ansehbar, Start als Auftrag, Ergebnis „Flagge gefunden“. Neues Beispiel `05-pe-xor-routine` (echte x86-Schleife, per Disassembler geprüft); Beispiel 03 bytegleich.
+- [x] Tab „Datei“: Größe, Art, Ablage, Hex mit Blättern, Funktionsliste, Assembler mit fester deutscher Erklärung je Befehl, Pseudocode aus dem Ghidra-Export. Ohne Image nennt er Grund und Befehl.
+- [x] Export und Import (ZIP mit Manifest, Zeilen, Audit-Kette, Bericht, optional Dateien). Import prüft Prüfsummen, Kette, jedes Ereignis gegen die Kette und baut den Bericht bytegleich nach. Importe liegen schreibgeschützt in eigenem Store (`I0001-J-…`), IDs bleiben original. Manipuliertes Paket abgelehnt, Doppel-Import erkannt.
+- [x] Neustart mitten im Lauf (`kill -9`): Auftrag `failed` mit Endzeit, hängende Aufgaben und Schritte geschlossen, Audit-Kette gültig, alle Daten erhalten.
+- [x] Behoben aus dem Review: F-09 (Worker überlebt Engine-Fehler), F-10 (Status `uploading` bis Sample geschrieben), F-17 (`stop.ps1` Origin aus `-Port`), F-18 (fehlende Skripte), F-20 (Upload-Limit vor dem Spoolen per `Content-Length`).
+- [x] Weitere Funde: Live-Logzeilen kamen ohne Stufe und Text an (`store.js`), Live-Aktivität verwarf Ereignisse während einer Abfrage, Laufzeit im Kopf zeigte „0 ms“, Spaltenköpfe „origin“/„reason“ im deutschen Bericht, `requirements-dev.lock` ohne `python-multipart`, Dateiname `..\..\x` behielt unter Linux die Pfadteile, `parse_jadx_tar` unter Python 3.12+.
+- [x] Tests: 1039 grün, 10 übersprungen (Docker-Images, Windows), 37 bekannte xfails. Neu: `test_dashboard_api.py` (38), `test_bundle.py` (51), `test_worker_recovery.py` (3). Zwei bisher strikte xfails aufgelöst (Code-Viewer-Vertrag, Bidi-Zeichen im Sample-Namen).
+- [x] Security-Review des Änderungsstands (eigener Schritt, unabhängiger Agent, 2026-10-31): keine kritischen oder hohen Funde, nichts führt Sample-Bytes aus. Behoben mit Test:
+  - M1: GET-Routen mit Nebenwirkung (Export, Ghidra-Start) waren von fremden Seiten auslösbar. Jetzt weist `/api` Anfragen mit `Sec-Fetch-Site` außer `same-origin`/`none` und fremdem `Origin` ab.
+  - M2: Markdown-Injection über Felder importierter Zeilen in den Bericht. Jetzt läuft jedes Feld durch `_tok`/`_hex`/`_cell`, Fragen-IDs sind begrenzt. Bei normalen Werten bleibt der Bericht bytegleich.
+  - M3 teilweise: Cache-Dateien aus Paketen haben eine Größengrenze, das Dashboard nennt die mögliche Herkunft aus dem Paket.
+  - M4 teilweise: Einträge im Speicher höchstens 64 MiB (Export prüft dasselbe), ein Import gleichzeitig.
+  - M5: Sperre je Ergebnisdatei statt global, ein gemeinsamer Container-Slot für alle Gateways (RAM-Budget).
+  - L1 (411 ohne `Content-Length`), L2 (Zahlengrenzen, 422 statt 500), L3 (keine absoluten Pfade in API, Header und Audit), L5 (`uploading` beim Export aktiv, getrennte Zähler im Datei-Tab, Prüfanzeige beim Import, Steuer- und Bidi-Zeichen im Dateinamen).
+- [ ] Offen aus dem Review: M3 Rest (Ghidra-Cache eines Imports landet im Importordner und gilt als Ergebnis; Signatur oder Ignorieren des Paket-Caches entscheiden), M4 Rest (Zeilenobergrenzen je Tabelle, Prüfung der Eintragszahl vor `infolist`), L4 (importierter Store wird vor `query_only` schreibend geöffnet), `examples._load()` baut alle Proben bei jedem Aufruf (nur Leistung).
+
+Offen:
+- [ ] Lauf mit echtem Modell (Ollama) und echtem Ghidra-Image auf Jans Rechner: in der Cloud gab es weder Ollama noch Docker. Der Ghidra-Pfad ist mit einem Ersatz getestet, der dieselbe Exportform liefert.
+- [ ] PowerShell-Skripte (`start.ps1`, `stop.ps1`) konnten in der Cloud nicht ausgeführt werden, nur statisch geprüft.
+- [ ] `feat/dashboard-start` (lokal bei Jan) mit diesem Branch abgleichen: Jan entscheidet, welcher Stand gilt; ADR-Nummer 0006 dort umnummerieren.
+- [x] ADR-0008 freigegeben von Jan (2026-11-01): neue Audit-Ereignisse „Export“ und „Ghidra-Ansicht“, unsigniertes Paket.
+- [x] Merge nach `main` auf Anweisung von Jan (2026-11-01).
+- [ ] Mock-Modus (`?mock=1`) kennt die neuen Endpunkte nicht; die Ansichten zeigen dort eine Fehlermeldung.
 
 ## Aufräumen vor Start und nach Stopp (von Jan beauftragt, 2026-10-31)
 - [x] `scripts/cleanup.ps1` (Stage `CLEAN`), von `start.ps1` (`-Phase pre`) und `stop.ps1` (`-Phase post`) aufgerufen; abschaltbar mit `-NoCleanup`, prüfbar mit `cleanup.ps1 -Phase pre|post -DryRun`.
@@ -196,7 +237,7 @@ Alle offen. Beginn erst nach Abschluss von Phase P und Freigabe.
 ## Beispielfälle zum Evaluieren (von Jan beauftragt, 2026-10-31)
 - [x] `example/` mit `start_eval.ps1` (Menü zur Auswahl der Challenge), 4 Challenges mit Beschreibung und Ziel (`example/challenges/*/challenge.json`), Proben-Generatoren (`example/samples.py`) und automatischer Prüfung: `run_eval.py` sucht die Flagge im finalen Bericht (PASS/FAIL, Exit-Code). Anleitung: `example/README.md`.
 - [~] Echtlauf: Challenge 01 mit `qwen3:8b` bestanden (2,4 min, Status partial, Audit gültig, auf noch nicht committetem `src/`-Stand, daher kein Vergleichswert). Challenges 02 bis 04 ungetestet, weil eine zweite Sitzung die Ollama-Warteschlange belegte.
-- [x] `example/` committet auf `feat/workflow-optimization` (d2ca81e), nicht gepusht, nicht in `main`.
+- [x] `example/` committet auf `feat/workflow-optimization` (d2ca81e), inzwischen gepusht und in `main` (Merge `0bcd4ae`).
 
 ## Prüfung iterativer Analyseprozess (2026-10-31, umgesetzt nach ADR-0007)
 Bestätigt: Die Schleife aus Aufgabe, Bewertung, Folgeaufgaben und Priorisierung läuft, die Belegprüfung der Findings ist mechanisch. Die Punkte unten sind mit einem geskripteten Modell getestet (`tests/unit/test_workflow.py`).
@@ -238,9 +279,9 @@ Bewusst nicht umgesetzt: engere Verankerung von Folgeaufgaben (`agents.py`), Ver
 Quelle: `docs/review/code-review/SUMMARY.md` (Stellen, Modelle, Nachweis je Fund). Jeder Fund wird zuerst mit einem Test reproduziert, danach behoben. Behoben ist bisher nichts. Arbeit in einem eigenen Git-Worktree, nicht im geteilten Arbeitsbaum. Engine, Runner, Agents und Builder erst nach Abschluss der anderen Sitzungen.
 
 ### Entscheidungen von Jan (offen)
-- [x] Push von `main`: `origin/main` steht auf `d80987a` und enthält `feat/workflow-optimization` und `feat/model-equipment`. Die Freigabe von Jan ist nur von der Sitzung gemeldet, die gepusht hat. Die Commits `71bb4d3` und `794a6df` enthalten im Verlauf einen lokalen Laufwerkspfad ohne Benutzernamen, im aktuellen Stand ist er ersetzt (`3d0548c`).
-- [!] Freigabe von ADR-0006 bestätigen: Die Freigabe für Paket A und B steht nur im uncommitteten ADR-Text von `feat/static-tools`, sie ist von der anderen Sitzung eingetragen und hier nicht geprüft.
-- [ ] `feat/static-tools` und `feat/dashboard-start` sind nicht nach `main` gemergt. Sie brauchen je einen abgeschlossenen Stand, grüne Tests und ein Security-Review.
+- [x] Push von `main`: `origin/main` steht auf `d80987a` und enthält `feat/workflow-optimization` und `feat/model-equipment`. Die Commits `71bb4d3` und `794a6df` enthalten im Verlauf einen lokalen Laufwerkspfad ohne Benutzernamen, im aktuellen Stand ist er ersetzt (`3d0548c`).
+- [x] Freigabe von ADR-0006: Jan hat Paket A und B am 2026-10-31 direkt auf Rückfrage freigegeben, dazu MCP nur intern und REA zurückgestellt.
+- [x] `feat/static-tools` ist über `feat/dashboard-integration` in `main` (2026-11-01, Anweisung von Jan). `feat/dashboard-start` liegt nur lokal bei Jan und ist nicht auf GitHub; vor einem Merge mit `main` abgleichen.
 - [!] Freigabe, die hohen Funde jetzt zu beheben (Worktree, Reihenfolge unten).
 - [!] ADR-Nummer doppelt: Der Worktree `feat/dashboard-start` enthält uncommittet `docs/adr/0006-dashboard-urls-beispiele-budget.md`, im Repo ist 0006 die Werkzeug-Allowlist. Vor dem Merge umnummerieren. Auch `webui/app.py` und `view_job.js` sind dort geändert, Konflikte beim Merge sind möglich.
 - [!] F-07 und F-08 (verankerter Kopf-Hash, atomares Anhängen im Audit-Log): braucht ein ADR und die ausdrückliche Freigabe (CLAUDE.md Verbot 3).
@@ -256,9 +297,9 @@ Quelle: `docs/review/code-review/SUMMARY.md` (Stellen, Modelle, Nachweis je Fund
 ### Ressourcen und Robustheit
 - [ ] F-05 ReDoS im Regex-Wächter plus harter Timeout für `grep` (`regex_guard.py:143-155`, `dev_gateway.py:701-705`, `runner.py:207,221`).
 - [ ] F-06 Kostendeckel für PE-Sektionsentropie, quadratische Regeln in `scripts.py`, Obergrenze für ZIP-Einträge.
-- [ ] F-09 Worker: `except` mit Fehlerstatus, Race zwischen Abbruch und Übernahme (`worker.py:33-41`).
-- [ ] F-10 Job erst nach dem Schreiben des Samples auf `queued` setzen (`app.py:126-127`).
-- [ ] F-20 Upload-Limit vor dem Spoolen durchsetzen (`app.py:111`).
+- [~] F-09 Worker: `except` mit Fehlerstatus erledigt (`feat/dashboard-integration`); Race zwischen Abbruch und Übernahme offen.
+- [x] F-10 Job erst nach dem Schreiben des Samples auf `queued` setzen (Status `uploading`, `feat/dashboard-integration`).
+- [x] F-20 Upload-Limit vor dem Spoolen durchsetzen (`Content-Length` in der Middleware, `feat/dashboard-integration`).
 - [ ] F-21 Ungültige `expected`-Regex abfangen (`engine.py:446`).
 - [ ] F-23 Abbruch und Zeitbudget auch innerhalb eines Tasks prüfen (`engine.py:231`).
 
@@ -275,10 +316,28 @@ Quelle: `docs/review/code-review/SUMMARY.md` (Stellen, Modelle, Nachweis je Fund
 - [ ] F-14 Defanging: `ws://`, `tcp://`, `smb://`, `file://`, UNC, weitere TLDs, IDN, Backticks, `javascript:`.
 - [ ] F-15 Hash-Spalte im Bericht (Artefakt-Hash statt Ausgabe-Hash), Prompt-Hashes und Modell aus dem Job speichern (`builder.py:97-102`).
 - [ ] F-16 Übersetzung: `done_reason == "length"` prüfen, Modell in den Cache-Schlüssel (`pipeline.py:204-273`).
-- [ ] F-17 `stop.ps1`: Origin aus `-Port` ableiten (`stop.ps1:90`).
-- [ ] F-18 `index.html`: fehlende Skripte entfernen oder anlegen, Asset-Test auf Existenz erweitern.
+- [x] F-17 `stop.ps1`: Origin aus `-Port` ableiten (`feat/dashboard-integration`).
+- [x] F-18 `index.html`: fehlende Skripte entfernt bzw. angelegt, Asset-Test prüft Existenz (`feat/dashboard-integration`).
 - [ ] F-19 Cleanup: Junctions prüfen, nur eigene Prozesse beenden; echten Test statt Teilstring-Test (`cleanup.ps1:44-54`, `test_scripts.py`).
 - [ ] F-22 `source_ref.length` bei UTF-16 korrigieren.
 - [ ] Einzelfunde aus `SUMMARY.md` bewerten (HostGuard außerhalb Windows, `create_job` transaktional, `/log`-Begrenzung, SSE, `markdown.js` und `\|`, `<think>`-Tags, Letzter Turn ohne `finish`, `_FENCE`-Regex, Annotationen ohne Beleg, `sha256_hex`, Code-Viewer-Vertrag, `list_files`-Cache).
 - [ ] Danach: Tests grün, strikte xfails der neuen Tests auflösen, Ergebnis hier und im Dev-Vault festhalten, dann `/claude-security` und Tag `v0.1.0`.
 
+
+## ADR-0006: Statische Werkzeuge (2026-10-31)
+
+Bestätigt:
+- [x] Paket A: `extract_range`, `zip_extract`, `pe_resources`, `apk_manifest` (eigener Binär-XML-Parser mit Fuzz-Test), `decode_layer` mit Base32, Base85, Zeichencodes, `xor_key`, `rc4`. Höchstens 5 Schlüssel je Job.
+- [x] Paket B: `list_functions`, `disassemble`, `decompile`, `xrefs`, `basic_blocks`, `capa_scan`, `floss_decode`, `yara_scan`, `jadx_decompile` in gepinnten Images. Echte Läufe mit harmlosen Proben grün, Sandbox von innen geprüft (kein Netz, kein Schreibzugriff auf das Dateisystem, `/job` nicht ausführbar, kein Root).
+- [x] `start.ps1`: `-BuildTools`, Installationshinweise, Embedding-Modell; `verify-prereqs.ps1` prüft die Images.
+- [x] Rezepte `exe` und `apk` nutzen die neuen Werkzeuge; Schritte mit `requires_tools` entfallen ohne Images.
+
+Offen:
+- [ ] Noch kein Modelllauf mit den neuen Werkzeugen; Modellwahl danach neu messen (ADR-0006, Folgen).
+- [ ] APK-Lauf von jadx mit echtem DEX (bisher nur harmloses JAR); Ausgabeformat dekodierter FLOSS-Strings nur aus der Doku angenommen, keine echte Ausgabe gesehen.
+- [ ] Nicht Teil von ADR-0006: `apktool_decode`, `list_native_libs`, `extract_embedded`, `emulate_function`, radare2, binwalk. REA zurückgestellt.
+- [ ] Rezeptschritt `unpack_if_needed` aus dem Plan fehlt weiter.
+- [ ] `embedding`-Modell lädt `start.ps1` nicht automatisch, es nennt nur den Befehl; die geplante Wissensdatenbank braucht es erst. Digest des Modells ist nicht gepinnt.
+- [ ] Security-Review vom 2026-10-31, niedrig und bewusst offen: Image-Label in `detect` nicht geprüft, Rohergebnis ohne eigenen Hash in Evidence, abgeschnittenes tar von `jadx` nicht erkannt, Listen in `meta` ungedeckelt, `xor_single_byte key=N` zählt nicht zum Schlüssellimit, kein Gesamtbudget in `ExportAll.java`. Python 3.11.9 bleibt, `parse_jadx_tar` fängt die negative tar-Größe selbst ab.
+
+Risiko: Die Container auf dem Entwicklungsrechner ersetzen die Hyper-V-VM nicht. Abweichungen von den ADR-Vorgaben stehen in ADR-0006, Abschnitt Umsetzung.

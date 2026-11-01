@@ -221,6 +221,96 @@ def _rva_to_off(info: dict, rva: int, data_len: int) -> Optional[int]:
     return None
 
 
+RT_TYPES = {1: "CURSOR", 2: "BITMAP", 3: "ICON", 4: "MENU", 5: "DIALOG", 6: "STRING", 7: "FONTDIR", 8: "FONT",
+            9: "ACCELERATOR", 10: "RCDATA", 11: "MESSAGETABLE", 12: "GROUP_CURSOR", 14: "GROUP_ICON", 16: "VERSION",
+            17: "DLGINCLUDE", 19: "PLUGPLAY", 20: "VXD", 21: "ANICURSOR", 22: "ANIICON", 23: "HTML", 24: "MANIFEST"}
+MAX_RESOURCES = 2000
+MAX_RESOURCE_DEPTH = 8
+MAX_RESOURCE_DIRS = 4000
+MAX_RESOURCE_ENTRIES = 20000
+MAX_RESOURCE_WARNINGS = 20
+MAX_ENTROPY_BYTES = 256 * 1024 * 1024
+
+
+def parse_resources(data: bytes, info: dict) -> dict[str, Any]:
+    """Walk the resource tree of a parsed PE. Returns {resources, warnings}; never raises.
+
+    The tree comes from the sample: offsets can loop or point anywhere, so directories, entries, depth, warnings and
+    entropy work are bounded. An entry past the entropy budget has entropy None.
+    """
+    found: list[dict] = []
+    warnings: list[str] = []
+    dirs = info.get("dirs") or []
+    root_rva = dirs[2][0] if len(dirs) > 2 else 0
+    root = _rva_to_off(info, root_rva, len(data)) if root_rva else None
+    if root is None:
+        return {"resources": found, "warnings": warnings}
+    r = _Reader(data)
+    visited: set[int] = set()
+    entropies: dict[tuple[int, int], Any] = {}
+    budget = {"entries": MAX_RESOURCE_ENTRIES, "entropy": MAX_ENTROPY_BYTES}
+
+    def warn(msg: str) -> None:
+        if len(warnings) < MAX_RESOURCE_WARNINGS and msg not in warnings:
+            warnings.append(msg)
+
+    def entropy_of(off: int, size: int) -> Any:
+        key = (off, size)
+        if key not in entropies:
+            n = min(size, len(data) - off)
+            if n > budget["entropy"]:
+                warn("entropy budget used up; later resources show no entropy")
+                entropies[key] = None
+            else:
+                budget["entropy"] -= n
+                entropies[key] = round(shannon_entropy(data[off:off + size]), 3)
+        return entropies[key]
+
+    def name_of(entry_name: int, depth: int) -> str:
+        if entry_name & 0x80000000:
+            o = root + (entry_name & 0x7FFFFFFF)
+            n = r.u16(o)
+            return _safe_name(data[o + 2:o + 2 + 2 * min(n, 128)].decode("utf-16le", "replace").encode("ascii", "replace"))
+        return RT_TYPES.get(entry_name, str(entry_name)) if depth == 0 else str(entry_name)
+
+    def walk(offset: int, path: list[str], depth: int) -> None:
+        if offset in visited or depth > MAX_RESOURCE_DEPTH:
+            warn(f"resource directory at 0x{offset:x} skipped (loop or too deep)")
+            return
+        if len(visited) >= MAX_RESOURCE_DIRS:
+            warn(f"listing limited to {MAX_RESOURCE_DIRS} resource directories")
+            return
+        visited.add(offset)
+        count = r.u16(offset + 12) + r.u16(offset + 14)
+        for i in range(count):
+            if len(found) >= MAX_RESOURCES:
+                warn(f"listing limited to {MAX_RESOURCES} resources")
+                return
+            if budget["entries"] <= 0:
+                warn(f"listing limited to {MAX_RESOURCE_ENTRIES} directory entries")
+                return
+            budget["entries"] -= 1
+            e = offset + 16 + 8 * i
+            nm, target = r.u32(e), r.u32(e + 4)
+            sub = path + [name_of(nm, depth)]
+            if target & 0x80000000:
+                walk(root + (target & 0x7FFFFFFF), sub, depth + 1)
+                continue
+            rva, size = r.u32(root + target), r.u32(root + target + 4)
+            off = _rva_to_off(info, rva, len(data))
+            mapped = off is not None and size > 0 and off < len(data)
+            found.append({"path": "/".join(sub), "rva": rva, "file_offset": off, "size": size,
+                          "entropy": entropy_of(off, size) if mapped else 0.0,
+                          "truncated": off is None or off + size > len(data),
+                          "head": data[off:off + min(size, 4)] if mapped else b""})
+
+    try:
+        walk(root, [], 0)
+    except (struct.error, IndexError, RecursionError) as exc:
+        warn(f"resource tree is corrupt ({type(exc).__name__}); listing is partial")
+    return {"resources": found, "warnings": warnings}
+
+
 def _parse_imports(data: bytes, info: dict) -> None:
     info["imports"] = []
     info["imports_truncated"] = False

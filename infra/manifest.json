@@ -13,10 +13,38 @@
     "ghidra": {
       "version": "12.1.4",
       "source": "NationalSecurityAgency/ghidra",
-      "url": "pending",
+      "url": "https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.1.4_build/ghidra_12.1.4_PUBLIC_20260921.zip",
       "sha256": "ddac49f903da9d5bac833e5cc79395098b9c33cfd3279be5f31bd00387d2d4db",
-      "target": "pending",
-      "status": "pending: URL and target path not reviewed yet"
+      "license": "Apache-2.0",
+      "target": "docker image sw-analyst/ghidra:12.1.4"
+    },
+    "capa": {
+      "version": "10.0.0",
+      "url": "https://github.com/mandiant/capa/releases/download/v10.0.0/capa-v10.0.0-linux.zip",
+      "sha256": "96cb5115f495024a478b0e9f9f77f9027058155589235fbd4c50e7382055fcca",
+      "license": "Apache-2.0",
+      "target": "docker image sw-analyst/triage:1"
+    },
+    "floss": {
+      "version": "3.2.0",
+      "url": "https://github.com/mandiant/flare-floss/releases/download/v3.2.0/floss-v3.2.0-linux.zip",
+      "sha256": "c449366960b688769b6510662cd6db6a3bf9edada4e8a8878056becd324df52c",
+      "license": "Apache-2.0",
+      "target": "docker image sw-analyst/triage:1"
+    },
+    "yara-x": {
+      "version": "1.22.1",
+      "url": "https://github.com/VirusTotal/yara-x/releases/download/v1.22.1/yara-x-v1.22.1-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "c0ff80408d57b94f8348b9b19b5c70fb03e6471e7fdd761c97e0b4876804eecf",
+      "license": "BSD-3-Clause",
+      "target": "docker image sw-analyst/triage:1"
+    },
+    "jadx": {
+      "version": "1.5.6",
+      "url": "https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip",
+      "sha256": "545ea2be9c242511bc145755cf4bda2485ade42966e096f8b4d3da2a230e8974",
+      "license": "Apache-2.0",
+      "target": "docker image sw-analyst/jadx:1.5.6"
     },
     "rea": {
       "version": "pending",
@@ -26,6 +54,11 @@
       "target": "pending",
       "status": "pending: commit pin and review required (CLAUDE.md)"
     }
+  },
+  "tool_images": {
+    "ghidra": "sw-analyst/ghidra:12.1.4",
+    "triage": "sw-analyst/triage:1",
+    "jadx": "sw-analyst/jadx:1.5.6"
   },
   "models": {
     "note": "Tags are real Ollama library tags (qwen3 family). gemma4/ornith from the research were never verified and are not used until a pull succeeds; see docs/adr/0001-modellwahl.md.",

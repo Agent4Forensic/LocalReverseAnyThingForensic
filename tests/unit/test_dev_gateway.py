@@ -132,7 +132,7 @@ def test_unknown_tool_and_arguments(gw):
     assert not r.ok
     r = gw.call(JOB, "grep", {"pattern": "a\x00b"})
     assert not r.ok and "NUL" in r.error
-    assert r.tool_version == "dev-1"
+    assert r.tool_version == dg_module.TOOL_VERSION
 
 
 # ------------------------------------------------------------------ path jail
@@ -414,7 +414,7 @@ def test_pe_headers_mutated_through_gateway(gw):
         for _ in range(rnd.randrange(1, 10)):
             data[rnd.randrange(0x40, 0x600)] = rnd.randrange(256)
         r = run(gw, bytes(data), "pe_headers", job=f"mut{i}")
-        assert r.tool_version == "dev-1"
+        assert r.tool_version == dg_module.TOOL_VERSION
         assert isinstance(r.ok, bool)
 
 
@@ -756,7 +756,7 @@ def test_tool_error_is_never_raised_for_odd_input(gw):
     for tool in [t.name for t in gw.list_tools()]:
         for args in odd_args:
             r = gw.call(JOB, tool, args)  # type: ignore[arg-type]
-            assert r.tool_version == "dev-1"
+            assert r.tool_version == dg_module.TOOL_VERSION
     r = gw.call(JOB, None, {})  # type: ignore[arg-type]
     assert not r.ok
 

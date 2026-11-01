@@ -22,7 +22,7 @@ def _client(tmp_path):
 
 def test_app_builds_and_reports_system_state(tmp_path):
     r = _client(tmp_path).get("/api/system")
-    assert r.status_code == 200 and r.json()["gateway"]["tools"] == 13
+    assert r.status_code == 200 and r.json()["gateway"]["tools"] == 17
 
 
 def test_static_dashboard_is_served(tmp_path):

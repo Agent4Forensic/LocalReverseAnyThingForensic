@@ -141,25 +141,35 @@ class JobEngine:
             if n >= MAX_ARTIFACT_TASKS or self._task_budget_full(job_id):
                 self.store.log(job_id, f"artifact {path} not analysed: limit reached", level="warn")
                 continue
-            recipe = load_recipe(recipe_id)
+            steps = self._usable_steps(load_recipe(recipe_id))
             self.store.add_task(
                 job_id, title=f"Analyse artifact {path} ({kind})",
                 goal=f"Analyse {path} as a new object of type {kind} (sha256 {f['sha256']}). Keep its findings apart "
-                     f"from the parent file. Cover: " + "; ".join(st["title"] for st in recipe["steps"]) + ".",
+                     f"from the parent file. Cover: " + "; ".join(st["title"] for st in steps) + ".",
                 kind="analyze", origin="artifact", priority=min(max(parent["priority"] - 1, 2), 790),
                 parent_id=parent["id"], reason=f"derived file of type {kind} found after task {parent['id']}",
                 params={"path": path, "depth": depth,
-                        "guide": " ".join(st.get("guide", "") for st in recipe["steps"])[:1500],
-                        "tools_hint": sorted({h for st in recipe["steps"] for h in st.get("tools_hint", [])})})
+                        "guide": " ".join(st.get("guide", "") for st in steps)[:1500],
+                        "tools_hint": sorted({h for st in steps for h in st.get("tools_hint", [])})})
 
     # ---- planning ------------------------------------------------------------------------------------------
+    def _usable_steps(self, recipe: dict) -> list[dict]:
+        """Steps whose required tools exist. Container tools are absent when Docker is stopped or an image is not built."""
+        tools = {t.name for t in self.gateway.list_tools()}
+        return [st for st in recipe["steps"] if set(st.get("requires_tools", [])) <= tools]
+
     def _plan(self, job_id: str) -> None:
         job = self.store.get_job(job_id)
         recipe = load_recipe(job["recipe"])
         grp = self.store.add_task(job_id, title=f"Recipe: {recipe['id']}", goal=recipe.get("description", ""),
                                   kind="group", origin="recipe", priority=100,
                                   reason=f"sample type '{job['detected_type']}' selects recipe '{recipe['id']}'")
+        usable = self._usable_steps(recipe)
         for st in recipe["steps"]:
+            if st not in usable:
+                self.store.log(job_id, f"recipe step '{st['id']}' skipped: tools not available "
+                                       f"({', '.join(st.get('requires_tools', []))})", level="warn")
+        for st in usable:
             self.store.add_task(job_id, title=st["title"], goal=st["goal"], kind="analyze", origin="recipe",
                                 priority=int(st.get("priority", 200)), parent_id=grp["id"],
                                 reason=f"required step '{st['id']}' of recipe '{recipe['id']}'",
