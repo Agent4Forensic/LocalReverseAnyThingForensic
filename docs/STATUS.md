@@ -432,3 +432,14 @@ Offen:
 - [ ] Der Marker-Fall im Launcher wurde nur mit `stop.ps1 -KeepDocker` geprüft, nicht das Beenden von Docker Desktop in diesem Lauf.
 - [ ] Meldungen in `webui/app.py` und `webui/examples.py` nennen noch `-BuildTools`. Der Schalter ist jetzt ohne Wirkung, die Anweisung führt aber weiterhin zum Ziel.
 - [ ] Kein Analyse-Job auf den Challenges 06 bis 09 gefahren; geprüft sind Auflistung, Probenbytes und die Testsuite.
+
+## Launcher bei abgestürztem Preflight, Stand dynamische Analyse (2026-11-01)
+
+Belegt:
+- [x] `start.ps1` brach bei einem abgestürzten Preflight nicht ab. Der Absturz schreibt nichts nach stdout, und `ConvertFrom-Json` liefert dann in PowerShell 5.1 `null` statt einer Ausnahme. Das Skript meldete `.venv missing` und `0 checks, 0 errors` und startete Ollama trotzdem. Jetzt wird daraus ein `FEHLER`, und nach dem INSTALL-Schritt bricht der Start ab, bevor etwas gestartet wird. Nachgewiesen mit einer abstürzenden `__main__.py` gegen alten und neuen Code (alt `null`, neu `FEHLER`); der Normalfall mit 18 Checks und der Fall ohne `.venv` bleiben gleich.
+- [x] Auslöser war eine zweite Sitzung, die im Hauptordner auf `feat/dynamic-analysis` arbeitete. Der Start lief auf ihrer halb bearbeiteten `__main__.py`. Der Hauptordner steht wieder auf `main`, die Sitzung arbeitet in `.worktrees/dynamic`.
+- [x] Dynamische Analyse ist auf `main` aus (Entscheidung von Jan, 2026-11-01): `emulation_opt_in` wird mit 422 abgelehnt, `webui/dynamic.py` erzeugt nur einen Plan, Frida-, Android- und Detonationscode fehlen.
+
+Offen:
+- [ ] Commit `a6eebb0` (ADR-0005, Detonation, Gateway-Änderungen, 36 Dateien) liegt auf `origin/feat/dynamic-analysis`, nicht auf `main`. Autor laut Git ist Jan; wer ihn erzeugt und gepusht hat, ist nicht geklärt. Das Git-Konto ist in allen Sitzungen dasselbe, der Autor belegt also nichts. Kein Review.
+- [ ] Der Launcher-Fix ist nicht in einem vollen Lauf von `start.ps1` geprüft, sondern über die Funktion `Invoke-Check` und die Testsuite.
