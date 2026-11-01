@@ -191,6 +191,10 @@ Offen:
 - [x] Merge nach `main` auf Anweisung von Jan (2026-11-01).
 - [ ] Mock-Modus (`?mock=1`) kennt die neuen Endpunkte nicht; die Ansichten zeigen dort eine Fehlermeldung.
 
+## Beispielproben im Repository (Anweisung von Jan, 2026-11-01)
+- [x] [ADR-0009](adr/0009-beispielproben-im-repository.md): Die fünf harmlosen Beispielproben liegen unter `example/challenges/<id>/sample/`. Verweis auf den Erzeuger und SHA-256 stehen in `example/samples.manifest.json`, `example/build_samples.py [--check]` schreibt bzw. prüft sie. Der Pre-Commit-Hook lässt nur Dateien mit passendem Manifest-Hash durch (geprüft: veränderte Probe und fremde `.exe` werden blockiert). Die Ausnahme ist in CLAUDE.md Verbot 2 eingetragen. Das Dashboard zeigt den Pfad im Repo und ob die Datei der Ausgabe des Erzeugers entspricht.
+- [ ] Wenn Jans lokaler Branch `feat/dashboard-start` gemergt wird, braucht seine ADR `0006-dashboard-urls-beispiele-budget.md` die Nummer 0010 (0009 ist jetzt vergeben).
+
 ## Aufräumen vor Start und nach Stopp (von Jan beauftragt, 2026-10-31)
 - [x] `scripts/cleanup.ps1` (Stage `CLEAN`), von `start.ps1` (`-Phase pre`) und `stop.ps1` (`-Phase post`) aufgerufen; abschaltbar mit `-NoCleanup`, prüfbar mit `cleanup.ps1 -Phase pre|post -DryRun`.
 - **pre:** veraiste PID-Dateien, verwaiste eigene App-Prozesse (nicht in `app.pid`), verwaiste Modell-Runner, Laufzeit-Scratch in `data\run`, `data\tmp`, `*.partial`-Installreste, Logs älter als 14 Tage, beendete Docker-Container mit Label `sw-analyst`.

@@ -86,6 +86,10 @@
           h('dt', { text: 'Ordner' }), h('dd', { text: e.paths.folder + '/' }),
           h('dt', { text: 'Beschreibung' }), h('dd', { text: e.paths.challenge }),
           h('dt', { text: 'Erzeuger' }), h('dd', { text: e.paths.builder_file + ':' + e.paths.builder_line + '  ' + e.sample.builder + '()' }),
+          h('dt', { text: 'Probe im Repo' }), h('dd', null, e.paths.sample_file + '  ',
+            e.paths.sample_file_ok === true ? h('span', { cls: 'badge tone-ok', text: 'gleich Erzeuger' })
+              : e.paths.sample_file_ok === false ? h('span', { cls: 'badge tone-err', text: 'weicht ab' })
+                : h('span', { cls: 'badge tone-neutral', text: 'fehlt' })),
           h('dt', { text: 'Ablage im Lauf' }), h('dd', { text: e.paths.stored_as }),
           h('dt', { text: 'Skriptlauf' }), h('dd', { text: e.paths.runner + ' -Challenge ' + e.id })),
         e.runs && e.runs.length ? h('div', null, h('h3', { text: 'Letzte Läufe' }), h('ul', { cls: 'ex-runs' }, e.runs.map(runRow))) : null,
