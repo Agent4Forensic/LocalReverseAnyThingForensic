@@ -146,14 +146,14 @@ def build_report(store: Store, job_id: str, lang: str = "de", model_name: str = 
         sentences = [f"Untersucht wurde die Probe {_cell(job['sample_name'])} (SHA-256 `{_hex(job['sample_sha256'][:16])}…`), erkannt als {typ}; Rezept {rec}.",
                      "Die Analyse war rein statisch und offline: Die Probe wurde nie ausgeführt.",
                      (f"Von {len(answers)} Zielfragen sind {n_ans} beantwortet und {n_unres} ungeklärt." if answers else t["no_questions"]),
-                     f"Es liegen {n_conf} bestätigte Befunde und {n_hyp} Hypothesen vor.",
-                     (f"{len(gap_ids)} Lücken lassen sich nur durch eine dynamische Analyse klären; sie ist {REASON}." if gap_ids else "Dynamische Analyse: " + REASON + ".")]
+                     f"Befunde: {n_conf} bestätigt, {n_hyp} als Hypothese geführt.",
+                     (f"Lücken, die nur eine dynamische Analyse klärt: {len(gap_ids)}; sie ist {REASON}." if gap_ids else "Dynamische Analyse: " + REASON + ".")]
     else:
         sentences = [f"The sample {_cell(job['sample_name'])} (SHA-256 `{_hex(job['sample_sha256'][:16])}…`) was examined; detected as {typ}, recipe {rec}.",
                      "The analysis was purely static and offline: the sample was never executed.",
                      (f"Of {len(answers)} target questions, {n_ans} are answered and {n_unres} unresolved." if answers else t["no_questions"]),
-                     f"There are {n_conf} confirmed findings and {n_hyp} hypotheses.",
-                     (f"{len(gap_ids)} gaps can only be closed by a dynamic analysis; it is not executed (analysis VM missing, ADR-0005)." if gap_ids else "Dynamic analysis: not executed (analysis VM missing, ADR-0005).")]
+                     f"Findings: {n_conf} confirmed, {n_hyp} kept as hypotheses.",
+                     (f"Gaps that only a dynamic analysis can close: {len(gap_ids)}; it is not executed (analysis VM missing, ADR-0005)." if gap_ids else "Dynamic analysis: not executed (analysis VM missing, ADR-0005).")]
 
     out: list[str] = [f"# {t['title']} {_tok(job['id'])}: {_cell(spec.get('title'))}"]
     if live:

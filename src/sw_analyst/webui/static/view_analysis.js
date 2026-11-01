@@ -329,9 +329,10 @@
       (cols[level[i]] = cols[level[i]] || []).push(i);
       pos[i] = { col: level[i], row: cols[level[i]].length - 1 };
     });
+    var back = lin.edges.some(function (e) { return idx[e.from] !== undefined && idx[e.to] !== undefined && level[idx[e.to]] <= level[idx[e.from]]; });
     var rows = cols.reduce(function (m, c) { return Math.max(m, c ? c.length : 0); }, 1);
     pos.forEach(function (p) { p.x = PAD + p.col * (NW + GX); p.y = PAD + p.row * (NH + GY); });
-    return { idx: idx, pos: pos, w: PAD * 2 + cols.length * NW + (cols.length - 1) * GX, h: PAD * 2 + rows * NH + (rows - 1) * GY + 56 };
+    return { idx: idx, pos: pos, w: PAD * 2 + cols.length * NW + (cols.length - 1) * GX, h: PAD * 2 + rows * NH + (rows - 1) * GY + (back ? 56 : 0) };
   }
 
   function flowchart(jobId, lin, selected, onSelect) {
@@ -339,8 +340,8 @@
     var finals = {};
     (lin.final || []).forEach(function (p) { finals[p] = true; });
     var inEdge = {};
-    var s = svg('svg', { cls: 'an-flow', width: L.w, height: L.h, viewBox: '0 0 ' + L.w + ' ' + L.h, role: 'group', 'aria-label': 'Umwandlungsprozess der Dateien' },
-      svg('defs', null, svg('marker', { id: 'an-arr', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' }, svg('path', { d: 'M0 0L10 5L0 10z', cls: 'an-arrow' }))));
+    var s = svg('svg', { class: 'an-flow', width: L.w, height: L.h, viewBox: '0 0 ' + L.w + ' ' + L.h, role: 'group', 'aria-label': 'Umwandlungsprozess der Dateien' },
+      svg('defs', null, svg('marker', { id: 'an-arr', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' }, svg('path', { d: 'M0 0L10 5L0 10z', class: 'an-arrow' }))));
     var gE = svg('g'), gN = svg('g');
     s.appendChild(gE); s.appendChild(gN);
     lin.edges.forEach(function (e) {
@@ -359,9 +360,9 @@
       }
       var m = [e.tool, e.method].filter(Boolean).join(' · ');
       var tip = e.tool + (e.method ? ' · Methode ' + e.method : '') + ' · ' + JSON.stringify(e.params || {}) + ' · Beleg ' + (e.evidence_ids || [e.evidence_id]).join(', ');
-      var g = svg('g', { 'data-edge': e.from + '>' + e.to }, svg('title', null, tip), svg('path', { d: d, cls: 'an-edge', 'marker-end': 'url(#an-arr)', 'data-to': e.to }));
-      g.appendChild(svg('text', { x: mx, y: my - 8, 'text-anchor': 'middle', cls: 'an-elabel' }, clip(m, 24)));
-      var ev = svg('text', { x: mx, y: my + 5, 'text-anchor': 'middle', cls: 'an-elabel ev', tabindex: 0, role: 'button', 'aria-label': 'Beleg ' + e.evidence_id + ' öffnen' }, e.evidence_id);
+      var g = svg('g', { 'data-edge': e.from + '>' + e.to }, svg('title', null, tip), svg('path', { d: d, class: 'an-edge', 'marker-end': 'url(#an-arr)', 'data-to': e.to }));
+      g.appendChild(svg('text', { x: mx, y: my - 8, 'text-anchor': 'middle', class: 'an-elabel' }, clip(m, 24)));
+      var ev = svg('text', { x: mx, y: my + 5, 'text-anchor': 'middle', class: 'an-elabel ev', tabindex: 0, role: 'button', 'aria-label': 'Beleg ' + e.evidence_id + ' öffnen' }, e.evidence_id);
       ev.addEventListener('click', function (ev2) { ev2.stopPropagation(); ui.openEvidence(jobId, e.evidence_id, ev); });
       ev.addEventListener('keydown', function (k) { if (k.key === 'Enter' || k.key === ' ') { k.preventDefault(); ui.openEvidence(jobId, e.evidence_id, ev); } });
       g.appendChild(ev);
@@ -371,17 +372,17 @@
     var nodeEls = {};
     lin.nodes.forEach(function (n, i) {
       var p = L.pos[i];
-      var g = svg('g', { cls: ['an-node', finals[n.path] ? 'is-final' : '', n.missing ? 'is-missing' : ''].join(' '), transform: 'translate(' + p.x + ' ' + p.y + ')', tabindex: 0, role: 'button', 'data-path': n.path,
+      var g = svg('g', { class: ['an-node', finals[n.path] ? 'is-final' : '', n.missing ? 'is-missing' : ''].join(' '), transform: 'translate(' + p.x + ' ' + p.y + ')', tabindex: 0, role: 'button', 'data-path': n.path,
         'aria-label': 'Datei ' + n.path + ', ' + n.size + ' Byte' + (finals[n.path] ? ', Endergebnis' : '') });
       g.appendChild(svg('title', null, n.path + '\nSHA-256 ' + (n.sha256 || '–') + '\n' + (n.label || '') + '\n\n' + clip(n.preview, 400)));
-      g.appendChild(svg('rect', { cls: 'box', width: NW, height: NH, rx: 8 }));
-      g.appendChild(svg('text', { x: 10, y: 18, cls: 'nt' }, clip(n.path, 24)));
-      if (finals[n.path]) g.appendChild(svg('text', { x: NW - 8, y: 18, 'text-anchor': 'end', cls: 'nf' }, 'Endergebnis'));
-      g.appendChild(svg('text', { x: 10, y: 35, cls: 'nm' }, clip(fmt.bytes(n.size) + ' · ' + (n.label || (n.missing ? 'nicht vorhanden' : '')), 38)));
-      g.appendChild(svg('text', { x: 10, y: 51, cls: 'nm' }, 'SHA-256 ' + (n.sha256 ? n.sha256.slice(0, 16) + '…' : '–')));
+      g.appendChild(svg('rect', { class: 'box', width: NW, height: NH, rx: 8 }));
+      g.appendChild(svg('text', { x: 10, y: 18, class: 'nt' }, clip(n.path, 24)));
+      if (finals[n.path]) g.appendChild(svg('text', { x: NW - 8, y: 18, 'text-anchor': 'end', class: 'nf' }, 'Endergebnis'));
+      g.appendChild(svg('text', { x: 10, y: 35, class: 'nm' }, clip(fmt.bytes(n.size) + ' · ' + (n.label || (n.missing ? 'nicht vorhanden' : '')), 38)));
+      g.appendChild(svg('text', { x: 10, y: 51, class: 'nm' }, 'SHA-256 ' + (n.sha256 ? n.sha256.slice(0, 16) + '…' : '–')));
       var pv = oneLine(n.preview);
-      g.appendChild(svg('text', { x: 10, y: 69, cls: 'np' }, clip(pv, 33)));
-      g.appendChild(svg('text', { x: 10, y: 83, cls: 'np' }, clip(pv.slice(32), 33)));
+      g.appendChild(svg('text', { x: 10, y: 69, class: 'np' }, clip(pv, 33)));
+      g.appendChild(svg('text', { x: 10, y: 83, class: 'np' }, clip(pv.slice(32), 33)));
       g.addEventListener('click', function () { onSelect(n.path); });
       g.addEventListener('keydown', function (k) { if (k.key === 'Enter' || k.key === ' ') { k.preventDefault(); onSelect(n.path); } });
       gN.appendChild(g);

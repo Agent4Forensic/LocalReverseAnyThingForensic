@@ -50,5 +50,5 @@ def test_plan_defangs_and_report_shows_gap_section(tmp_path):
     assert "http://evil.example" not in str(p)
     rep = build_report(store, jid, "de")
     sec = rep[rep.index("### Dynamische Analyse"):]
-    assert "nicht ausgeführt, Analyse-VM fehlt (ADR-0005)" in sec and "evil.example/a" not in rep.replace("[.]", ".").replace("hxxp", "")[:0] + ""
+    assert "nicht ausgeführt, Analyse-VM fehlt (ADR-0005)" in sec
     assert "http://evil.example" not in rep

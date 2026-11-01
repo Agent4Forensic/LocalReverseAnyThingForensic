@@ -132,11 +132,12 @@
       var fHost = h('div', { cls: 'stack' });
       var segHost = h('div');
       var dead = false;
+      var mdDone = false;
 
       function jump() {
-        if (!target) return;
+        if (!target || !mdDone) return;
         var node = document.getElementById('f-' + target);
-        if (node) { node.scrollIntoView({ block: 'center' }); node.focus({ preventScroll: true }); }
+        if (node) { node.scrollIntoView({ block: 'center' }); node.focus({ preventScroll: true }); target = null; }
       }
       function paintFilter() {
         var c = { all: st.findings.length };
@@ -174,8 +175,8 @@
             SW.dom.fill(out, ui.noData('Der Bericht ist noch leer.'));
             SW.dom.fill(tocHost, null);
           }
+          mdDone = true;
           jump();
-          target = null;
         }, function (err) {
           if (dead || mine !== seq) return;
           text = null;
@@ -215,7 +216,6 @@
           target = r.query.finding || null;
           if (target) { filter = 'all'; paintFilter(); }
           paintFindings();
-          target = null;
         }
       };
     }
