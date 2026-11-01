@@ -465,6 +465,24 @@ class Store:
                     pass      # SQLite already rolled back
                 raise ValueError(f"rows could not be inserted ({type(exc).__name__})") from None
 
+    def delete_job(self, job_id: str) -> dict[str, int]:
+        """Remove every row of one job from all per-job tables (one transaction); returns the row counts.
+
+        Files (job directory, audit log) are not touched here; see ``webui.jobdelete``."""
+        counts: dict[str, int] = {}
+        with self._lock:
+            self._db.execute("BEGIN")
+            try:
+                for t in reversed(EXPORT_TABLES):
+                    col = "id" if t == "jobs" else "job_id"
+                    counts[t] = self._db.execute(f"DELETE FROM {t} WHERE {col}=?", (job_id,)).rowcount
+                self._db.execute("COMMIT")
+            except sqlite3.Error:
+                self._db.execute("ROLLBACK")
+                raise
+            self._audits.pop(job_id, None)
+        return counts
+
     def make_read_only(self) -> None:
         """Refuse every later write on this connection (imported jobs): an emit fails before it touches the audit."""
         with self._lock:

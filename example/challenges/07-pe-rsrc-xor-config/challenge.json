@@ -1,0 +1,20 @@
+{
+  "id": "07-pe-rsrc-xor-config",
+  "title": "PE: XOR-Konfiguration in der Ressource",
+  "level": "schwer",
+  "description": "Eine minimale, nicht lauffähige PE32-Datei mit einer Ressourcensektion. RCDATA/101 enthält eine Konfiguration, die per XOR mit einem 8-Byte-Schlüssel verschlüsselt ist. Der Schlüssel steht im Header des Overlays (Marke CFGK). RCDATA/102 ist ein Köder mit einem Schlüssel, der nirgends steht. Die Flagge setzt sich aus zwei Feldern der Konfiguration zusammen. Nichts wird ausgeführt.",
+  "goal": "Die KI soll mit pe_headers das Overlay und mit pe_resources die zwei Ressourcen finden, den Schlüssel aus dem Overlay-Header (hexdump) belegen, RCDATA/101 mit extract_range holen und mit decode_layer (xor_key) lesen. Die Antwort kombiniert campaign und build_tag zu SWBENCH{<campaign>_<build_tag>}.",
+  "tests": "PE-Ressourcenbaum, Overlay-Header, Mehrbyte-XOR, Kombination zweier Felder, Unterscheidung von Köder und echter Ressource.",
+  "sample": {
+    "name": "rsrc_config.exe.bin",
+    "builder": "pe_rsrc_xor_config"
+  },
+  "job_description": "PE file with an encrypted resource. Analyse statically.",
+  "questions": [
+    "Where is the XOR key stored and what is it?",
+    "Which values do the fields campaign and build_tag have in the decrypted configuration? Give them combined as SWBENCH{<campaign>_<build_tag>}."
+  ],
+  "flag": "SWBENCH{harbor-owl_k17}",
+  "budget_minutes": 30,
+  "requires": []
+}

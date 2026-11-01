@@ -1,0 +1,20 @@
+{
+  "id": "08-script-mini-vm",
+  "title": "Skript mit Mini-Bytecode",
+  "level": "schwer",
+  "description": "Ein Python-ähnliches Ladeskript, das nie läuft. Ein kleiner Bytecode (PROG) beschreibt, was mit den Daten (DATA, Hex) geschieht: Hex lesen, XOR mit einem Schlüssel aus einer Tabelle, Base64, erneut XOR mit anderem Schlüssel, gunzip. Die Schlüsselbytes sind TABLE[Index & 15]. Ein zweites Programm und ein zweiter Datenblock sind Köder.",
+  "goal": "Die KI soll die Opcode-Semantik aus dem Skript lesen, PROG von Hand zerlegen (NOP, Schlüssellängen, Indizes), die zwei Schlüssel aus TABLE ableiten (Index mit 15 maskieren) und die Schichten mit decode_layer (hex, xor_key, base64, xor_key, gzip) in der Reihenfolge des Bytecodes auflösen. Der Köder PROG_DEBUG/DATA_DEBUG gehört nicht zum Ablauf.",
+  "tests": "Lesen eines selbstgebauten Bytecodes, Ableiten von Schlüsseln aus einer Tabelle, Reihenfolge der Schichten laut Programm, Köder.",
+  "sample": {
+    "name": "vm_stub.py",
+    "builder": "script_mini_vm"
+  },
+  "job_description": "A script with a tiny byte-code interpreter. Analyse statically, do not run it.",
+  "questions": [
+    "Which operations does PROG perform in which order, and which two keys result from TABLE?",
+    "What is the value of report_token in the final decoded stage?"
+  ],
+  "flag": "SWBENCH{vm_table_walk_5d2}",
+  "budget_minutes": 30,
+  "requires": []
+}

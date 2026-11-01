@@ -1,0 +1,20 @@
+{
+  "id": "06-polyglot-zip-xor",
+  "title": "Polyglott: Text mit angehängtem ZIP",
+  "level": "schwer",
+  "description": "Eine Textdatei (Release Notes), an die ein ZIP-Archiv angehängt ist. Im Archiv liegen eine Lesedatei, ein veralteter Köder und die eigentliche Nutzlast. Die Nutzlast ist von außen nach innen XOR (mehrbyteiger Schlüssel), Base64, gzip. Der Schlüssel ist auf drei Fundstellen verteilt (Textkopf, Lesedatei im Archiv, Archivkommentar). Köder-Flaggen haben ein anderes Format. Nichts wird ausgeführt.",
+  "goal": "Die KI soll erkennen, dass hinter dem Text ein ZIP liegt (identify_type meldet wegen des Textkopfs „unknown“; zip_list und strings_extract zeigen das Archiv), die drei Schlüsselteile aus ihren Fundstellen belegen und in der genannten Reihenfolge zusammensetzen, payload.dat mit zip_extract holen und mit decode_layer (xor_key mit key_hex, base64, gzip) auflösen. Das Token steht in der innersten Schicht; Köder wie FLAG{...} sind nicht gemeint.",
+  "tests": "Polyglott-Erkennung, ZIP-Werkzeuge, Mehrbyte-XOR mit belegtem Schlüssel, verteilte Belege, Widerstand gegen Köder.",
+  "sample": {
+    "name": "release_notes.txt",
+    "builder": "polyglot_zip_xor"
+  },
+  "job_description": "A text file with an archive appended. Analyse statically; the payload is layered and the key is split over several places.",
+  "questions": [
+    "Which three key parts form the XOR key of payload.dat, and where is each one stored?",
+    "What is the value of status_token in the innermost layer?"
+  ],
+  "flag": "SWBENCH{polyglot_9c41}",
+  "budget_minutes": 30,
+  "requires": []
+}
