@@ -286,7 +286,8 @@ class Store:
         return list(reversed(rows))
 
     def list_evidence(self, job_id: str) -> list[dict]:
-        rows = self._q("SELECT id,task_id,tool,tool_version,result_sha256,LENGTH(text) AS size,created_at "
+        rows = self._q("SELECT id,task_id,tool,tool_version,params_json,result_sha256,LENGTH(text) AS size,"
+                       "SUBSTR(text,1,240) AS preview,injection_flags_json,created_at "
                        "FROM evidence WHERE job_id=? ORDER BY id", (job_id,))
         return rows
 
@@ -396,6 +397,11 @@ class Store:
         return {"tasks_total": total, "done": c.get("done", 0), "pending": c.get("pending", 0),
                 "running": c.get("running", 0), "failed": c.get("failed", 0), "blocked": c.get("blocked", 0),
                 "percent": round(100 * finished / total) if total else 0}
+
+    def step_counts(self, job_id: str) -> dict[str, int]:
+        """Number of steps per kind for one job (dashboard: which phases have happened)."""
+        return {r["kind"]: r["n"] for r in self._q("SELECT kind, COUNT(*) AS n FROM steps WHERE job_id=? GROUP BY kind",
+                                                   (job_id,))}
 
     def totals(self, job_id: str) -> dict:
         r = self._one("SELECT COUNT(*) AS steps, "

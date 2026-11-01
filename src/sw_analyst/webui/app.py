@@ -87,6 +87,11 @@ def safe_sample_name(raw: str | None) -> str:
     return name[:120]
 
 
+# log messages that explain an end other than "all tasks done" (orchestrator/engine.py, orchestrator/worker.py)
+END_REASONS = ("stopping: ", "job crashed: ", "job interrupted by restart", "upload interrupted by restart",
+               "worker caught an error: ")
+
+
 def job_summary(j: dict) -> dict:
     keys = ("id", "title", "status", "sample_name", "sample_sha256", "detected_type", "recipe", "created_at",
             "started_at", "finished_at", "duration_ms")
@@ -505,6 +510,38 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
                 "findings": related[:50]}
 
     # ---- live activity: what is the AI doing right now -------------------------------------------------
+    def phase_states(S, rid: str, j: dict, tasks: list[dict], current: Optional[str]) -> list[dict]:
+        """Per phase: done (happened at least once), cur (happening now) or open (not reached), with a count.
+        Evaluation, prioritisation and translation repeat per task, so done there means 'has happened'."""
+        work = [t for t in tasks if t["kind"] != "group"]
+        triage = [t for t in work if t["origin"] == "triage"]
+        planned = [t for t in work if t["origin"] != "triage"]
+        steps = S.step_counts(rid)
+        ended = j["status"] not in ("queued", "running", "uploading")
+        counts = {
+            "triage": len([t for t in triage if t["status"] in ("done", "failed")]),
+            "planning": len(planned),
+            "analysis": len([t for t in planned if t["status"] in ("done", "failed", "skipped", "blocked")]),
+            "evaluation": steps.get("evaluate", 0), "prioritization": steps.get("prioritize", 0),
+            "translation": steps.get("translate", 0), "finalizing": 1 if ended else 0}
+        totals = {"triage": len(triage), "analysis": len(planned)}
+        out = []
+        for pid in ("triage", "planning", "analysis", "evaluation", "prioritization", "translation", "finalizing"):
+            n = counts[pid]
+            st = "cur" if pid == current else ("done" if n else "open")
+            out.append({"id": pid, "state": st, "count": n, "total": totals.get(pid)})
+        return out
+
+    def end_info(S, rid: str, j: dict) -> dict:
+        """Why the job ended: engine and worker log one of END_REASONS before the job gets its final status."""
+        reason = ""
+        for e in S.events_after(rid, 0, 5000, "warn", ("log",)):
+            m = e["message"] or ""
+            if m.startswith(END_REASONS):
+                reason = m
+        return {"status": j["status"], "reason": reason, "finished_at": j.get("finished_at"),
+                "summary_de": j.get("summary_de") or "", "summary_en": j.get("summary_en") or ""}
+
     @app.get("/api/jobs/{job_id}/activity")
     def activity(job_id: str):
         ref = resolve(job_id)
@@ -534,7 +571,9 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
                 phase = {"evaluate": "evaluation", "prioritize": "prioritization", "translate": "translation"}[step["kind"]]
         state = "working" if j["status"] == "running" else ("idle" if j["status"] == "queued" else "finished")
         nxt = [{"task_id": t["id"], "title": t["title"]} for t in S.queue(rid) if t["status"] == "pending"][:3]
-        return {"state": state, "phase": phase,
+        phases = phase_states(S, rid, j, tasks, phase if state == "working" else None)
+        return {"state": state, "phase": phase, "status": j["status"], "phases": phases,
+                "end": end_info(S, rid, j) if state == "finished" else None,
                 "task": ({"id": running["id"], "title": running["title"], "goal": running["goal"], "origin": running["origin"],
                           "started_at": running["started_at"], "elapsed_ms": elapsed(running["started_at"])} if running else None),
                 "step": step, "model": {"name": ref.model}, "recent": recent,

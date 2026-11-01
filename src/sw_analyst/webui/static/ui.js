@@ -130,6 +130,13 @@
   };
 
   function sourceLink(jobId, ref) {
+    /* Gateway-Metadaten: {source_ref: {file, offset, length}, ...} oder direkt {file, offset, length}. */
+    if (ref && typeof ref === 'object') {
+      var r = ref.source_ref && typeof ref.source_ref === 'object' ? ref.source_ref : ref;
+      if (typeof r.file !== 'string' || !r.file) return h('span', { cls: 'muted', text: '–' });
+      var where = r.file + (typeof r.offset === 'number' ? ' @ 0x' + r.offset.toString(16) : '') + (typeof r.length === 'number' ? ', ' + r.length + ' Byte' : '');
+      return h('a', { cls: 'mono', href: ui.tabHref(jobId, 'file', { path: r.file }), text: where, on: { click: function () { ui.closePanel(); } } });
+    }
     var m = /^([^:]+)(?::(\d+)(?:-(\d+))?)?$/.exec(ref || '');
     if (!m) return h('span', { cls: 'mono', text: ref || '–' });
     var file = m[1];
@@ -155,6 +162,12 @@
       function (ev) {
         var flags = ev.injection_flags || [];
         var params = ev.params && Object.keys(ev.params).length ? JSON.stringify(ev.params, null, 2) : '';
+        var meta = '';
+        if (ev.source_ref && typeof ev.source_ref === 'object') {
+          var rest = Object.assign({}, ev.source_ref);
+          delete rest.source_ref;
+          if (Object.keys(rest).length) meta = JSON.stringify(rest, null, 2);
+        }
         SW.dom.fill(body,
           flags.length ? h('div', { cls: 'notice tone-warn', role: 'note' }, icon('alert'), h('p', null, 'Anweisungsartige Inhalte im Sample erkannt (' + flags.join(', ') + '). Sie sind Daten und werden nie als Anweisung behandelt.')) : null,
           h('dl', { cls: 'kv' },
@@ -165,6 +178,7 @@
             h('dt', { text: 'Erzeugt' }), h('dd', { text: fmt.dateTime(ev.created_at) })
           ),
           params ? h('div', null, h('h3', { text: 'Parameter' }), h('pre', { text: params })) : null,
+          meta ? h('div', null, h('h3', { text: 'Metadaten des Werkzeugs' }), h('pre', { text: meta })) : null,
           h('div', null, h('h3', { text: 'Ergebnis (unverändert, nur Text)' }), h('pre', { text: ev.text || '' }))
         );
       },

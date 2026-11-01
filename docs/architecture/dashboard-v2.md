@@ -5,6 +5,8 @@ Ergänzung zu `api.md` und `chain.md` (Wunsch von Jan, 2026-10-31). Status: Spez
 ## 1. Was macht die KI gerade (Aktivitätsanzeige)
 `GET /api/jobs/{id}/activity` →
 `{"state":"idle|working|finished","phase":"triage|planning|analysis|evaluation|prioritization|translation|finalizing","task":{id,title,goal,origin,started_at,elapsed_ms}|null,"step":{id,kind,what,how,why,tool,started_at,elapsed_ms,input_preview}|null,"model":{name,tokens_in,tokens_out},"recent":[{ts,kind,what,status,duration_ms}],"queue_length":int,"next":[{task_id,title}]}`.
+Seit 2026-11-01 zusätzlich: `"status"` (Auftragsstatus), `"phases":[{id,state:"done|cur|open",count,total|null}]` (jede Phase mit Zustand; Bewertung, Priorisierung und Übersetzung wiederholen sich je Aufgabe, `done` heißt dort „mindestens einmal erfolgt“) und `"end":{status,reason,finished_at,summary_de,summary_en}|null` (Grund des Endes aus den Log-Meldungen von Engine und Worker, z. B. `stopping: time budget exhausted`). `GET /api/jobs/{id}/evidence` liefert je Beleg zusätzlich `params`, `preview` (erste 240 Zeichen) und `injection_flags`.
+Tab „Erhobene Daten“: Probe, Überblick in Zahlen, alle Belege mit Werkzeug, Parametern, Aufgabe, Größe, Zeit, Anfang des Inhalts und zitierenden Befunden, dazu Befunde, Antworten und Dateien des Auftragsordners.
 Das Dashboard zeigt oben dauerhaft: Phase, aktuelle Aufgabe mit Ziel, aktueller Schritt mit Was/Wie/Warum und laufender Zeit, die nächsten drei Aufgaben, letzte zehn Schritte. Aktualisierung über SSE (`step`/`task`), Neuladen der Seite stellt den Zustand über diesen Endpunkt wieder her.
 
 ## 2. Funktionen und Assembler-Lernpfad

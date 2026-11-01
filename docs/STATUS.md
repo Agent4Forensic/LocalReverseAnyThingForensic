@@ -202,6 +202,12 @@ Offen:
 - [x] Ergebnis automatisch: Seite aktualisiert sich, Auftragskopf zeigt „Beispiel NN: bestanden / nicht bestanden“.
 - [x] Geprüft: 5 neue API-Tests (1047 grün gesamt), Browserlauf mit und ohne Ghidra, 0 Konsolenfehler.
 
+## Prozessstatus und erhobene Daten im Dashboard (von Jan beauftragt, 2026-11-01)
+- [x] Phasenleiste zeigt jede Phase als erledigt, läuft gerade oder offen bzw. nicht erreicht, mit Zähler (z. B. Analyse 3/7). Nach dem Ende steht ein Ergebniskasten mit Status, Grund (Budget, Modell nicht erreichbar, Neustart, Abbruch, Fehler) und Bilanz.
+- [x] Neuer Tab „Erhobene Daten“: Probe (Name, Größe, SHA-256, Typ, Rezept), Überblick in Zahlen, Tabelle aller Belege (Werkzeug, Parameter, Aufgabe, Größe, Zeit, Inhaltsanfang, Schutzhinweis, zitierende Befunde), Befunde und Antworten, Dateien. Aktualisiert sich live.
+- [x] Fehler behoben: Im Beleg-Panel stand bei „Quelle“ `[object Object]`. Jetzt Datei, Offset und Länge als Link zur Datei-Ansicht, dazu die Metadaten des Werkzeugs.
+- [x] Geprüft: 2 neue API-Tests (1051 grün gesamt), Browserlauf mit Beispiel 01 während des Laufs und danach, 0 Konsolenfehler, keine horizontale Scrollleiste bei 390 px.
+
 ## Seite „Prompts“ entfernt (von Jan beauftragt, 2026-11-01)
 - [x] Navigationspunkt, Route `#/prompts`, Ansicht und Ladefunktion aus dem Dashboard entfernt; alte Links landen auf der Übersicht. Die API `/api/prompts` bleibt für Skripte bestehen. Prompt-ID, Version und Hash je Aufgabe bleiben im Aufgabendetail sichtbar (Nachvollziehbarkeit), ebenso im Bericht.
 
