@@ -413,3 +413,22 @@ Offen und nicht geprüft:
 - [ ] Fenster schließen statt `Strg+C`: Der Hook auf `PowerShell.Exiting` startet ein verstecktes `stop.ps1 -Force`. Das ist Best Effort, Windows gibt dem Host nur wenige Sekunden; nicht belegt.
 - [ ] `.claude/settings.json` (Liste aktivierter Plugins auf dem Dev-Rechner) ist bewusst nicht Teil dieses Commits, weil sie rechnerspezifisch ist.
 - [ ] Im Arbeitsverzeichnis von `main` fehlt `infra/tools/rules/sw_analyst.yar` (Löschung nicht von diesem Commit, vermutlich Virenscanner; `git ls-files -d` zeigt sie). Nicht angefasst.
+
+## Windows-Lauf: Launcher, Tool-Images, CTF 06-09 (2026-11-01)
+
+Belegt (echter Lauf von `scripts\start.ps1` aus dem Hauptordner bei gestopptem Docker und fehlenden Images, Testsuite auf demselben Tree):
+- [x] `start.ps1` baut fehlende Tool-Images selbst, nachdem Docker bereit ist. Gebaut in etwa 4,5 Minuten: `sw-analyst/ghidra:12.1.4`, `sw-analyst/triage:1`, `sw-analyst/jadx:1.5.6`. Die Images bleiben nach `stop.ps1` und dem Cleanup erhalten.
+- [x] `/api/examples` liefert die Challenges 01 bis 09, `sample_file_ok` ist bei allen neun `true`. `/api/system` meldet alle sechs Container-Werkzeuge.
+- [x] Probenbau plattformunabhängig: das gzip-OS-Byte ist an allen vier Stellen auf 255 gepinnt, `ZipInfo.create_system` auf 3. `example/build_samples.py --check` ist auf Windows `ok`, die Bytes der Proben sind unverändert.
+- [x] Job löschen funktioniert auf Windows: Proben liegen mit `0o444`, Windows löscht schreibgeschützte Dateien nicht. Der Retry-Handler in `jobdelete.py` macht echte Dateien beschreibbar, Symlinks bleiben unberührt.
+- [x] Tests: 1134 passed, 38 xfailed, 0 skipped, einschließlich der 8 Tests gegen die echten Images.
+
+Hypothese:
+- [ ] Der Ollama-Port fehlt zeitweise in `netstat`. Im letzten Lauf zeigte auch `Get-NetTCPConnection` keinen Listener, obwohl die API antwortete. „netstat flackert“ erklärt das vermutlich nicht vollständig; die Ursache ist nicht geklärt. Der Fallback in `start.ps1` griff und der Start lief durch.
+
+Offen:
+- [ ] `fix/job-j0001-findings` ist nicht in `main`. Die Verifier-Arbeit aus J-0001 (`locate_quote`, `claimed_values`, `GAP:`) fehlt daher im laufenden Stand. Der Merge hat Konflikte im Verifier und braucht die Durchsicht von Jan.
+- [ ] `main` ist nicht gepusht.
+- [ ] Der Marker-Fall im Launcher wurde nur mit `stop.ps1 -KeepDocker` geprüft, nicht das Beenden von Docker Desktop in diesem Lauf.
+- [ ] Meldungen in `webui/app.py` und `webui/examples.py` nennen noch `-BuildTools`. Der Schalter ist jetzt ohne Wirkung, die Anweisung führt aber weiterhin zum Ziel.
+- [ ] Kein Analyse-Job auf den Challenges 06 bis 09 gefahren; geprüft sind Auflistung, Probenbytes und die Testsuite.
