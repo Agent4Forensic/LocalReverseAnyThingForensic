@@ -1,0 +1,77 @@
+/* Aktivitaet, Aufgaben-Erklaerung und Erhobene Daten. Nutzt nur Tokens aus styles.css (hell und dunkel). */
+
+/* ---------- Jetzt-Karte ---------- */
+.now { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 14px; }
+.now-main, .now-next { min-width: 0; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.now-main.is-live { border-color: var(--info); background: var(--info-bg); }
+.now-lbl { margin: 0 0 4px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.now-task { margin: 0 0 2px; font-size: 16px; font-weight: 700; overflow-wrap: anywhere; }
+.now-sub { margin: 0 0 10px; color: var(--muted); font-size: 12.5px; }
+.now-step { display: flex; gap: 10px; align-items: flex-start; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 9px 11px; }
+.now-step-b { min-width: 0; flex: 1; }
+.now-step-t { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 4px; }
+.now-step p { margin: 0 0 3px; overflow-wrap: anywhere; }
+.now-clock { font-variant-numeric: tabular-nums; font-weight: 600; }
+.now-idle { margin: 0; color: var(--muted); }
+.now-next h3 { margin: 0 0 6px; font-size: 13px; }
+.now-next ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.now-next li { overflow-wrap: anywhere; }
+@media (max-width: 900px) { .now { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---------- Symbol je Art ---------- */
+.kind-ic { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%;
+  background: var(--neutral-bg); color: var(--neutral); border: 1px solid var(--line); }
+.kind-ic.k-model { background: var(--info-bg); color: var(--info); border-color: var(--info); }
+.kind-ic.k-tool { background: var(--accent-soft); color: var(--accent-text); border-color: var(--accent); }
+.kind-ic.k-check { background: var(--ok-bg); color: var(--ok); border-color: var(--ok); }
+.kind-ic.k-judge { background: var(--warn-bg); color: var(--warn); border-color: var(--warn); }
+.kind-ic.k-guard { background: var(--err-bg); color: var(--err); border-color: var(--err); }
+
+/* ---------- Zeitleiste ---------- */
+.tl { list-style: none; margin: 8px 0 0; padding: 0; position: relative; }
+.tl li { position: relative; display: flex; gap: 10px; padding: 0 0 12px 0; min-width: 0; }
+.tl li::before { content: ""; position: absolute; left: 13px; top: 28px; bottom: 0; width: 2px; background: var(--line); }
+.tl li:last-child { padding-bottom: 0; }
+.tl li:last-child::before { display: none; }
+.tl-b { min-width: 0; flex: 1; padding-top: 2px; }
+.tl-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.tl-what { overflow-wrap: anywhere; }
+.tl-meta { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; }
+.tl li.is-running .tl-what { font-weight: 600; }
+.tl li.is-failed .tl-what, .tl li.is-error .tl-what { color: var(--err); }
+
+/* ---------- Aufgaben-Erklaerung ---------- */
+.why { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 14px; margin-bottom: 12px; }
+.why h3 { margin: 0 0 8px; font-size: 14px; }
+.why-q { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; margin: 0 0 9px; }
+.why-q:last-child { margin-bottom: 0; }
+.why-q dt, .why-q .q { font-weight: 600; font-size: 13px; color: var(--ink-2); }
+.why-q dd, .why-q .a { margin: 0; overflow-wrap: anywhere; }
+.why-q .a-sub { color: var(--muted); font-size: 12.5px; }
+.lang-en { display: inline-block; margin-left: 6px; font-size: 11px; font-weight: 600; padding: 0 5px; border-radius: 3px;
+  background: var(--info-bg); color: var(--info); border: 1px solid var(--info); vertical-align: 1px; }
+
+/* ---------- Erhobene Daten ---------- */
+.evtools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+.evtools input[type="search"] { min-width: 220px; flex: 1; max-width: 360px; }
+.evgrp { border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 8px; background: var(--surface); }
+.evgrp > summary { cursor: pointer; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; list-style: none; min-width: 0; }
+.evgrp > summary::-webkit-details-marker { display: none; }
+.evgrp > summary:hover { background: var(--surface-2); }
+.evgrp[open] > summary { border-bottom: 1px solid var(--line); background: var(--surface-2); }
+.evgrp-n { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
+.evgrp-hint { flex-basis: 100%; font-size: 12.5px; color: var(--muted); }
+.evrows { list-style: none; margin: 0; padding: 0; }
+.evrow { border-bottom: 1px solid var(--line); }
+.evrow:last-child { border-bottom: 0; }
+.evrow > summary { cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 6px 12px; list-style: none; min-width: 0; font-size: 13px; }
+.evrow > summary::-webkit-details-marker { display: none; }
+.evrow > summary:hover { background: var(--surface-2); }
+.evrow-d { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.evrow-det { padding: 8px 14px 12px 36px; display: flex; flex-direction: column; gap: 6px; }
+.evrow-det pre { margin: 0; max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--surface-2);
+  border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 8px; font-family: var(--mono); font-size: 12px; }
+.cited-yes { color: var(--ok); }
+.evmore { margin: 8px 12px; }
+@media (max-width: 700px) { .evrow-d { white-space: normal; } .evrow-det { padding-left: 14px; } }
+.evgrp[open] > summary > svg:first-child, .evrow[open] > summary > svg:first-child { transform: rotate(90deg); }

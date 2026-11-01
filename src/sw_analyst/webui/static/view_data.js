@@ -32,6 +32,42 @@
     return String(text || '').split('\n').filter(function (l) { return l.trim(); }).slice(0, n).join('\n');
   }
 
+  var TOOL_DO = {
+    strings_extract: 'Lesbare Zeichenketten ausgelesen',
+    identify_type: 'Dateityp bestimmt',
+    hash_file: 'Prüfsumme berechnet',
+    hash_text: 'Prüfsumme berechnet',
+    list_imports: 'Importierte Funktionen aufgelistet',
+    list_exports: 'Exportierte Funktionen aufgelistet',
+    decode_text: 'Text dekodiert',
+    hexdump: 'Rohbytes als Hexdump gelesen',
+    read_bytes: 'Rohbytes gelesen',
+    read_text: 'Text gelesen',
+    entropy: 'Entropie gemessen',
+    pe_info: 'PE-Kopfdaten gelesen',
+    pe_sections: 'PE-Abschnitte gelesen',
+    find_indicators: 'Nach Indikatoren gesucht',
+    grep: 'Nach Muster gesucht',
+    search: 'Nach Muster gesucht'
+  };
+  var SKIP_PARAMS = { path: 1, file: 1 };
+
+  function targetOf(e) {
+    var p = e.params || {};
+    var v = p.path || p.file || p.source || '';
+    return typeof v === 'string' ? v : '';
+  }
+  function describe(e) {
+    var p = e.params || {};
+    var extra = Object.keys(p).filter(function (k) { return !SKIP_PARAMS[k]; }).map(function (k) {
+      var v = p[k];
+      return k + ' ' + (typeof v === 'string' ? v : JSON.stringify(v));
+    });
+    var tgt = targetOf(e);
+    return (TOOL_DO[e.tool] || 'Ausgabe von ' + e.tool) + (tgt ? ' aus ' + tgt : '') + (extra.length ? ' (' + extra.join(', ') + ')' : '');
+  }
+  var PAGE = 40;
+
   SW.registerTab({
     id: 'data', label: 'Erhobene Daten', icon: 'list',
     mount: function (host, ctx) {
@@ -40,6 +76,11 @@
       var evErr = null;
       var files = st.files;
       var tool = '';
+      var query = '';
+      var citedMode = '';   /* '', 'yes', 'no' */
+      var groupBy = 'tool'; /* 'tool' | 'file' */
+      var openKeys = {};
+      var shown = {};
       var dead = false;
       var inflight = false;
       var again = false;
@@ -87,9 +128,17 @@
       function paintTiles() {
         var list = ev || [];
         var tools = {};
+        var tfiles = {};
         var bytes = 0;
         var flagged = 0;
-        list.forEach(function (e) { tools[e.tool] = (tools[e.tool] || 0) + 1; bytes += e.size || 0; if ((e.injection_flags || []).length) flagged++; });
+        var cites = citedBy();
+        var citedN = 0;
+        list.forEach(function (e) {
+          tools[e.tool] = (tools[e.tool] || 0) + 1; bytes += e.size || 0;
+          if ((e.injection_flags || []).length) flagged++;
+          var tg = targetOf(e); if (tg) tfiles[tg] = true;
+          if (cites[e.id]) citedN++;
+        });
         var fc = { confirmed: 0, hypothesis: 0, rejected: 0, open: 0 };
         (st.findings || []).forEach(function (f) { fc[f.status] = (fc[f.status] || 0) + 1; });
         var ans = st.answers || [];
@@ -99,54 +148,136 @@
         SW.dom.fill(tilesHost, h('div', { cls: 'tiles' },
           tile('link', 'Belege', String(list.length), fmt.bytes(bytes) + ' Werkzeugausgabe' + (flagged ? ' · ' + flagged + ' mit Schutzhinweis' : '')),
           tile('tool', 'Werkzeuge', String(Object.keys(tools).length), Object.keys(tools).sort().map(function (k) { return k + ' ×' + tools[k]; }).join(', ') || 'noch keins'),
+          tile('file', 'Untersuchte Dateien', String(Object.keys(tfiles).length), 'Quellen der Belege'),
+          tile('checkcircle', 'Zitierte Belege', list.length ? citedN + '/' + list.length : '–', list.length ? (list.length - citedN) + ' noch in keinem Befund genutzt' : 'noch keine Belege'),
           tile('search', 'Befunde', String((st.findings || []).length), fc.confirmed + ' bestätigt · ' + fc.hypothesis + ' Hypothese · ' + fc.rejected + ' verworfen'),
           tile('question', 'Zielfragen', ans.length ? answered + '/' + ans.length : '–', ans.length ? 'beantwortet' : 'keine gestellt'),
-          tile('file', 'Abgeleitete Dateien', String(derived), 'unter derived/ im Auftragsordner'),
+          tile('code', 'Abgeleitete Dateien', String(derived), 'unter derived/ im Auftragsordner'),
           tile('pulse', 'Aufrufe', String((t.tool_calls || 0) + (t.llm_calls || 0)), (t.tool_calls || 0) + ' Werkzeug · ' + (t.llm_calls || 0) + ' Modell · ' + (t.steps || 0) + ' Schritte')));
       }
 
+      var filterSig = null;
+      var evSig = null;
       function paintFilter() {
         var tools = {};
         (ev || []).forEach(function (e) { tools[e.tool] = true; });
         var names = Object.keys(tools).sort();
+        if (filterSig === names.join('|')) return;
+        filterSig = names.join('|');
         if (tool && !tools[tool]) tool = '';
         var sel = h('select', { 'aria-label': 'Belege nach Werkzeug filtern' },
           h('option', { value: '', text: 'Alle Werkzeuge' }), names.map(function (n) { return h('option', { value: n, text: n }); }));
         sel.value = tool;
-        sel.addEventListener('change', function () { tool = sel.value; paintEvidence(); });
-        SW.dom.fill(filterHost, sel);
+        sel.addEventListener('change', function () { tool = sel.value; shown = {}; paintEvidence(); });
+        var cs = h('select', { 'aria-label': 'Nach Zitierung filtern' },
+          h('option', { value: '', text: 'Zitiert und nicht zitiert' }), h('option', { value: 'yes', text: 'Nur zitierte' }), h('option', { value: 'no', text: 'Nur nicht zitierte' }));
+        cs.value = citedMode;
+        cs.addEventListener('change', function () { citedMode = cs.value; shown = {}; paintEvidence(); });
+        var gs = h('select', { 'aria-label': 'Gruppieren nach' },
+          h('option', { value: 'tool', text: 'Gruppiert nach Werkzeug' }), h('option', { value: 'file', text: 'Gruppiert nach Datei' }));
+        gs.value = groupBy;
+        gs.addEventListener('change', function () { groupBy = gs.value; shown = {}; paintEvidence(); });
+        var q = h('input', { type: 'search', placeholder: 'Suchen: Beleg-ID, Werkzeug, Datei, Inhalt …', 'aria-label': 'Belege durchsuchen', value: query });
+        q.value = query;
+        var timer = null;
+        q.addEventListener('input', function () {
+          window.clearTimeout(timer);
+          timer = window.setTimeout(function () { query = q.value; shown = {}; paintEvidence(); }, 200);
+        });
+        SW.dom.fill(filterHost, h('div', { cls: 'evtools' }, q, sel, cs, gs));
+      }
+
+      function matches(e, cites) {
+        if (tool && e.tool !== tool) return false;
+        var isCited = !!cites[e.id];
+        if (citedMode === 'yes' && !isCited) return false;
+        if (citedMode === 'no' && isCited) return false;
+        if (query) {
+          var hay = (e.id + ' ' + e.tool + ' ' + describe(e) + ' ' + params(e.params) + ' ' + (e.task_id || '') + ' ' + (e.preview || '') + ' ' + (cites[e.id] || []).join(' ')).toLowerCase();
+          if (hay.indexOf(query.toLowerCase()) < 0) return false;
+        }
+        return true;
+      }
+
+      function evRow(e, cites) {
+        var used = cites[e.id] || [];
+        var flags = e.injection_flags || [];
+        var det = h('div', { cls: 'evrow-det' });
+        var row = h('details', { cls: 'evrow' },
+          h('summary', null, icon('chevronright', { size: 12 }),
+            h('span', { cls: 'mono small nowrap', text: e.id }),
+            h('span', { cls: 'evrow-d', title: describe(e), text: describe(e) }),
+            flags.length ? h('span', { cls: 'badge tone-warn', title: 'Der Prompt-Schutz hat in dieser Ausgabe verdächtige Muster gefunden.' }, icon('shield', { size: 12 }), 'Schutzhinweis') : null,
+            h('span', { cls: 'small muted nowrap', text: fmt.bytes(e.size || 0) }),
+            used.length ? h('span', { cls: 'badge tone-ok', title: 'In diesen Befunden zitiert: ' + used.join(', ') }, icon('check', { size: 12 }), 'zitiert: ' + used.join(', '))
+              : h('span', { cls: 'badge tone-neutral', title: 'Bisher in keinem Befund als Beleg verwendet.', text: 'nicht zitiert' })),
+          det);
+        row.addEventListener('toggle', function () {
+          if (!row.open || det.firstChild) return;
+          det.appendChild(h('dl', { cls: 'kv' },
+            h('dt', { text: 'Werkzeug' }), h('dd', null, h('span', { cls: 'tag mono', text: e.tool }), e.tool_version ? h('span', { cls: 'small muted mono', text: ' ' + e.tool_version }) : null),
+            h('dt', { text: 'Parameter' }), h('dd', { cls: 'mono small', text: params(e.params) }),
+            h('dt', { text: 'Aufgabe' }), h('dd', null, e.task_id ? h('a', { cls: 'mono small', href: ui.tabHref(st.id, 'tree', { task: e.task_id }), text: e.task_id }) : '–'),
+            h('dt', { text: 'Zeit' }), h('dd', { cls: 'mono small', text: fmt.time(e.created_at) }),
+            h('dt', { text: 'Zitiert in' }), h('dd', null, used.length ? h('span', { cls: 'chips' }, used.map(function (fid) {
+              return h('a', { cls: 'chip mono', href: ui.tabHref(st.id, 'live', { finding: fid }), text: fid });
+            })) : h('span', { cls: 'muted', text: 'noch in keinem Befund' }))),
+            h('pre', { text: firstLines(e.preview, 8) || '(leer)' }),
+            h('div', { cls: 'row' }, ui.evidenceChip(st.id, e.id), h('span', { cls: 'small muted', text: 'öffnet die volle Ausgabe mit SHA-256' })));
+        });
+        return row;
       }
 
       function paintEvidence() {
         if (evErr) { SW.dom.fill(evHost, ui.errorBox('Belege konnten nicht geladen werden: ' + evErr)); return; }
         if (!ev) { SW.dom.fill(evHost, ui.loading('Belege werden geladen …')); return; }
-        var list = ev.filter(function (e) { return !tool || e.tool === tool; });
-        if (!list.length) {
+        if (!ev.length) {
           SW.dom.fill(evHost, ui.empty('Noch keine Belege', 'Jeder Werkzeugaufruf legt einen Beleg mit Prüfsumme an. Die ersten entstehen in der Triage.', 'link'));
           return;
         }
         var cites = citedBy();
-        SW.dom.fill(evHost, h('div', { cls: 'tbl-wrap' }, h('table', { cls: 'tbl ev-tbl' },
-          h('caption', { cls: 'sr-only', text: 'Belege in der Reihenfolge ihrer Entstehung' }),
-          h('thead', null, h('tr', null, ['Beleg', 'Werkzeug', 'Parameter', 'Aufgabe', 'Größe', 'Zeit', 'Inhalt (Anfang)', 'Zitiert in'].map(function (c, i) {
-            return h('th', { scope: 'col', cls: i === 4 ? 'num' : '', text: c });
-          }))),
-          h('tbody', null, list.map(function (e) {
-            var flags = e.injection_flags || [];
-            var used = cites[e.id] || [];
-            return h('tr', null,
-              h('td', null, ui.evidenceChip(st.id, e.id)),
-              h('td', null, h('span', { cls: 'tag mono', text: e.tool }), e.tool_version ? h('div', { cls: 'small muted mono', text: e.tool_version }) : null),
-              h('td', { cls: 'mono small ev-par', text: params(e.params) }),
-              h('td', null, e.task_id ? h('a', { cls: 'mono small', href: ui.tabHref(st.id, 'tree', { task: e.task_id }), text: e.task_id }) : h('span', { cls: 'muted', text: '–' })),
-              h('td', { cls: 'num small nowrap', text: fmt.bytes(e.size || 0) }),
-              h('td', { cls: 'mono small nowrap', text: fmt.time(e.created_at) }),
-              h('td', null, h('pre', { cls: 'ev-prev', text: firstLines(e.preview, 3) || '(leer)' }),
-                flags.length ? h('span', { cls: 'badge tone-warn', title: 'Der Prompt-Schutz hat in dieser Ausgabe verdächtige Muster gefunden.' }, icon('shield', { size: 12 }), 'Schutzhinweis') : null),
-              h('td', null, used.length ? h('span', { cls: 'chips' }, used.map(function (fid) {
-                return h('a', { cls: 'chip mono', href: ui.tabHref(st.id, 'live', { finding: fid }), text: fid });
-              })) : h('span', { cls: 'muted small', text: '–' })));
-          })))));
+        var sig = [ev.length, Object.keys(cites).length, tool, query, citedMode, groupBy, Object.keys(shown).length].join('|');
+        if (sig === evSig) return;
+        evSig = sig;
+        var list = ev.filter(function (e) { return matches(e, cites); });
+        if (!list.length) { SW.dom.fill(evHost, ui.empty('Keine Treffer', 'Kein Beleg passt zu Suche und Filtern.', 'search')); return; }
+        var groups = {};
+        var order = [];
+        list.forEach(function (e) {
+          var k = groupBy === 'file' ? (targetOf(e) || '(ohne Datei)') : e.tool;
+          if (!groups[k]) { groups[k] = []; order.push(k); }
+          groups[k].push(e);
+        });
+        order.sort();
+        var forceOpen = !!query;
+        SW.dom.fill(evHost,
+          h('p', { cls: 'small muted', text: list.length + ' von ' + ev.length + ' Belegen in ' + order.length + (groupBy === 'file' ? ' Dateien' : ' Werkzeugen') + '. Gruppe aufklappen, dann Beleg anklicken für Einzelheiten.' }),
+          order.map(function (k) {
+            var items = groups[k];
+            var citedN = items.filter(function (e) { return cites[e.id]; }).length;
+            var bytes = items.reduce(function (n, e) { return n + (e.size || 0); }, 0);
+            var rowsHost = h('div');
+            var det = h('details', { cls: 'evgrp' },
+              h('summary', null, icon('chevronright', { size: 14 }),
+                h('strong', { cls: groupBy === 'file' ? 'mono' : 'mono', text: k }),
+                h('span', { cls: 'evgrp-n' },
+                  h('span', { cls: 'badge tone-neutral', text: items.length + (items.length === 1 ? ' Beleg' : ' Belege') }),
+                  h('span', { cls: 'badge ' + (citedN ? 'tone-ok' : 'tone-neutral'), text: citedN + ' zitiert' }),
+                  h('span', { cls: 'badge tone-neutral', text: fmt.bytes(bytes) }))),
+              rowsHost);
+            function fillRows() {
+              var n = shown[groupBy + k] || PAGE;
+              SW.dom.fill(rowsHost, h('div', { cls: 'evrows' }, items.slice(0, n).map(function (e) { return evRow(e, cites); })),
+                items.length > n ? h('button', { type: 'button', cls: 'btn sm evmore', on: { click: function () { shown[groupBy + k] = n + PAGE * 2; fillRows(); } } },
+                  (items.length - n) + ' weitere anzeigen') : null);
+            }
+            det.addEventListener('toggle', function () {
+              openKeys[groupBy + k] = det.open;
+              if (det.open && !rowsHost.firstChild) fillRows();
+            });
+            if (forceOpen || openKeys[groupBy + k]) { det.open = true; fillRows(); }
+            return det;
+          }));
       }
 
       function paintFiles() {
@@ -184,10 +315,9 @@
       }
 
       host.appendChild(h('div', { cls: 'stack' },
-        ui.section('Probe', sampleHost, h('span', { cls: 'muted small', text: 'wird nie ausgeführt, nur statisch gelesen' })),
+        ui.section('Probe', sampleHost, h('span', { cls: 'muted small', text: 'wird derzeit nicht ausgeführt (dynamische Ausführung deaktiviert bis zur Analyse-VM)' })),
         ui.section('Überblick', tilesHost),
-        ui.section('Belege (Werkzeugergebnisse)', evHost, h('span', { cls: 'row' }, filterHost,
-          h('span', { cls: 'muted small', text: 'Klick auf eine Beleg-ID zeigt die volle Ausgabe mit SHA-256' }))),
+        ui.section('Belege (Werkzeugergebnisse)', h('div', null, filterHost, evHost)),
         ui.section('Befunde und Antworten', resHost),
         ui.section('Dateien im Auftragsordner', filesHost)));
       paint();
