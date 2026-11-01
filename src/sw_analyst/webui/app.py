@@ -419,7 +419,7 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
         if not fn:
             raise _err(404, "not_found", "function not found; pick one from the list")
         from sw_analyst.webui import learnpath
-        return learnpath.walkthrough(fn)
+        return learnpath.walkthrough({**fn, "path": path})
 
     # ---- transformation chain, dynamic analysis plan, replay export, delete ---------------------------------
     @app.get("/api/jobs/{job_id}/lineage")
@@ -575,6 +575,33 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
                 "functions": fns, "total": len(res["functions"]),
                 "truncated": len(res["functions"]) > _FN_LIMIT or bool(res.get("truncated"))}
 
+    def _blocks(f: dict) -> list[dict]:
+        out = []
+        for b in (f.get("blocks") or [])[:500]:
+            if isinstance(b, dict):
+                out.append({"start": str(b.get("start", "")), "end": str(b.get("end", "")),
+                            "succ": [[str(x) for x in (s if isinstance(s, (list, tuple)) else [s])][:2] for s in (b.get("succ") or [])][:16]})
+        return out
+
+    def _xrefs(res: dict, entry) -> dict:
+        """References to and from the function entry, as the Ghidra export lists them: [from, to, type]."""
+        try:
+            addr = int(str(entry), 16)
+        except (TypeError, ValueError):
+            return {"to": [], "from": []}
+        to, frm = [], []
+        for r in res.get("refs") or []:
+            try:
+                a, b = int(str(r[0]), 16), int(str(r[1]), 16)
+            except (TypeError, ValueError, IndexError):
+                continue
+            row = [str(r[0]), str(r[1]), str(r[2]) if len(r) > 2 else ""]
+            if b == addr and len(to) < 300:
+                to.append(row)
+            if a == addr and len(frm) < 300:
+                frm.append(row)
+        return {"to": to, "from": frm}
+
     @app.get("/api/jobs/{job_id}/inspect/function")
     def inspect_function(job_id: str, function: str, path: str = "sample"):
         ref = resolve(job_id)
@@ -598,7 +625,7 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
         return {"path": path, "tool_version": version, "name": f.get("name"), "entry": f.get("entry"),
                 "size": f.get("size"), "signature": f.get("signature") or "", "thunk": bool(f.get("thunk")),
                 "disasm": rows, "disasm_truncated": bool(f.get("disasm_truncated")) or len(f.get("disasm") or []) > _ROW_LIMIT,
-                "decompiled": f.get("decompiled") or "", "blocks": len(f.get("blocks") or []),
+                "decompiled": f.get("decompiled") or "", "blocks": _blocks(f), "xrefs": _xrefs(res, f.get("entry")),
                 "findings": related[:50]}
 
     # ---- live activity: what is the AI doing right now -------------------------------------------------
