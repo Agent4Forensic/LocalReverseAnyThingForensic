@@ -13,6 +13,7 @@ param(
     [switch]$Offline,
     [switch]$NoBrowser,
     [switch]$NoCleanup,     # skip the cleanup of orphans, scratch files, old logs and own Docker leftovers
+    [switch]$NoDocker,      # do not start Docker Desktop (the container tools then stay unavailable)
     [switch]$BuildTools     # build missing tool images (ADR-0006, needs Docker and network once, can take 10 minutes)
 )
 $ErrorActionPreference = 'Stop'
@@ -45,7 +46,12 @@ function Write-Stage([string]$Stage, [string]$Msg, [string]$Level = 'INFO') {
         try { [IO.File]::AppendAllText($LogFile, $line + "`r`n", $Utf8); return } catch { Start-Sleep -Milliseconds 50 }
     }
 }
-function Exit-Fail([string]$Stage, [string]$Msg) { Write-Stage $Stage $Msg 'FEHLER'; exit 1 }
+$script:Booted = $false   # true once ollama/docker may have been started: a failed start must not leave them (and the GPU) behind
+function Exit-Fail([string]$Stage, [string]$Msg) {
+    Write-Stage $Stage $Msg 'FEHLER'
+    if ($script:Booted) { & (Join-Path $PSScriptRoot 'stop.ps1') -Force -Port $Port -OllamaPort $OllamaPort }
+    exit 1
+}
 
 # ---- helpers ---------------------------------------------------------------------------------------------
 function Assert-Hash([string]$File, [string]$Expected) {
@@ -141,6 +147,29 @@ function Test-Docker([string[]]$DockerArgs) {
     & docker @DockerArgs 2>$null | Out-Null
     return ($LASTEXITCODE -eq 0)
 }
+# Docker Desktop is needed for the container tools (Ghidra, capa, FLOSS, YARA, jadx). Started here when its daemon is down;
+# the marker docker.pid tells stop.ps1 that we started it, so a Docker the user already had running is never stopped by us.
+function Start-DockerDesktop {
+    $marker = Join-Path $RunDir 'docker.pid'
+    Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
+    if ($NoDocker) { Write-Stage 'DOCKER' 'skipped (-NoDocker)'; return }
+    if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { Write-Stage 'DOCKER' "docker not found; container tools unavailable. $($InstallHints.docker)" 'WARN'; return }
+    if (Test-Docker @('info', '--format', '{{.ServerVersion}}')) { Write-Stage 'DOCKER' 'daemon already running' 'OK'; return }
+    $exe = Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe'
+    if (-not (Test-Path -LiteralPath $exe)) { Write-Stage 'DOCKER' 'daemon is down and Docker Desktop.exe was not found; start Docker by hand' 'WARN'; return }
+    Start-Process -FilePath $exe -WindowStyle Hidden
+    Set-Content -LiteralPath $marker -Value (@{ started = (Get-Date).ToString('s'); by = 'start.ps1' } | ConvertTo-Json -Compress) -Encoding ASCII
+    Write-Stage 'DOCKER' 'daemon was down: starting Docker Desktop (ready is awaited before the app starts)'
+}
+function Wait-Docker([int]$LimitSec = 180) {
+    if (-not (Test-Path (Join-Path $RunDir 'docker.pid'))) { return }
+    for ($i = 0; $i -lt $LimitSec; $i += 3) {
+        if (Test-Docker @('info', '--format', '{{.ServerVersion}}')) { Write-Stage 'DOCKER' "daemon ready after about $i s" 'OK'; return }
+        Start-Sleep -Seconds 3
+    }
+    Write-Stage 'DOCKER' "daemon not ready after $LimitSec s; the app starts without container tools" 'WARN'
+}
+
 function Install-ToolImages {
     if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { Write-Stage 'INSTALL' "docker not found; tool images skipped. $($InstallHints.docker)" 'WARN'; return }
     if (-not (Test-Docker @('info', '--format', '{{.ServerVersion}}'))) { Write-Stage 'INSTALL' 'docker daemon not reachable; start Docker Desktop, tool images skipped' 'WARN'; return }
@@ -229,6 +258,10 @@ try {
     if (-not $OllamaDir) { Exit-Fail 'OLLAMA' 'no ollama installation available' }
     $OllamaExe = Join-Path $OllamaDir 'ollama.exe'
 
+    # ---- 3b. DOCKER (start early, it boots while ollama loads the model) ----
+    $script:Booted = $true
+    Start-DockerDesktop
+
     # ---- 4. OLLAMA + MODEL ----
     # Own process with a time limit and file output (no pipe): the daemon it starts must not be able to block this script.
     $olOut = Join-Path $RunDir 'ollama-start.out'
@@ -274,6 +307,8 @@ try {
         Write-Stage 'MODEL' ("warm-up done in {0:N1}s" -f $sw.Elapsed.TotalSeconds) 'OK'
     } catch { Write-Stage 'MODEL' "warm-up failed: $($_.Exception.Message)" 'WARN' }
 
+    Wait-Docker
+
     # ---- 5. APP ----
     $appPidFile = Join-Path $RunDir 'app.pid'
     $appProc = $null
@@ -297,6 +332,15 @@ try {
     if (-not $ready) { Exit-Fail 'APP' "no answer from $Base/api/system after 90 s" }
     Write-Stage 'APP' "ready: $Base/   (Ctrl+C stops everything cleanly)" 'OK'
     if (-not $NoBrowser) { Start-Process "$Base/" }
+
+    # Closing the console window skips the finally block below; this hands the shutdown to a detached, hidden stop.ps1.
+    # It does nothing after a normal stop (no PID files left). Best effort: Windows gives the host only a few seconds.
+    $null = Register-EngineEvent -SourceIdentifier PowerShell.Exiting -MessageData @{ Stop = (Join-Path $PSScriptRoot 'stop.ps1'); Run = $RunDir; Port = $Port; OllamaPort = $OllamaPort } -Action {
+        $d = $Event.MessageData
+        if ((Test-Path (Join-Path $d.Run 'app.pid')) -or (Test-Path (Join-Path $d.Run 'ollama.pid'))) {
+            Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$($d.Stop)`"", '-Force', '-Port', "$($d.Port)", '-OllamaPort', "$($d.OllamaPort)")
+        }
+    }
 
     # ---- 6. status loop (prints only on change) ----
     $lastW = ''; $lastJ = ''; $lastJob = $null

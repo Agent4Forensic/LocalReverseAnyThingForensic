@@ -52,6 +52,7 @@ def test_log_format_and_file(tmp_path, capsys):
     line = pf.fmt_line("CHECK", "hallo", now=datetime(2026, 1, 2, 3, 4, 5))
     assert line == "[03:04:05] [CHECK] hallo"
     assert re.fullmatch(r"\[\d\d:\d\d:\d\d\] \[STOP\] WARN: x", pf.fmt_line("STOP", "x", "WARN"))
+    assert "[DATA]" in pf.fmt_line("DATA", "x")  # __main__ logs the data folder under this stage
     with pytest.raises(ValueError):
         pf.fmt_line("BOGUS", "x")
     logfile = tmp_path / "logs" / "start.log"

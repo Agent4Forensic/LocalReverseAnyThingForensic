@@ -23,7 +23,7 @@ from importlib import metadata
 from pathlib import Path
 
 OK, WARN, FEHLER = "OK", "WARN", "FEHLER"
-STAGES = ("CHECK", "INSTALL", "UPDATE", "OLLAMA", "MODEL", "APP", "WORKER", "JOB", "GUARD", "STOP")
+STAGES = ("CHECK", "INSTALL", "UPDATE", "OLLAMA", "MODEL", "APP", "WORKER", "JOB", "GUARD", "DATA", "STOP")
 RAM_LIMIT_GB = 24
 MIN_FREE_VRAM_MIB = 7000
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")

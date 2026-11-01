@@ -1,5 +1,14 @@
 {
   "env": {
     "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "70"
+  },
+  "enabledPlugins": {
+    "frontend-design@anthropic-plugin-directory": true,
+    "data-engineering@claude-plugins-official": true,
+    "reverse-engineering@anthropic-plugin-directory": true,
+    "atomic-agents@claude-plugins-official": true,
+    "code-review@anthropic-plugin-directory": true,
+    "rust-analyzer-lsp@claude-plugins-official": true,
+    "vectorlab-ui-ux-skills@anthropic-plugin-directory": true
   }
 }
