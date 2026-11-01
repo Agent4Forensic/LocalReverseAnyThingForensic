@@ -1,6 +1,6 @@
 # Statusübersicht sw-analyst
 
-Stand: 2026-10-31 · Legende: `[x]` erledigt und geprüft · `[~]` begonnen · `[ ]` offen · `[!]` blockiert, braucht Jan
+Stand: 2026-11-01 · Legende: `[x]` erledigt und geprüft · `[~]` begonnen · `[ ]` offen · `[!]` blockiert, braucht Jan
 
 ## Phase P: Voraussetzungen (vor jeder Implementierung)
 
@@ -162,7 +162,7 @@ Ursache der Layoutfehler: Das CSS für Auftragsansicht, Tabs, Baum, Code-Viewer,
 - [ ] **Echtes Backend im Browser prüfen:** Bisher nur Mock-Daten per Screenshot gesehen, Dashboard nicht gegen laufende App getestet.
 
 ## Prüfung Frontend-Backend-Anbindung (von Jan beauftragt, 2026-10-31 abends, Cloud-Sitzung)
-Branch `feat/dashboard-integration` (von `main`, mit `feat/static-tools` gemergt). Entscheidungen in [ADR-0008](adr/0008-dashboard-dateiansicht-export-import.md), Freigabe durch Jan steht aus. `feat/dashboard-start` liegt nur lokal bei Jan und ist nicht auf GitHub; beide Stände überschneiden sich in `webui/app.py`, `view_job.js`, `index.html` und `styles.css`.
+Branch `feat/dashboard-integration` (von `main`, mit `feat/static-tools` gemergt). Entscheidungen in [ADR-0008](adr/0008-dashboard-dateiansicht-export-import.md), von Jan am 2026-11-01 freigegeben. Auf Anweisung von Jan per `--no-ff` nach `main` gemergt (2026-11-01), damit kommt auch `feat/static-tools` nach `main`. `feat/dashboard-start` liegt nur lokal bei Jan und ist nicht auf GitHub; beide Stände überschneiden sich in `webui/app.py`, `view_job.js`, `index.html` und `styles.css`.
 
 Bestätigt (Tests und Browserlauf gegen das echte Backend mit Skript-Modell, kein Ollama in der Cloud):
 - [x] Code-Viewer zeigte keine Zeilen (Vertrag `{n, text}` verletzt, Binärdateien gaben 400). Behoben, bisheriger strikter xfail aufgelöst.
@@ -187,7 +187,8 @@ Offen:
 - [ ] Lauf mit echtem Modell (Ollama) und echtem Ghidra-Image auf Jans Rechner: in der Cloud gab es weder Ollama noch Docker. Der Ghidra-Pfad ist mit einem Ersatz getestet, der dieselbe Exportform liefert.
 - [ ] PowerShell-Skripte (`start.ps1`, `stop.ps1`) konnten in der Cloud nicht ausgeführt werden, nur statisch geprüft.
 - [ ] `feat/dashboard-start` (lokal bei Jan) mit diesem Branch abgleichen: Jan entscheidet, welcher Stand gilt; ADR-Nummer 0006 dort umnummerieren.
-- [ ] ADR-0008 freigeben (neue Audit-Ereignisse „Export“ und „Ghidra-Ansicht“, unsigniertes Paket).
+- [x] ADR-0008 freigegeben von Jan (2026-11-01): neue Audit-Ereignisse „Export“ und „Ghidra-Ansicht“, unsigniertes Paket.
+- [x] Merge nach `main` auf Anweisung von Jan (2026-11-01).
 - [ ] Mock-Modus (`?mock=1`) kennt die neuen Endpunkte nicht; die Ansichten zeigen dort eine Fehlermeldung.
 
 ## Aufräumen vor Start und nach Stopp (von Jan beauftragt, 2026-10-31)
@@ -236,7 +237,7 @@ Alle offen. Beginn erst nach Abschluss von Phase P und Freigabe.
 ## Beispielfälle zum Evaluieren (von Jan beauftragt, 2026-10-31)
 - [x] `example/` mit `start_eval.ps1` (Menü zur Auswahl der Challenge), 4 Challenges mit Beschreibung und Ziel (`example/challenges/*/challenge.json`), Proben-Generatoren (`example/samples.py`) und automatischer Prüfung: `run_eval.py` sucht die Flagge im finalen Bericht (PASS/FAIL, Exit-Code). Anleitung: `example/README.md`.
 - [~] Echtlauf: Challenge 01 mit `qwen3:8b` bestanden (2,4 min, Status partial, Audit gültig, auf noch nicht committetem `src/`-Stand, daher kein Vergleichswert). Challenges 02 bis 04 ungetestet, weil eine zweite Sitzung die Ollama-Warteschlange belegte.
-- [x] `example/` committet auf `feat/workflow-optimization` (d2ca81e), nicht gepusht, nicht in `main`.
+- [x] `example/` committet auf `feat/workflow-optimization` (d2ca81e), inzwischen gepusht und in `main` (Merge `0bcd4ae`).
 
 ## Prüfung iterativer Analyseprozess (2026-10-31, umgesetzt nach ADR-0007)
 Bestätigt: Die Schleife aus Aufgabe, Bewertung, Folgeaufgaben und Priorisierung läuft, die Belegprüfung der Findings ist mechanisch. Die Punkte unten sind mit einem geskripteten Modell getestet (`tests/unit/test_workflow.py`).
@@ -280,7 +281,7 @@ Quelle: `docs/review/code-review/SUMMARY.md` (Stellen, Modelle, Nachweis je Fund
 ### Entscheidungen von Jan (offen)
 - [x] Push von `main`: `origin/main` steht auf `d80987a` und enthält `feat/workflow-optimization` und `feat/model-equipment`. Die Commits `71bb4d3` und `794a6df` enthalten im Verlauf einen lokalen Laufwerkspfad ohne Benutzernamen, im aktuellen Stand ist er ersetzt (`3d0548c`).
 - [x] Freigabe von ADR-0006: Jan hat Paket A und B am 2026-10-31 direkt auf Rückfrage freigegeben, dazu MCP nur intern und REA zurückgestellt.
-- [~] `feat/static-tools` ist in `feat/dashboard-integration` gemergt (2026-10-31, Cloud-Sitzung), noch nicht in `main`. `feat/dashboard-start` liegt nur lokal bei Jan und ist nicht auf GitHub.
+- [x] `feat/static-tools` ist über `feat/dashboard-integration` in `main` (2026-11-01, Anweisung von Jan). `feat/dashboard-start` liegt nur lokal bei Jan und ist nicht auf GitHub; vor einem Merge mit `main` abgleichen.
 - [!] Freigabe, die hohen Funde jetzt zu beheben (Worktree, Reihenfolge unten).
 - [!] ADR-Nummer doppelt: Der Worktree `feat/dashboard-start` enthält uncommittet `docs/adr/0006-dashboard-urls-beispiele-budget.md`, im Repo ist 0006 die Werkzeug-Allowlist. Vor dem Merge umnummerieren. Auch `webui/app.py` und `view_job.js` sind dort geändert, Konflikte beim Merge sind möglich.
 - [!] F-07 und F-08 (verankerter Kopf-Hash, atomares Anhängen im Audit-Log): braucht ein ADR und die ausdrückliche Freigabe (CLAUDE.md Verbot 3).

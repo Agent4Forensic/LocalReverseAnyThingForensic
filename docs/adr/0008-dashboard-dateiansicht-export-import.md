@@ -1,6 +1,6 @@
 # ADR-0008: Datei-Ansicht, Beispiele, Laufzeitordner und Export/Import im Dashboard
 
-Status: vorgeschlagen am 2026-10-31 (Auftrag von Jan, umgesetzt auf `feat/dashboard-integration`). Freigabe durch Jan steht aus.
+Status: angenommen am 2026-11-01. Jan hat das ADR freigegeben, einschließlich der neuen Audit-Ereignisse „Export“ und „Ghidra-Ansicht“ und des unsignierten Pakets. Umgesetzt auf `feat/dashboard-integration`, gemergt nach `main`.
 
 ## Kontext
 Jan hat nach eigenen Versuchen am 2026-10-31 diese Punkte gemeldet:
@@ -46,4 +46,4 @@ Die Prüfung des Ist-Stands ergab dazu:
 - Ein Paket ist nicht signiert. Wer Manifest, Zeilen und Audit-Kette zusammen fälscht, besteht die Prüfung. Die Herkunft belegt nur der Abgleich des Paket-SHA-256 (Header `X-Bundle-SHA256`, Log-Eintrag der Quelle) über einen zweiten Kanal. Eine Signatur bräuchte Schlüsselverwaltung und ein eigenes ADR.
 - Ein Export mit Sample enthält bei echten Proben Schadcode. Er gehört nur auf die Analyse-VM oder in eine geschützte Ablage. Standard ist ohne Sample.
 - Importierte Analysen bleiben auf der Platte, bis Jan sie löscht. Ein Löschknopf fehlt bewusst, damit nichts Beweisrelevantes per Klick verschwindet.
-- Neue Ereignisse in der Audit-Kette: Ghidra-Ansicht (Debug) und Export (Info). Das Format der Kette bleibt unverändert (CLAUDE.md Verbot 3 betrifft die Mechanik, nicht neue Ereignisse über `emit`). Jan bestätigt das bitte mit der Freigabe dieses ADR.
+- Neue Ereignisse in der Audit-Kette: Ghidra-Ansicht (Debug) und Export (Info). Das Format der Kette bleibt unverändert (CLAUDE.md Verbot 3 betrifft die Mechanik, nicht neue Ereignisse über `emit`). Jan hat das mit der Freigabe dieses ADR am 2026-11-01 bestätigt.
