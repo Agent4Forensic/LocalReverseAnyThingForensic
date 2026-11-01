@@ -11,5 +11,7 @@
     "Which key and which length does the routine at the entry point use?",
     "Which string results from decoding the data the routine processes?"
   ],
-  "flag": "FLAG{xor_loop}"
+  "flag": "FLAG{xor_loop}",
+  "budget_minutes": 20,
+  "requires": ["ghidra"]
 }

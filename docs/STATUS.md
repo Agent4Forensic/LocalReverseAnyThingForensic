@@ -195,6 +195,13 @@ Offen:
 - [x] [ADR-0009](adr/0009-beispielproben-im-repository.md): Die fünf harmlosen Beispielproben liegen unter `example/challenges/<id>/sample/`. Verweis auf den Erzeuger und SHA-256 stehen in `example/samples.manifest.json`, `example/build_samples.py [--check]` schreibt bzw. prüft sie. Der Pre-Commit-Hook lässt nur Dateien mit passendem Manifest-Hash durch (geprüft: veränderte Probe und fremde `.exe` werden blockiert). Die Ausnahme ist in CLAUDE.md Verbot 2 eingetragen. Das Dashboard zeigt den Pfad im Repo und ob die Datei der Ausgabe des Erzeugers entspricht.
 - [ ] Wenn Jans lokaler Branch `feat/dashboard-start` gemergt wird, braucht seine ADR `0006-dashboard-urls-beispiele-budget.md` die Nummer 0010 (0009 ist jetzt vergeben).
 
+## Auswahl der Beispiele im Dashboard (von Jan beauftragt, 2026-11-01)
+- [x] Liste nach Schwierigkeit links, Detail rechts, ein Startknopf; sinnvolles Beispiel vorausgewählt, Deep-Link `#/examples?id=…`.
+- [x] Empfohlenes Budget und Voraussetzungen je Beispiel in `challenge.json` (`budget_minutes`, `requires`); Dashboard, `run_eval.py` und `start_eval.ps1` nutzen dasselbe Budget.
+- [x] Server prüft vor dem Start Modell, benötigte Werkzeuge und laufende Läufe (409 `not_ready`, `already_running`, mit `force` übergehbar); „Alle startbereiten nacheinander starten“ (`POST /api/examples-batch`).
+- [x] Ergebnis automatisch: Seite aktualisiert sich, Auftragskopf zeigt „Beispiel NN: bestanden / nicht bestanden“.
+- [x] Geprüft: 5 neue API-Tests (1047 grün gesamt), Browserlauf mit und ohne Ghidra, 0 Konsolenfehler.
+
 ## Aufräumen vor Start und nach Stopp (von Jan beauftragt, 2026-10-31)
 - [x] `scripts/cleanup.ps1` (Stage `CLEAN`), von `start.ps1` (`-Phase pre`) und `stop.ps1` (`-Phase post`) aufgerufen; abschaltbar mit `-NoCleanup`, prüfbar mit `cleanup.ps1 -Phase pre|post -DryRun`.
 - **pre:** veraiste PID-Dateien, verwaiste eigene App-Prozesse (nicht in `app.pid`), verwaiste Modell-Runner, Laufzeit-Scratch in `data\run`, `data\tmp`, `*.partial`-Installreste, Logs älter als 14 Tage, beendete Docker-Container mit Label `sw-analyst`.

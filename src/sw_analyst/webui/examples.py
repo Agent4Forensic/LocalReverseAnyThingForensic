@@ -17,6 +17,12 @@ from typing import Any, Optional
 from sw_analyst.common.paths import PROJECT_ROOT
 
 LEVELS = {"leicht": 1, "mittel": 2, "schwer": 3}
+KNOWN_REQUIREMENTS = {"ghidra": "Ghidra-Werkzeuge (Docker Desktop und Image, scripts\\start.ps1 -BuildTools)"}
+DEFAULT_MINUTES = 10
+
+
+def _minutes(v) -> int:
+    return v if isinstance(v, int) and 1 <= v <= 240 else DEFAULT_MINUTES
 _ID_OK = set("abcdefghijklmnopqrstuvwxyz0123456789-")
 
 
@@ -69,6 +75,8 @@ class Examples:
                 "id": cid, "title": c.get("title", cid), "level": level, "level_rank": LEVELS.get(level, 9),
                 "description": c.get("description", ""), "goal": c.get("goal", ""), "tests": c.get("tests", ""),
                 "job_description": c.get("job_description", ""), "questions": list(c.get("questions", [])),
+                "budget_minutes": _minutes(c.get("budget_minutes")),
+                "requires": [r for r in c.get("requires", []) if r in KNOWN_REQUIREMENTS],
                 "flag": c.get("flag", ""),
                 "sample": {"name": c["sample"]["name"], "builder": fn.__name__, "size": len(data),
                            "sha256": hashlib.sha256(data).hexdigest()},

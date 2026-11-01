@@ -122,6 +122,7 @@
       if (st.destroyed) return;
       st.summary = d.summary;
       st.importInfo = d['import'] || null;
+      st.example = d.example || null;
       st.spec = d.spec;
       st.progress = d.progress;
       st.totals = d.totals;

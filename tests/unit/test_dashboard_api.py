@@ -285,3 +285,57 @@ def test_paths_outside_the_project_are_not_leaked(tmp_path):
     client, _, _ = _app(tmp_path)
     body = client.get("/api/system").text
     assert str(tmp_path) not in body and "außerhalb des Projekts" in body
+
+
+# ---- example selection (2026-11-01) ------------------------------------------------------------------------
+def test_examples_carry_budget_requirements_and_readiness(tmp_path):
+    client, _, _ = _app(tmp_path)
+    items = {e["id"]: e for e in client.get("/api/examples").json()["items"]}
+    assert items["01-layered-flag"]["budget_minutes"] == 10 and items["02-script-three-layers"]["budget_minutes"] == 20
+    assert items["01-layered-flag"]["ready"] is True
+    x = items["05-pe-xor-routine"]
+    assert x["requires"] == ["ghidra"] and x["ready"] is False and x["missing"][0]["key"] == "ghidra"
+
+
+def test_example_start_uses_recommended_budget_and_refuses_unready_and_duplicates(tmp_path):
+    client, store, _ = _app(tmp_path)
+    s = client.post("/api/examples/02-script-three-layers/job", json={}, headers=ORIGIN).json()
+    assert store.get_job(s["id"])["spec"]["budget_max_minutes"] == 20
+    dup = client.post("/api/examples/02-script-three-layers/job", json={}, headers=ORIGIN)
+    assert dup.status_code == 409 and dup.json()["error"]["code"] == "already_running" and s["id"] in dup.text
+    assert client.get("/api/examples").json()["items"][1]["active_job"] == s["id"]
+    no = client.post("/api/examples/05-pe-xor-routine/job", json={}, headers=ORIGIN)
+    assert no.status_code == 409 and no.json()["error"]["code"] == "not_ready" and "Ghidra" in no.text
+    forced = client.post("/api/examples/05-pe-xor-routine/job", json={"force": True}, headers=ORIGIN)
+    assert forced.status_code == 200
+
+
+def test_example_start_refused_while_the_model_is_offline(tmp_path):
+    _, store, gw = _app(tmp_path)
+    llm = ScriptedLLM(lambda m: "{}", model="t")
+    llm.reachable = lambda: False
+    app = create_app(store, _Worker(), gw, llm, None, report_model="t", data_dir=tmp_path)
+    off = TestClient(app, base_url="http://127.0.0.1:8765")
+    r = off.post("/api/examples/01-layered-flag/job", json={}, headers=ORIGIN)
+    assert r.status_code == 409 and "Sprachmodell" in r.json()["error"]["message"]
+
+
+def test_batch_starts_ready_examples_in_difficulty_order(tmp_path):
+    client, store, _ = _app(tmp_path)
+    r = client.post("/api/examples-batch", json={}, headers=ORIGIN).json()
+    titles = [store.get_job(s["id"])["title"] for s in r["started"]]
+    assert [t.split(":")[0] for t in titles] == ["Beispiel 01-layered-flag", "Beispiel 02-script-three-layers",
+                                                  "Beispiel 03-pe-appended-config", "Beispiel 04-prompt-injection"]
+    assert [x["id"] for x in r["skipped"]] == ["05-pe-xor-routine"]
+    again = client.post("/api/examples-batch", json={}, headers=ORIGIN).json()
+    assert again["started"] == [] and len(again["skipped"]) == 5          # all queued already or not ready
+
+
+def test_job_detail_names_the_example_and_its_result(tmp_path):
+    client, store, gw = _app(tmp_path)
+    s = client.post("/api/examples/01-layered-flag/job", json={}, headers=ORIGIN).json()
+    d = client.get(f"/api/jobs/{s['id']}").json()
+    assert d["example"] == {"id": "01-layered-flag", "title": "Doppelt kodierte Flagge", "level": "leicht", "flag_found": None}
+    store.update_job(s["id"], status="done")
+    store.update_answer(s["id"], "Q1", status="answered", answer_en="The flag is FLAG{layered_ok}")
+    assert client.get(f"/api/jobs/{s['id']}").json()["example"]["flag_found"] is True
