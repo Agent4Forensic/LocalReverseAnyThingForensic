@@ -157,7 +157,7 @@ Ursache der Layoutfehler: Das CSS für Auftragsansicht, Tabs, Baum, Code-Viewer,
 - [ ] **4 Testfehler** in `tests/forensic/test_api_security.py` (Traversal-Fälle, `test_index_html_is_csp_clean_and_self_contained`). Datei stammt aus der anderen Sitzung. Prüfen, ob die `index.html`-Änderung die CSP-Prüfung auslöst.
 - [ ] **Security-Review** der Dashboard-Änderungen (XSS über `textContent`, Pfade, CSP), Pflicht vor dem Merge nach `main`.
 - [ ] **Merge `feat/dashboard-start` nach `main`** (`--no-ff`) nach grünen Tests und Review. ADR-0006 doppelt, vorher umnummerieren. Nicht pushen (siehe Punkt zum Push von `main`).
-- [ ] **Dashboard V2 fehlt:** Diagramme (`view_diagrams.js`), Funktionsliste und Lernpfad. Backend `/diagrams`, `/functions`, `/walkthroughs` gibt es nicht.
+- [~] **Dashboard V2:** Diagramme (`view_diagrams.js`) seit 2026-11-01 vorhanden (Ablauf, Wissensfortschritt, Aufgabengraph, Belegfluss); Funktionsliste und Lernpfad fehlen. Backend `/diagrams`, `/functions`, `/walkthroughs` gibt es nicht.
 - [ ] **Mock ohne `/activity`:** Live-Aktivität zeigt im `?mock=1`-Modus "Noch keine Daten". Mock ergänzen oder echtes Backend im Browser prüfen.
 - [ ] **Echtes Backend im Browser prüfen:** Bisher nur Mock-Daten per Screenshot gesehen, Dashboard nicht gegen laufende App getestet.
 
@@ -308,9 +308,32 @@ Quelle: `docs/review/code-review/SUMMARY.md` (Stellen, Modelle, Nachweis je Fund
 - [!] REA-Commit klären: `docs/dev-environment.md` nennt zwei Commits (60149282fcfc mit Datum 2026-11-01, 160d821ac9a0). Das Datum liegt nach dem Stand.
 - [!] Modell-Pins mit Digest (F-13): Die Digests lassen sich nur mit einem Netzzugriff beim Pull ermitteln. Freigabe und Vorgehen klären.
 
+### Qualität mit dem lokalen Modell (Auftrag von Jan, 2026-11-01, Branch `feat/local-ai-quality`)
+Ziel: bessere Ergebnisse ohne größeres Modell, durch Prüfung, Hilfen und Sichtbarkeit in der Kette.
+- [x] F-01 und F-02 geschlossen (siehe unten, ADR-0010).
+- [x] Reparaturhilfe: Ein abgelehntes Zitat bekommt die ähnlichste echte Zeile der Evidence als `untrusted_data` in die Reparaturrunde.
+- [x] Indikator-Hinweise: IOCs je Werkzeugergebnis per festen Mustern, als `untrusted_data`, höchstens 8.
+- [x] Dashboard-Tab **Diagramme**: Ablauf des Auftrags mit Zustand je Schritt, Wissensfortschritt (bestätigt, Hypothese, offen, verworfen über die Aufgaben), Aufgabengraph, Belegfluss Werkzeug → Befundstatus. SVG ohne Bibliothek, live.
+- [x] Tab **Datei**: ganze Datei als Hex und ASCII, virtuell gescrollt bis zum letzten Byte, Byte-Inspektor (Wert, uint16, uint32), Sprung zu Offset.
+- [x] Anmerkungen im Hex: Formatstruktur ohne KI (PE: DOS-Kopf, e_lfanew, COFF, Optional Header, Sektionen, Einstiegspunkt, Datenverzeichnisse, Overlay, Signatur; ELF; ZIP/APK-Einträge; gzip), Belegbereiche und die genaue Lage der Befundzitate (ASCII und UTF-16LE) mit Status. Endpunkt `/inspect/structure`.
+- [ ] Messung: Challenges 01 bis 04 vorher/nachher, Kennzahl „falsch bestätigt“ getrennt von der Trefferquote (braucht Lauf auf Jans Rechner mit Ollama).
+- [ ] Gegenprobe: eine bestätigte Kernaussage mit einem zweiten, unabhängigen Werkzeug prüfen lassen (Folgeaufgabe des Bewerters).
+- [ ] Analystenurteil im Dashboard: Befund bestätigen oder verwerfen mit Grund, als eigener Beleg der Klasse „Analyst“ (braucht ADR, ändert die Beweiskette).
+- [ ] Referenzwissen lokal (API-Bedeutungen, Packer-Signaturen, ATT&CK) als Nachschlagewerk; braucht Embedding-Modell und ADR.
+- [ ] Diagramme in den Bericht übernehmen (heute nur im Dashboard).
+- [x] Bericht: Abschnitt **R5a Herleitung der Antworten** (2026-11-01, Auftrag von Jan). Je Zielfrage Ausgangsdaten, technischer Weg (Werkzeug, Version, Datei, Parameter, Beleg, feste Erklärung der Technik, Kette abgeleiteter Dateien), Erkenntnisse mit Zitat, Bedeutung mit Grenzen, ungeprüfte Darstellung des Modells. Nur aus dem Store, ohne Modell; `report/derivation.py`, Tests `tests/unit/test_report_derivation.py`.
+
+```mermaid
+flowchart LR
+  classDef done fill:#e2f2e7,stroke:#17652f,color:#17652f
+  classDef open fill:#fff,stroke:#999,stroke-dasharray:4 3,color:#555
+  A[Belegprüfung F-01/F-02]:::done --> B[Reparatur- und IOC-Hinweise]:::done --> C[Diagramme im Dashboard]:::done --> D[Hex ganze Datei + Anmerkungen]:::done
+  D --> E[Messung Challenges 01-04]:::open --> F[Gegenprobe zweites Werkzeug]:::open --> G[Analystenurteil]:::open --> H[Referenzwissen lokal]:::open
+```
+
 ### Belegzwang (zuerst)
-- [ ] F-01 kritisch: `grep` gibt das Modell-Muster in der Ausgabe zurück, daraus entsteht ein `confirmed`-Beleg (`dev_gateway.py:712,724`, `verifier.py:51,78`). Test über den vollen Weg (Gateway, Verifier, Antwort), dann Muster aus der Evidence-Prüfung ausnehmen oder nicht echoen.
-- [ ] F-02 Zitat muss zur Aussage passen; `MIN_QUOTE` von 4 auf den im Prompt versprochenen Wert (`verifier.py:16,49-58`).
+- [x] F-01 kritisch: `grep` gibt das Modell-Muster in der Ausgabe zurück, daraus entsteht ein `confirmed`-Beleg. Behoben 2026-11-01 (ADR-0010): `quotable_text` nimmt das Argument-Echo aus der Kopfzeile, Werkzeugfehler sind kein Beleg; Test über den vollen Weg in `tests/unit/test_local_ai_quality.py`.
+- [x] F-02 Zitat muss zur Aussage passen; `MIN_QUOTE` 8 wie im Prompt, `confirmed` nur mit gemeinsamem Inhaltswort oder Wert (ADR-0010).
 - [ ] F-03 Antwortprüfung: Werte jeder Antwort an Belege binden, nicht nur `WORD{...}` (`engine.py:436`, `runner.py:252`). Wartet auf die andere Sitzung.
 - [ ] F-04 IOC-Liste aus geprüften Zitaten, nicht aus dem Aussagetext (`builder.py:139-143`). Wartet auf die andere Sitzung.
 

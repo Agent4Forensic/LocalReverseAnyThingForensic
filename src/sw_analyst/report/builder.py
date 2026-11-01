@@ -11,13 +11,14 @@ import re
 from sw_analyst.common.audit import verify_file
 from sw_analyst.common.store import Store
 from sw_analyst.prompts.registry import PROMPT_PACK_VERSION, list_prompts
+from sw_analyst.report.derivation import derivation_lines
 from sw_analyst.report.defang import defang_text, find_iocs, redact_payloads
 
 T = {
     "de": {
         "title": "Forensischer Analysebericht", "live": "LIVE-STAND (Analyse läuft noch)", "summary": "Zusammenfassung",
         "custody": "R2 Übergabe und Chain of Custody", "detect": "R3 Erkennungsprotokoll je Schritt der Toolkette",
-        "findings": "R4 Befunde mit Nachweis", "answers": "R5 Beantwortung der Zielfragen", "iocs": "Indikatoren (entschärft)",
+        "findings": "R4 Befunde mit Nachweis", "answers": "R5 Beantwortung der Zielfragen", "derive": "R5a Herleitung der Antworten", "iocs": "Indikatoren (entschärft)",
         "open": "Offene Fragen und Hypothesen", "method": "Methodik, Werkzeuge und Zeitverlauf", "appendix": "Anhang: Belegtabelle",
         "job": "Auftrag", "description": "Beschreibung", "context": "Weitere Informationen", "focus": "Fokus",
         "sample": "Probe", "type": "Erkannter Typ", "recipe": "Rezept", "status": "Status", "started": "Beginn (UTC)",
@@ -33,7 +34,7 @@ T = {
     "en": {
         "title": "Forensic Analysis Report", "live": "LIVE STATE (analysis still running)", "summary": "Summary",
         "custody": "R2 Hand-over and chain of custody", "detect": "R3 Detection log per toolchain step",
-        "findings": "R4 Findings with proof", "answers": "R5 Answers to the target questions", "iocs": "Indicators (defanged)",
+        "findings": "R4 Findings with proof", "answers": "R5 Answers to the target questions", "derive": "R5a How each answer was derived", "iocs": "Indicators (defanged)",
         "open": "Open questions and hypotheses", "method": "Method, tools and timeline", "appendix": "Appendix: evidence table",
         "job": "Job", "description": "Description", "context": "Further information", "focus": "Focus",
         "sample": "Sample", "type": "Detected type", "recipe": "Recipe", "status": "Status", "started": "Started (UTC)",
@@ -164,6 +165,8 @@ def build_report(store: Store, job_id: str, lang: str = "de", model_name: str = 
             m = {1: t["yes"], 0: t["no"], None: t["na"]}.get(a["match"], t["na"])
             out.append(f"- {t['expected']}: `{_cell(a['expected']).replace('`', chr(39))}` - {t['match']}: {m}")
         out.append("")
+
+    out += derivation_lines(store, job_id, lang, t, txt)
 
     iocs: dict[tuple, None] = {}
     for f in findings:
