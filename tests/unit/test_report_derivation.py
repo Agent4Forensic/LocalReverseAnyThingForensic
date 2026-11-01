@@ -1,4 +1,4 @@
-"""R6 'how each answer was derived': built from the store alone, no model. All data is harmless and made up."""
+"""R5a 'how each answer was derived': built from the store alone, no model. All data is harmless and made up."""
 from __future__ import annotations
 
 import re
@@ -31,8 +31,8 @@ def _qtask(store, jid, qid="Q1", summary=""):
 
 
 def _r6(report: str) -> str:
-    m = re.search(r"^## R6 .*?(?=^## |\Z)", report, re.S | re.M)
-    assert m, "R6 section missing"
+    m = re.search(r"^## R5a .*?(?=^## |\Z)", report, re.S | re.M)
+    assert m, "R5a section missing"
     return m.group(0)
 
 
@@ -59,7 +59,7 @@ def test_chain_sample_decode_strings(tmp_path):
     assert r6.index(ev1["id"]) < r6.index(ev2["id"])
     assert "derived/layer1" in r6
     assert "Erzeugt" in r6
-    assert f["id"] in r6 and "confirmed" in r6
+    assert f["id"] in r6 and "bestätigt" in r6
     assert "flag{layer_three}" in r6
     assert "The flag is flag{layer_three}." in r6
     assert FIXED in r6
@@ -94,7 +94,7 @@ def test_hostile_text_stays_inert(tmp_path):
     assert "http://evil.example" not in r6
     assert "hxxp" in r6 and "[.]" in r6
     # only the one question heading; no foreign heading at line start
-    assert [l for l in r6.splitlines() if l.startswith("#")] == [l for l in r6.splitlines() if re.match(r"(## R6 |### Q1:)", l)]
+    assert [l for l in r6.splitlines() if l.startswith("#")] == [l for l in r6.splitlines() if re.match(r"(## R5a |### Q1:)", l)]
     # no foreign line starts with a block marker coming from the data
     assert not any(re.match(r"\s*\|", l) for l in r6.splitlines())
 
@@ -103,7 +103,7 @@ def test_english_labels(tmp_path):
     store, jid = _job(tmp_path)
     _chain(store, jid)
     rep = build_report(store, jid, "en")
-    assert "## R6 How each answer was derived" in rep
+    assert "## R5a How each answer was derived" in rep
     r6 = _r6(rep)
     for lab in EN_LABELS:
         assert lab in r6

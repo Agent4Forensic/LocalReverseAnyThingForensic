@@ -321,6 +321,7 @@ Ziel: bessere Ergebnisse ohne größeres Modell, durch Prüfung, Hilfen und Sich
 - [ ] Analystenurteil im Dashboard: Befund bestätigen oder verwerfen mit Grund, als eigener Beleg der Klasse „Analyst“ (braucht ADR, ändert die Beweiskette).
 - [ ] Referenzwissen lokal (API-Bedeutungen, Packer-Signaturen, ATT&CK) als Nachschlagewerk; braucht Embedding-Modell und ADR.
 - [ ] Diagramme in den Bericht übernehmen (heute nur im Dashboard).
+- [x] Bericht: Abschnitt **R5a Herleitung der Antworten** (2026-11-01, Auftrag von Jan). Je Zielfrage Ausgangsdaten, technischer Weg (Werkzeug, Version, Datei, Parameter, Beleg, feste Erklärung der Technik, Kette abgeleiteter Dateien), Erkenntnisse mit Zitat, Bedeutung mit Grenzen, ungeprüfte Darstellung des Modells. Nur aus dem Store, ohne Modell; `report/derivation.py`, Tests `tests/unit/test_report_derivation.py`.
 
 ```mermaid
 flowchart LR
