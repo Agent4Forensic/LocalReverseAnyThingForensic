@@ -6,6 +6,7 @@ Jobs come from two places: the main store (own analyses, the worker runs them) a
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import math
 import re
@@ -29,6 +30,7 @@ from sw_analyst.gateway.base import ToolError
 from sw_analyst.guard import GUARD_VERSION, rule_count
 from sw_analyst.prompts.registry import PROMPTS, list_prompts
 from sw_analyst.report.builder import build_report
+from sw_analyst.webui import hexmap
 from sw_analyst.webui import inspect as insp
 from sw_analyst.webui.examples import KNOWN_REQUIREMENTS, Examples, example_summary
 
@@ -455,7 +457,7 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
 
     @app.get("/api/jobs/{job_id}/inspect/hex")
     def inspect_hex(job_id: str, path: str = "sample", offset: int = Query(0, ge=0, le=MAX_OFFSET),
-                    length: int = Query(1024, ge=1, le=10 ** 9)):
+                    length: int = Query(1024, ge=1, le=10 ** 9), format: str = Query("rows", pattern="^(rows|b64)$")):
         ref = resolve(job_id)
         _file_entry(ref, path)
         length = max(16, min(length, insp.MAX_HEX_BYTES))
@@ -463,8 +465,41 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
             b = ref.gateway.read_bytes(ref.rid, path, max(0, offset), length)
         except ToolError as e:
             raise _err(400, "bad_path", str(e))
+        if format == "b64":   # the scrolling hex view formats the bytes itself: a quarter of the payload
+            return {"path": b["path"], "size": b["size"], "offset": b["offset"], "length": len(b["data"]),
+                    "data_b64": base64.b64encode(b["data"]).decode("ascii")}
         return {"path": b["path"], "size": b["size"], "offset": b["offset"], "length": len(b["data"]),
                 "rows": insp.hex_rows(b["data"], b["offset"])}
+
+    _structure_cache: dict[tuple, dict] = {}
+
+    @app.get("/api/jobs/{job_id}/inspect/structure")
+    def inspect_structure(job_id: str, path: str = "sample"):
+        """What the bytes mean: format structure (fixed parsers) and where evidence and finding quotes lie."""
+        ref = resolve(job_id)
+        entry = _file_entry(ref, path)
+
+        def read(off: int, ln: int) -> bytes:
+            if ln <= 0:
+                return b""
+            try:
+                return ref.gateway.read_bytes(ref.rid, path, off, ln)["data"]
+            except ToolError:
+                return b""
+        evidence = ref.store._q("SELECT id, tool, params_json, source_ref_json FROM evidence WHERE job_id=? ORDER BY id",
+                                (ref.rid,))
+        findings = ref.store.list_findings(ref.rid)
+        # Same file, same evidence and findings: same result. The cache spares repeated 16 MiB quote searches.
+        key = (ref.public, path, entry["sha256"], len(evidence), len(findings),
+               sum(len(f.get("statement_de") or "") for f in findings))   # translations arrive later
+        hit = _structure_cache.get(key)
+        if hit is None:
+            kind = insp.file_kind(read(0, 4096))["kind"]
+            hit = hexmap.build(kind, path, read, entry["size"], evidence, findings)
+            if len(_structure_cache) >= 32:
+                _structure_cache.pop(next(iter(_structure_cache)))
+            _structure_cache[key] = hit
+        return hit
 
     @app.get("/api/jobs/{job_id}/inspect/functions")
     def inspect_functions(job_id: str, path: str = "sample"):

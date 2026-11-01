@@ -124,6 +124,7 @@
     spinner: ['M12 3a9 9 0 0 1 9 9', 'M12 3a9 9 0 1 0 9 9'],
     chevronright: ['M9 6l6 6-6 6'],
     chevrondown: ['M6 9l6 6 6-6'],
+    chart: ['M4 20V4', 'M4 20h16', 'M8 16l4-5 3 3 5-7'],
     tree: ['M4 4h6v4H4z', 'M14 10h6v4h-6z', 'M14 17h6v3h-6z', 'M7 8v10h7M7 12h7'],
     queue: ['M4 6h16M4 12h10M4 18h6', 'M17 14l3 4-3 4'],
     report: ['M7 3h7l5 5v13H7z', 'M14 3v5h5M10 13h6M10 17h6'],

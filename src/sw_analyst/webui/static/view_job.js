@@ -10,7 +10,7 @@
   var store = SW.store;
   var ui = SW.ui;
 
-  var TAB_ORDER = ['activity', 'data', 'tree', 'queue', 'live', 'code', 'file', 'log', 'guard', 'report'];
+  var TAB_ORDER = ['activity', 'diagrams', 'data', 'tree', 'queue', 'live', 'code', 'file', 'log', 'guard', 'report'];
   var PHASES = [
     ['triage', 'Triage'], ['planning', 'Planung'], ['analysis', 'Analyse'], ['evaluation', 'Bewertung'],
     ['prioritization', 'Priorisierung'], ['translation', 'Übersetzung'], ['finalizing', 'Abschluss']

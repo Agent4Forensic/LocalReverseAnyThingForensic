@@ -92,7 +92,7 @@ flowchart TD
     H --> T[Werkzeugaufruf über das Gateway]
     T --> E[Evidence EV-… mit Ergebnis-Hash]
     E --> F[Finding mit Zitat]
-    F --> C{Zitat steht<br/>wörtlich in der Evidence?}
+    F --> C{Zitat ab 8 Zeichen wörtlich im<br/>zitierbaren Text der Evidence<br/>und Bezug zur Aussage?}
     C -->|ja| OK[confirmed]
     C -->|nein, Beleg vorhanden| HY[hypothesis]
     C -->|nein, kein Beleg| RJ[rejected mit Grund]
@@ -105,6 +105,11 @@ flowchart TD
     E -.-> AU[(Audit-Kette)]
     R -.-> AU
 ```
+
+Zitierbar ist eine Evidence ohne das Echo der eigenen Werkzeugargumente in der Kopfzeile; ein Werkzeugfehler ist kein Beleg. Lehnt der Prüfer ein Zitat ab, bekommt das Modell die ähnlichste echte Zeile als Datenblock zur Reparatur ([ADR-0010](../adr/0010-belegpruefung-lokales-modell.md)).
+
+## Im Dashboard
+Der Tab **Diagramme** zeichnet je Auftrag live: Ablauf mit Zustand je Schritt, Wissensfortschritt, Aufgabengraph und Belegfluss. Der Tab **Datei** zeigt die ganze Datei in Hex und ASCII mit Struktur- und Befundanmerkungen.
 
 ## Nicht Teil dieser Diagramme (offen)
 

@@ -43,6 +43,7 @@ from sw_analyst.gateway.dev_tools.util import (
 
 TOOL_VERSION = "dev-2"
 MAX_KEYS_PER_JOB = 5                         # ADR-0006: keys come from evidence, trying key lists is not allowed
+_CTRL = re.compile("[\x00-\x1f\x7f\x85\u2028\u2029]")   # string args stay on one line (ADR-0010)
 MAX_SAMPLE_BYTES = 64 * 1024 * 1024
 MAX_OUTPUT_CHARS = 20000
 MAX_READ_LINES = 400
@@ -457,6 +458,8 @@ class DevGateway:
                     raise ToolError(f"Argument '{pname}' must be a string")
                 if "\x00" in val:
                     raise ToolError(f"Argument '{pname}' contains a NUL byte")
+                if _CTRL.search(val):   # one-line echo only: a line break would move model text out of the header
+                    raise ToolError(f"Argument '{pname}' contains a line break or control character")
                 if len(val) > 1024:
                     raise ToolError(f"Argument '{pname}' is too long (max 1024 characters)")
             out[pname] = val

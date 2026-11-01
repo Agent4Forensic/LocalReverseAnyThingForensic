@@ -1,4 +1,4 @@
-/* Tab Datei: Groesse, Art und Ablage der Datei, Hexdump mit Blaettern, Funktionsliste, Assembler mit Erklaerung
+/* Tab Datei: Groesse, Art und Ablage der Datei, Hex und ASCII der ganzen Datei mit Anmerkungen, Funktionsliste, Assembler mit Erklaerung
    je Befehl und Pseudocode (Ghidra). Alle Inhalte stammen aus dem Sample und werden nur als Text eingefuegt. */
 (function () {
   'use strict';
@@ -9,9 +9,6 @@
   var api = SW.api;
   var ui = SW.ui;
 
-  var PAGE = 512;
-
-  function hex8(n) { return ('00000000' + n.toString(16)).slice(-8); }
   function sizeText(n) { return fmt.bytes(n) + (n >= 1024 ? ' (' + n.toLocaleString('de-DE') + ' Byte)' : ''); }
 
   function tile(label, value, sub) {
@@ -25,10 +22,8 @@
       var dead = false;
       var path = ctx.route.query.path || 'sample';
       var info = null;
-      var offset = 0;
       var fnData = null;
       var fnSel = null;
-      var hexGen = 0;   /* getrennte Zaehler: Blaettern im Hex darf eine laufende Funktionsabfrage nicht verwerfen */
       var fnGen = 0;
 
       var sumHost = h('div');
@@ -59,40 +54,12 @@
           picker));
       }
 
-      /* ---------- Hex ---------- */
-      function loadHex(off) {
-        var my = ++hexGen;
-        offset = Math.max(0, off);
-        SW.dom.fill(hexHost, ui.section('Hex', ui.loading('Hexdump wird geladen …')));
-        api.get(base + '/inspect/hex', { path: path, offset: offset, length: PAGE }).then(function (d) {
-          if (dead || my !== hexGen) return;
-          paintHex(d);
-        }, function (err) { if (!dead) SW.dom.fill(hexHost, ui.section('Hex', ui.errorBox(err.message))); });
-      }
-      function paintHex(d) {
-        var goInput = h('input', { type: 'text', 'aria-label': 'Offset (hex)', placeholder: '0x0', value: '0x' + d.offset.toString(16) });
-        goInput.value = '0x' + d.offset.toString(16);
-        function go() {
-          var v = parseInt(String(goInput.value).replace(/^0x/i, ''), 16);
-          if (!isNaN(v)) loadHex(Math.min(v - (v % 16), Math.max(0, d.size - 1)));
-        }
-        goInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') go(); });
-        var last = Math.max(0, d.size - (d.size % PAGE || PAGE));
-        var nav = h('div', { cls: 'hex-nav' },
-          h('button', { type: 'button', cls: 'btn sm', disabled: d.offset <= 0, on: { click: function () { loadHex(0); } } }, 'Anfang'),
-          h('button', { type: 'button', cls: 'btn sm', disabled: d.offset <= 0, on: { click: function () { loadHex(d.offset - PAGE); } } }, '← Zurück'),
-          h('button', { type: 'button', cls: 'btn sm', disabled: d.offset + d.length >= d.size, on: { click: function () { loadHex(d.offset + PAGE); } } }, 'Weiter →'),
-          h('button', { type: 'button', cls: 'btn sm', disabled: d.offset + d.length >= d.size, on: { click: function () { loadHex(last); } } }, 'Ende'),
-          h('label', { cls: 'row small' }, 'Offset ', goInput),
-          h('button', { type: 'button', cls: 'btn sm', on: { click: go } }, 'Springen'),
-          h('span', { cls: 'small muted', text: 'Bytes ' + d.offset + '–' + (d.offset + d.length - 1) + ' von ' + d.size }));
-        SW.dom.fill(hexHost, ui.section('Hex', h('div', null, nav,
-          h('div', { cls: 'hex', role: 'region', 'aria-label': 'Hexdump', tabindex: '0' },
-            h('div', { cls: 'hex-row hex-head', 'aria-hidden': 'true' }, h('span', { text: 'Offset' }), h('span', { text: '00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f' }), h('span', { text: 'ASCII' })),
-            d.rows.map(function (r) {
-              return h('div', { cls: 'hex-row' }, h('span', { cls: 'hex-off', text: hex8(r.offset) }), h('span', { text: r.hex }), h('span', { cls: 'hex-asc', text: r.ascii }));
-            }))),
-          h('span', { cls: 'small muted', text: '16 Byte je Zeile, nicht druckbare Zeichen als Punkt' })));
+      /* ---------- Hex: ganze Datei, virtuell gescrollt, mit Anmerkungen (view_hex.js) ---------- */
+      var hexInst = null;
+      function loadHex() {
+        if (hexInst) hexInst.dispose();
+        hexInst = SW.hexView({ jobId: jobId, path: path, size: info.size });
+        SW.dom.fill(hexHost, ui.section('Hex und ASCII mit Anmerkungen', hexInst.el));
       }
 
       /* ---------- Assembler und Pseudocode ---------- */
@@ -177,7 +144,7 @@
         if (dead) return;
         info = d;
         paintSummary();
-        loadHex(0);
+        loadHex();
         loadFunctions();
       }, function (err) {
         if (dead) return;
@@ -185,7 +152,7 @@
       });
 
       /* Kein update(): ein Wechsel der Datei baut den Tab neu auf (view_job.js mountet dann frisch). */
-      return { dispose: function () { dead = true; } };
+      return { dispose: function () { dead = true; if (hexInst) hexInst.dispose(); } };
     }
   });
 })();

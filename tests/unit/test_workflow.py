@@ -76,13 +76,13 @@ def test_checker_refusal_goes_back_to_the_model(tmp_path):
         ev = re.findall(r"is stored as (EV-\d{6})", t)[-1]
         quote = "plain harmless text" if "CHECK FAILED" in t else "something invented here"
         return json.dumps({"action": "finish", "summary": "s", "findings": [
-            {"statement": "The file holds text.", "status": "confirmed", "evidence": [{"id": ev, "quote": quote}]}]})
+            {"statement": "The file holds plain text.", "status": "confirmed", "evidence": [{"id": ev, "quote": quote}]}]})
 
     store, gw, llm, engine, jid = _setup(tmp_path, model)
     engine.run_job(jid)
     assert any("CHECK FAILED" in _text(c) for c in llm.calls)
     confirmed = store.list_findings(jid, "confirmed")
-    assert [f["statement_en"] for f in confirmed] == ["The file holds text."]
+    assert [f["statement_en"] for f in confirmed] == ["The file holds plain text."]
     assert not [f for f in store.list_findings(jid) if f["status"] == "hypothesis"]
 
 
@@ -300,7 +300,7 @@ def test_known_findings_are_marked_as_data_and_carry_a_quote(tmp_path):
             import re
             ev = re.findall(r"is stored as (EV-\d{6})", t)[-1]
             return json.dumps({"action": "finish", "summary": "s", "findings": [
-                {"statement": "Text file.", "status": "confirmed", "evidence": [{"id": ev, "quote": "plain harmless text"}]}]})
+                {"statement": "Plain text file.", "status": "confirmed", "evidence": [{"id": ev, "quote": "plain harmless text"}]}]})
         return NOTHING
 
     store, gw, llm, engine, jid = _setup(tmp_path, model)
@@ -495,11 +495,11 @@ def test_unresolved_question_reopens_once_after_new_confirmed_finding(tmp_path):
         if "critical reviewer" in t and "Task: Answer Q1" in t:
             return _follow_up("Read it", "g")
         if f"{TITLED}Read it" in t:
-            return _found(t, "The file holds text.")
+            return _found(t, "The file holds plain text.")
         if "answers one target question" in t:
-            if "The file holds text." not in t:
+            if "The file holds plain text." not in t:
                 return UNRESOLVED
-            return _found(t, "The question is answered.", answer={"text": "plain harmless text"})
+            return _found(t, "The question is answered: the file holds plain text.", answer={"text": "plain harmless text"})
         return _helpers(messages) or NOTHING
 
     q = TargetQuestion(id="Q1", text_orig="What is it?")
@@ -534,7 +534,7 @@ def test_reopen_happens_only_once(tmp_path):
                                "subtasks": [{"title": f"Read it {len(rounds)}", "goal": "read", "reason": "gap"}],
                                "answer": {"text": "UNRESOLVED: not known"}})
         if f"{TITLED}Read it" in t:
-            return _found(t, f"The file holds text, round {len(rounds)}.")
+            return _found(t, f"The file holds plain text, round {len(rounds)}.")
         return _helpers(messages) or NOTHING
 
     q = TargetQuestion(id="Q1", text_orig="What is it?")
