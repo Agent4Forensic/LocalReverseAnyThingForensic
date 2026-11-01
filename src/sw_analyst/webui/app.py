@@ -296,7 +296,9 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
     def node(t: dict) -> dict:
         keys = ("id", "parent_id", "seq", "title", "kind", "origin", "status", "priority", "reason", "started_at",
                 "finished_at", "duration_ms", "summary_en", "summary_de")
-        return {**{k: t.get(k) for k in keys}, "children": []}
+        params = t.get("params") or {}
+        return {**{k: t.get(k) for k in keys}, "goal": t.get("goal") or "", "done_when": params.get("done_when") or "",
+                "goal_reached": params.get("goal_reached"), "children": []}
 
     @app.get("/api/jobs/{job_id}/tree")
     def tree(job_id: str):
