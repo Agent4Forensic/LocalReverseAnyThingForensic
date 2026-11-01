@@ -96,6 +96,10 @@ Jede Aufgabenart hat eine Prompt-Vorlage (`src/sw_analyst/prompts/*.md`) mit fes
 
 Aus den Datenbankinhalten entsteht der Bericht: Zusammenfassung, Metadaten und Chain-of-Custody (Hashes, Tool-Versionen, Modell, Prompt-Versionen, Audit-Log-Hash), Auftrag (Beschreibung, Zusatzinfos, Zielfragen), Antworten mit Status, Befunde mit Evidence-IDs und Zitaten, IOCs (entschärft), offene Fragen, Methodik und Zeitverlauf je Aufgabe, Anhang mit Evidence-Tabelle. Englische Fassung aus den KI-Texten, deutsche Fassung aus der Übersetzung und deutschen Vorlagen. Der Live-Bericht ist derselbe Generator auf dem aktuellen Zwischenstand.
 
+### Herleitung der Antworten (R5a im Bericht)
+
+Nach R5 folgt der Abschnitt „R5a Herleitung der Antworten“. Er entsteht ausschließlich aus dem Store, ohne Modellaufruf. Je Zielfrage zeigt er fünf Teile: Ausgangsdaten, Technischer Weg, Erkenntnisse aus den Belegen, Bedeutung für die Fragestellung und, nur wenn die Frage-Aufgabe eine Zusammenfassung hat, die ausdrücklich als ungeprüft gekennzeichnete Darstellung des Modells. Der technische Weg nennt die Werkzeugaufrufe nach Beleg-ID mit Werkzeugname, Version, Pfad und einer festen Erklärung der Technik. Dazu zählen die Belege der Befunde der Antwort und, rekursiv, die Belege, die eine benutzte Datei `derived/…` erzeugt haben; Zyklen enden. Ohne Befunde gelten die Belege der Frage-Aufgabe, sonst steht „keine Werkzeugaufrufe“. Alle Texte laufen durch dieselben Entschärfungs- und Escape-Helfer wie der übrige Bericht. Die Tests stehen in `tests/unit/test_report_derivation.py`.
+
 ## 10. CTF-Testmodus
 
 Zielfragen können eine erwartete Antwort tragen (Text oder `re:`-Regex). Das Testgerüst `tests/ctf/` erzeugt harmlose, selbst geschriebene Aufgaben (z. B. mehrfach kodiertes Skript mit Flagge), startet den Job und bewertet: Antwort enthält das Erwartete, die Antwort stützt sich auf bestätigte Findings, Zeit und Schritte. Mit Fake-Modell testet es die Mechanik deterministisch, mit Ollama das echte Modell.
