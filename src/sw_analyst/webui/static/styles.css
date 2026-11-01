@@ -516,3 +516,16 @@ h3 { font-size: 13.5px; margin: 0 0 6px; }
 .fcard.f-rejected { border-left: 4px solid var(--err); opacity: 0.85; }
 .is-fresh { box-shadow: 0 0 0 2px var(--accent); }
 .is-target { box-shadow: 0 0 0 2px var(--focus); }
+
+/* Beispiele: Liste und Detail (2026-11-01) */
+.ex-split { grid-template-columns: minmax(280px, 380px) minmax(0, 1fr); }
+.ex-group + .ex-group { margin-top: 12px; }
+.ex-group .ex-level-h { margin: 0 0 6px; }
+.ex-item { flex-direction: column; align-items: stretch !important; gap: 4px !important; padding: 8px 10px !important; }
+.ex-item.is-sel { background: var(--accent-soft); border-color: var(--accent); }
+.ex-item-t { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.ex-item-s { display: flex; flex-wrap: wrap; gap: 6px; }
+.ex-start { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-2); }
+.ex-start input[type="number"] { width: 80px; }
+.ex-start .hint { margin: 0; }
+@media (max-width: 1000px) { .ex-split { grid-template-columns: minmax(0, 1fr); } }

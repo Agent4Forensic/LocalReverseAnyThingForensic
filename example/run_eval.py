@@ -73,7 +73,8 @@ def main() -> int:
     ap.add_argument("--model", default="qwen3:8b")
     ap.add_argument("--url", default="http://127.0.0.1:11435")
     ap.add_argument("--num-ctx", type=int, default=16384)
-    ap.add_argument("--minutes", type=int, default=10, help="time budget per challenge")
+    ap.add_argument("--minutes", type=int, default=0,
+                    help="time budget per challenge (default: budget_minutes from challenge.json, else 10)")
     ap.add_argument("--out", default="")
     a = ap.parse_args()
     all_c = load_challenges()
@@ -87,7 +88,8 @@ def main() -> int:
     for i in ids:
         print(f"== {i}: {all_c[i]['title']} ...", flush=True)
         try:
-            r = run_one(all_c[i], out, a.model, a.url, a.num_ctx, a.minutes)
+            minutes = a.minutes or all_c[i].get("budget_minutes") or 10   # same default as the dashboard
+            r = run_one(all_c[i], out, a.model, a.url, a.num_ctx, minutes)
         except Exception as e:  # one broken challenge must not hide the others
             r = {"id": i, "flag": all_c[i]["flag"], "passed": False, "job_status": f"error: {e}", "minutes": 0,
                  "audit_valid": None, "report": ""}

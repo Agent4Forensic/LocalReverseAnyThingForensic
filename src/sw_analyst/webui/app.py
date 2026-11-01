@@ -30,7 +30,7 @@ from sw_analyst.guard import GUARD_VERSION, rule_count
 from sw_analyst.prompts.registry import PROMPTS, list_prompts
 from sw_analyst.report.builder import build_report
 from sw_analyst.webui import inspect as insp
-from sw_analyst.webui.examples import Examples, example_summary
+from sw_analyst.webui.examples import KNOWN_REQUIREMENTS, Examples, example_summary
 
 APP_VERSION = "0.1.0"
 MAX_SAMPLE = 64 * 1024 * 1024
@@ -64,7 +64,13 @@ class JobIn(BaseModel):
 
 
 class ExampleStart(BaseModel):
-    budget_max_minutes: int = Field(default=10, ge=1, le=240)
+    budget_max_minutes: int | None = Field(default=None, ge=1, le=240)   # None: the example's recommended budget
+    force: bool = False          # start although a requirement is missing or a run of it is still active
+
+
+class ExampleBatch(BaseModel):
+    ids: list[str] | None = Field(default=None, max_length=50)   # None: every example that is ready
+    force: bool = False
 
 
 def _err(status: int, code: str, msg: str) -> HTTPException:
@@ -261,6 +267,11 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
                "totals": ref.store.totals(ref.rid)}
         if ref.imported:
             out["import"] = imports.info(job_id)
+        ex = None if ref.imported else examples.example_of(ref.rid)
+        if ex:
+            e = examples.get(ex)
+            out["example"] = {"id": ex, "title": e["title"] if e else ex, "level": e["level"] if e else "",
+                              "flag_found": Examples._flag_found(store, ref.rid, e["flag"]) if e else None}
         return out
 
     @app.post("/api/jobs/{job_id}/cancel")
@@ -606,40 +617,83 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
         return {"id": p.id, "version": p.version, "sha256": p.sha256, "purpose": p.purpose, "text": p.body}
 
     # ---- examples (example/challenges) -------------------------------------------------------------------
+    def _readiness(e: dict) -> dict:
+        """What would make this example fail before it starts: no model, or a tool it needs is not loaded."""
+        names = {t.name for t in gateway.list_tools()}
+        missing = []
+        if not getattr(llm, "reachable", lambda: True)():
+            missing.append({"key": "llm", "text": "Sprachmodell nicht erreichbar (Ollama starten, scripts\\start.ps1)"})
+        if "ghidra" in e.get("requires", []) and "list_functions" not in names:
+            missing.append({"key": "ghidra", "text": KNOWN_REQUIREMENTS["ghidra"]})
+        active = [r for r in e.get("runs", []) if r["status"] in ("uploading", "queued", "running")]
+        return {"ready": not missing, "missing": missing, "active_job": active[0]["job_id"] if active else None}
+
+    def _example_items() -> list[dict]:
+        items = []
+        for e in examples.list(store):
+            items.append({**example_summary(e), **_readiness(e)})
+        return items
+
     @app.get("/api/examples")
     def examples_list():
-        return {"available": examples.available(), "folder": _rel(examples.dir),
-                "items": [example_summary(e) for e in examples.list(store)]}
+        items = _example_items()
+        return {"available": examples.available(), "folder": _rel(examples.dir), "items": items,
+                "queue_length": len([j for j in store.list_jobs() if j["status"] in ("queued", "uploading")]),
+                "worker_busy": worker.state == "running"}
 
     @app.get("/api/examples/{cid}")
     def example_detail(cid: str):
         src = examples.source(cid)
-        if not src:
+        item = next((e for e in _example_items() if e["id"] == cid), None)
+        if not src or not item:
             raise _err(404, "not_found", "example not found")
-        e = examples.get(cid)
         built = examples.build(cid)
         data = built[1] if built else b""
         preview = {"kind": insp.file_kind(data[:4096]), "hex": insp.hex_rows(data[:512])}
         if preview["kind"]["kind"] == "text":
             preview["text"] = data[:4000].decode("utf-8", "replace")
-        return {**example_summary(e), "flag": e["flag"], **src, "preview": preview}
+        return {**item, "flag": built[0]["flag"] if built else "", **src, "preview": preview}
 
-    @app.post("/api/examples/{cid}/job")
-    def example_start(cid: str, body: ExampleStart | None = None):
+    def _start_example(cid: str, minutes: int | None, force: bool) -> dict:
         built = examples.build(cid)
         if not built:
-            raise _err(404, "not_found", "example not found")
+            raise _err(404, "not_found", f"example {cid} not found")
         e, data = built
-        body = body or ExampleStart()
+        state = next((x for x in _example_items() if x["id"] == cid), {"ready": True, "missing": [], "active_job": None})
+        if not force and state["active_job"]:
+            raise _err(409, "already_running", f"example {cid} already runs as {state['active_job']}")
+        if not force and not state["ready"]:
+            raise _err(409, "not_ready", "; ".join(m["text"] for m in state["missing"]))
         qs = [TargetQuestion(id=f"Q{i}", text_orig=q, text_en=q) for i, q in enumerate(e["questions"], 1)]
-        # Budget like example/run_eval.py, so a run from the dashboard compares with a run from the script.
+        # Tasks and steps like example/run_eval.py; minutes from challenge.json unless the user sets them.
         jspec = JobSpec(title=f"Beispiel {e['id']}: {e['title']}", description=e["job_description"],
                         context_info=f"harmless self-made sample (example/challenges/{e['id']})",
                         target_questions=qs, budget_max_tasks=20, budget_max_steps=200,
-                        budget_max_minutes=body.budget_max_minutes)
+                        budget_max_minutes=minutes or e["budget_minutes"])
         job = _new_job(jspec, e["sample"]["name"], data)
         examples.remember(job["id"], e["id"])
         return summary(resolve(job["id"]))
+
+    @app.post("/api/examples/{cid}/job")
+    def example_start(cid: str, body: ExampleStart | None = None):
+        body = body or ExampleStart()
+        return _start_example(cid, body.budget_max_minutes, body.force)
+
+    @app.post("/api/examples-batch")
+    def example_batch(body: ExampleBatch | None = None):
+        """Queue several examples in difficulty order; the worker runs them one after another."""
+        body = body or ExampleBatch()
+        items = _example_items()
+        wanted = [e for e in items if body.ids is None or e["id"] in body.ids]
+        started, skipped = [], []
+        for e in wanted:
+            if e["active_job"]:
+                skipped.append({"id": e["id"], "reason": f"läuft bereits als {e['active_job']}"})
+            elif not e["ready"] and not body.force:
+                skipped.append({"id": e["id"], "reason": "; ".join(m["text"] for m in e["missing"])})
+            else:
+                started.append(_start_example(e["id"], None, True))
+        return {"started": started, "skipped": skipped}
 
     # ---- export and import of a finished analysis --------------------------------------------------------
     @app.get("/api/jobs/{job_id}/export")

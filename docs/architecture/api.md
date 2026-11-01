@@ -45,7 +45,10 @@ Sicherheitsregeln für alle `/api`-Routen: nur `Host` 127.0.0.1/localhost; Anfra
 ## Beispiele (ADR-0008)
 - `GET /api/examples` → `{available, folder, items:[{id, title, level, level_rank, description, goal, tests, questions, sample:{name, builder, size, sha256}, paths:{folder, challenge, builder_file, builder_line, runner, stored_as}, runs:[{job_id, status, created_at, flag_found|null}]}]}`, sortiert nach Stufe. Ohne Flagge.
 - `GET /api/examples/{id}` → wie ein Listeneintrag plus `flag`, `builder_source`, `challenge_json`, `preview:{kind, hex, text?}`.
-- `POST /api/examples/{id}/job` (JSON `{budget_max_minutes?}`) → `JobSummary`. Baut die Probe im Speicher, Budget wie `example/run_eval.py`.
+- Listeneinträge enthalten zusätzlich `budget_minutes` und `requires` (aus `challenge.json`), `ready`, `missing:[{key:"llm|ghidra", text}]` und `active_job`; die Liste selbst `queue_length` und `worker_busy`.
+- `POST /api/examples/{id}/job` (JSON `{budget_max_minutes?, force?}`) → `JobSummary`. Ohne Angabe gilt `budget_minutes` des Beispiels, Aufgaben 20 und Schritte 200 wie `example/run_eval.py`. 409 `not_ready` (Modell oder benötigtes Werkzeug fehlt) und 409 `already_running` (Lauf dieses Beispiels noch aktiv), beides mit `force: true` übergehbar.
+- `POST /api/examples-batch` (JSON `{ids?, force?}`) → `{started:[JobSummary], skipped:[{id, reason}]}`. Reiht alle startbereiten Beispiele nach Schwierigkeit ein; der Worker arbeitet sie nacheinander ab.
+- `GET /api/jobs/{id}` enthält bei Beispiel-Aufträgen `example:{id, title, level, flag_found}`.
 
 ## Export und Import (ADR-0008)
 - `GET /api/jobs/{id}/export?include_files=0|1` → ZIP (`application/zip`), Header `X-Bundle-SHA256` und `X-Export-Copy` (Kopie unter `data/exports/`). 409 für laufende Jobs.
