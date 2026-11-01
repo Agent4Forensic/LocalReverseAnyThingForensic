@@ -1,5 +1,5 @@
-/* Shell, Pfad-Routing (History API) und Theme-Umschalter. Ansichten registrieren sich in SW.views / SW.tabs.
-   Routen: /  /new  /prompts  /job/<id>/<tab>?<params>. Alte Links mit #/ werden umgeschrieben. */
+/* Shell, Hash-Routing und Theme-Umschalter. Ansichten registrieren sich in SW.views / SW.tabs.
+   Routen: #/  #/new  #/examples  #/job/<id>/<tab>?<params> */
 (function () {
   'use strict';
   var SW = (window.SW = window.SW || {});
@@ -17,20 +17,21 @@
     }
   }
 
-  function parseRoute() {
-    var path = (window.location.pathname || '').replace(/^\/+|\/+$/g, '');
-    var qs = (window.location.search || '').replace(/^\?/, '');
+  function parseHash() {
+    var raw = (window.location.hash || '').replace(/^#\/?/, '');
+    var qi = raw.indexOf('?');
+    var path = qi >= 0 ? raw.slice(0, qi) : raw;
+    var qs = qi >= 0 ? raw.slice(qi + 1) : '';
     var query = {};
     qs.split('&').forEach(function (p) {
       if (!p) return;
       var i = p.indexOf('=');
-      var k = safeDecode(i < 0 ? p : p.slice(0, i));
-      if (k !== 'mock') query[k] = i < 0 ? '' : safeDecode(p.slice(i + 1));
+      query[safeDecode(i < 0 ? p : p.slice(0, i))] = i < 0 ? '' : safeDecode(p.slice(i + 1));
     });
     var parts = path.split('/').filter(Boolean).map(safeDecode);
     var r = { query: query, name: 'overview', jobId: null, tab: null };
     if (parts[0] === 'new') r.name = 'new';
-    else if (parts[0] === 'prompts') r.name = 'prompts';
+    else if (parts[0] === 'examples') r.name = 'examples';
     else if (parts[0] === 'job' && parts[1]) {
       r.name = 'job';
       r.jobId = parts[1];
@@ -38,37 +39,7 @@
     }
     return r;
   }
-  SW.parseRoute = parseRoute;
-
-  /* Mock-Modus (?mock=1) bleibt beim Navigieren erhalten. */
-  function withMock(url) {
-    return SW.api.isMock ? url + (url.indexOf('?') < 0 ? '?' : '&') + 'mock=1' : url;
-  }
-  SW.navigate = function (url, replace) {
-    var target = withMock(url);
-    if (target === window.location.pathname + window.location.search) {
-      onRoute();
-      return;
-    }
-    window.history[replace ? 'replaceState' : 'pushState'](null, '', target);
-    onRoute();
-  };
-  /* Alter Link http://host/#/job/x/code -> /job/x/code. */
-  function legacyHash() {
-    var m = /^#(\/.*)$/.exec(window.location.hash || '');
-    if (!m) return false;
-    window.history.replaceState(null, '', withMock(m[1]));
-    return true;
-  }
-  document.addEventListener('click', function (e) {
-    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-    var a = e.target.closest ? e.target.closest('a[href]') : null;
-    if (!a || a.target || a.hasAttribute('download')) return;
-    var url = a.getAttribute('href');
-    if (url.charAt(0) !== '/' || url.charAt(1) === '/' || url.indexOf('/api/') === 0) return;
-    e.preventDefault();
-    SW.navigate(url);
-  });
+  SW.parseHash = parseHash;
 
   /* ---------- Shell ---------- */
   var main = null;
@@ -104,53 +75,40 @@
   }
 
   function paintNav() {
-    var r = parseRoute();
+    var r = parseHash();
     var nav = document.getElementById('nav-main');
     SW.dom.fill(nav,
-      navLink('/', 'dashboard', 'Übersicht', r.name === 'overview'),
-      navLink('/new', 'plus', 'Neuer Auftrag', r.name === 'new'),
-      navLink('/prompts', 'book', 'Prompts', r.name === 'prompts')
+      navLink('#/', 'dashboard', 'Übersicht', r.name === 'overview'),
+      navLink('#/new', 'plus', 'Neuer Auftrag', r.name === 'new'),
+      navLink('#/examples', 'list', 'Beispiele', r.name === 'examples')
     );
     var jobs = store.state.jobs.slice(0, 8);
     SW.dom.fill(jobsNav,
       h('p', { cls: 'nav-h', id: 'nav-jobs-h', text: 'Aufträge' }),
       jobs.length ? jobs.map(function (j) {
-        return h('a', { href: '/job/' + encodeURIComponent(j.id) + '/activity', title: j.title, 'aria-current': r.jobId === j.id ? 'page' : null }, fmt.statusIcon(j.status), h('span', { cls: 'lbl', text: j.title }));
+        return h('a', { href: '#/job/' + encodeURIComponent(j.id) + '/activity', title: j.title, 'aria-current': r.jobId === j.id ? 'page' : null }, fmt.statusIcon(j.status), h('span', { cls: 'lbl', text: j.title }));
       }) : h('p', { cls: 'hint', text: 'Noch keine Aufträge.' })
     );
   }
 
-  function sysItem(label, value, tone) {
-    return h('div', { cls: 'sys-i', title: label + ': ' + value },
-      h('dt', null, h('span', { cls: 'dot' + (tone ? ' tone-' + tone : ''), 'aria-hidden': 'true' }), label),
-      h('dd', { text: value }));
-  }
-
   function paintConn() {
     var s = store.state;
-    var sys = s.system;
-    if (!sys) {
-      SW.dom.fill(connBox, s.systemError ? sysItem('Server', 'nicht erreichbar', 'err') : sysItem('Server', 'verbindet …'));
-      return;
+    var tone = 'warn';
+    var text = 'Verbinde …';
+    if (s.systemError) { tone = 'err'; text = 'Server nicht erreichbar'; }
+    else if (s.system) {
+      var llm = s.system.llm && s.system.llm.reachable;
+      tone = llm ? 'ok' : 'warn';
+      text = (s.system.worker && s.system.worker.state === 'running' ? 'Worker läuft' : 'Worker bereit') + (llm ? ' · LLM erreichbar' : ' · LLM offline');
     }
-    var w = sys.worker || {};
-    var llm = sys.llm || {};
-    var g = sys.guard || {};
-    var gw = sys.gateway || {};
-    SW.dom.fill(connBox,
-      s.systemError ? sysItem('Server', 'nicht erreichbar', 'err') : null,
-      sysItem('Worker', w.state === 'running' ? 'läuft' : 'bereit', w.state === 'running' ? 'info' : 'ok'),
-      sysItem('Modell', (llm.model || '–') + (llm.reachable ? '' : ' (offline)'), llm.reachable ? 'ok' : 'err'),
-      sysItem('Schutz', g.active ? (g.rules || 0) + ' Regeln' : 'inaktiv', g.active ? 'ok' : 'err'),
-      sysItem('Werkzeuge', String(gw.tools || 0)),
-      sysItem('Warteschlange', String(sys.queue_length || 0)),
-      sysItem('Version', sys.version || '–'));
+    connBox.setAttribute('class', 'conn tone-' + tone);
+    SW.dom.fill(connBox, h('span', { cls: 'dot', 'aria-hidden': 'true' }), h('span', { text: text }));
   }
 
   function buildShell() {
     var app = document.getElementById('app');
     jobsNav = h('nav', { cls: 'nav nav-jobs', 'aria-labelledby': 'nav-jobs-h' });
-    connBox = h('dl', { cls: 'sys', 'aria-label': 'Systemstatus', role: 'status' });
+    connBox = h('div', { cls: 'conn', role: 'status' });
     themeBtn = h('button', { type: 'button', cls: 'btn sm', on: { click: cycleTheme }, 'aria-label': 'Farbschema wechseln' });
     main = h('main', { cls: 'main', id: 'main', tabindex: '-1' });
     live = h('div', { cls: 'sr-only', 'aria-live': 'polite', id: 'live' });
@@ -159,7 +117,7 @@
     SW.dom.fill(app,
       h('div', { cls: 'shell' },
         h('aside', { cls: 'side' },
-          h('a', { cls: 'brand', href: '/', 'aria-label': 'sw-analyst, zur Übersicht' },
+          h('a', { cls: 'brand', href: '#/', 'aria-label': 'sw-analyst, zur Übersicht' },
             h('span', { cls: 'brand-mark' }, icon('shieldcheck', { size: 16 })),
             h('span', { cls: 'brand-name' }, 'sw-analyst', h('span', { cls: 'brand-sub', text: 'Statische Analyse' }))
           ),
@@ -167,7 +125,6 @@
           jobsNav,
           h('div', { cls: 'side-foot' },
             SW.api.isMock ? h('div', { cls: 'mock-flag', text: 'Mock-Daten (?mock=1)' }) : null,
-            h('p', { cls: 'nav-h', text: 'System' }),
             connBox,
             themeBtn
           )
@@ -211,7 +168,7 @@
   }
 
   function onRoute() {
-    var route = parseRoute();
+    var route = parseHash();
     paintNav();
     mountView(route);
   }
@@ -224,9 +181,7 @@
       if (kind === 'system') paintConn();
     });
     store.startGlobal();
-    legacyHash();
-    window.addEventListener('popstate', onRoute);
-    window.addEventListener('hashchange', function () { if (legacyHash()) onRoute(); });
+    window.addEventListener('hashchange', onRoute);
     onRoute();
   }
 

@@ -7,7 +7,7 @@
 param(
     [string]$Challenge = '',      # 'all' or comma separated ids; empty = interactive menu
     [string]$Model = '',          # empty = chosen by free VRAM (infra\select-model.ps1)
-    [int]$Minutes = 10,           # time budget per challenge
+    [int]$Minutes = 0,            # time budget per challenge; 0 = budget_minutes from challenge.json
     [int]$OllamaPort = 11435
 )
 $ErrorActionPreference = 'Stop'
@@ -62,7 +62,7 @@ $have = @((Invoke-RestMethod -Uri "$Url/api/tags" -TimeoutSec 5).models | ForEac
 if ($have -notcontains $Model) { Write-Host "FEHLER: model $Model not installed. Installed: $($have -join ', ')" -ForegroundColor Red; exit 1 }
 
 # ---- run -------------------------------------------------------------------------------------------------
-Write-Host ("`nModel {0}, challenges: {1}, {2} min each`n" -f $Model, $Challenge, $Minutes) -ForegroundColor Cyan
+Write-Host ("`nModel {0}, challenges: {1}, {2}`n" -f $Model, $Challenge, $(if ($Minutes -gt 0) { "$Minutes min each" } else { "budget per challenge.json" })) -ForegroundColor Cyan
 $env:PYTHONPATH = Join-Path $Root 'src'
 & $Py (Join-Path $Here 'run_eval.py') --challenge $Challenge --model $Model --url $Url --minutes $Minutes
 exit $LASTEXITCODE

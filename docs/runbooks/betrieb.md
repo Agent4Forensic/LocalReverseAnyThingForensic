@@ -58,10 +58,24 @@ scripts\stop.ps1 -Force     # bricht einen laufenden Job ab
 | `data/jobs/<job>/derived/` | abgeleitete Artefakte (dekodierte Ebenen), nie ausführbar |
 | `data/logs/<job>/audit.jsonl` | hash-verketteter Audit-Log des Jobs |
 | `data/logs/start-<datum>.log` | Protokoll von `start.ps1` |
+| `data/jobs/<job>/tool-cache/` | Ergebnisse der Werkzeug-Container (Ghidra-Export usw.), Cache für Modell und Datei-Ansicht |
 | `data/run/` | PID-Dateien und Laufzeit-Scratch |
+| `data/tmp/` | Python-Temp und Upload-Spool (statt `%TEMP%`) |
+| `data/imports/I0001/` | importierte Analyse: eigener, schreibgeschützter Store, Audit-Kette, Dateien, Originalpaket unter `bundle/` |
+| `data/exports/` | Kopie jedes Exports (ZIP) |
+| `data/examples.json` | welcher Auftrag aus welchem Beispiel gestartet wurde |
 | `data/eval/<zeitstempel>/` | Ergebnisse der Beispielfälle (siehe unten) |
 
 `data/` ist git-ignoriert. Proben und Berichte gehören nie ins Repository.
+
+**Alles liegt im Projektordner.** Der Server legt beim Start alle Ordner oben an, egal aus welchem Verzeichnis er gestartet wird: Ein relatives `--data-dir` zählt ab dem Projekt-Root. Temp-Dateien und Uploads über 1 MiB landen in `data\tmp`, nicht in `%TEMP%`. Grund: Nur der Projektordner hat eine Ausnahme im Virenschutz; außerhalb kann er Proben, Regeln oder Zwischenstände löschen. Liegt der Datenordner außerhalb, meldet die Startzeile `[DATA]` eine Warnung, das Dashboard zeigt es in der Kachel „Datenablage“.
+
+## Dashboard: Beispiele, Datei-Ansicht, Export und Import
+
+- **Beispiele** (Navigation „Beispiele“): Challenges aus `example/`, sortiert leicht, mittel, schwer, mit Größe der Probe und dem Ort des Codes (Ordner, `challenge.json`, Erzeugerfunktion mit Zeile in `example/samples.py`). „Code und Probe ansehen“ zeigt den Erzeuger, die Beschreibung, die Probe als Text oder Hex und auf Wunsch die Lösung. Links Beispiel wählen, rechts „Beispiel starten“. Fehlt das Modell oder ein benötigtes Werkzeug (Beispiel 05 braucht Ghidra), ist der Knopf gesperrt und die Seite nennt, was fehlt. Läuft das Beispiel schon, führt der Knopf zum laufenden Auftrag. „Alle startbereiten nacheinander starten“ reiht alle ein. Budget kommt aus `challenge.json`. Nach dem Lauf steht „bestanden“ oder „nicht bestanden“ auf der Seite und im Auftragskopf.
+- **Tab „Datei“** im Auftrag: Größe, Art, SHA-256 und Ablage der Datei, Hex mit Blättern und Sprung zu Offset. Bei PE, ELF und Mach-O zusätzlich Funktionsliste, Assembler mit Erklärung je Befehl und Pseudocode (Ghidra). Voraussetzung: Docker Desktop läuft und das Image ist gebaut (`scripts\start.ps1 -BuildTools`, einmalig, braucht Netz); danach den Server neu starten. Der erste Aufruf je Datei dauert Minuten, danach kommt das Ergebnis aus dem Cache. Die Erklärungen sind eine feste Tabelle, keine KI-Aussage.
+- **Export:** Im Auftragskopf „Exportieren“ (nur bei beendeten Aufträgen). Standard ohne Sample; „mit Sample“ packt Sample, abgeleitete Dateien und Ghidra-Cache dazu. Das Paket enthält Daten, Audit-Kette, Bericht DE/EN und Prüfsummen. Eine Kopie bleibt in `data\exports\`. Den Paket-SHA-256 (steht im Log des Auftrags) getrennt notieren, er belegt später die Herkunft.
+- **Import:** Übersicht, „Analyse importieren“, ZIP wählen. Geprüft werden Prüfsummen jedes Eintrags, Audit-Kette, jedes Ereignis gegen die Kette und ob der Bericht bytegleich neu entsteht. Die Analyse erscheint als `I0001-J-…`, schreibgeschützt, mit dem Prüfergebnis im Kopf. Dasselbe Paket zweimal ergibt keinen zweiten Import.
 
 ## Beispielfälle prüfen
 
@@ -71,6 +85,8 @@ example\start_eval.ps1 -Challenge all          # alle
 example\start_eval.ps1 -Challenge 01-layered-flag -Model qwen3:8b -Minutes 15
 ```
 
+Alternativ im Dashboard unter „Beispiele“ (siehe oben). Dort läuft der Auftrag über den normalen Worker und erscheint in der Übersicht.
+
 Jede Challenge ist eine harmlose Probe mit einer Flagge. Das Skript lässt die ganze Kette laufen und sucht die Flagge im finalen Bericht (`PASS` oder `FAIL`, Exit-Code 0 nur bei allem bestanden). Einzelheiten und das Anlegen eigener Fälle: [`../../example/README.md`](../../example/README.md). Die Läufe nutzen den aktuellen Arbeitsstand von `src/` und belegen die GPU. Zwei Läufe gleichzeitig verfälschen die Zeitbudgets, weil Ollama Aufträge nacheinander abarbeitet.
 
 ## Tests
@@ -79,7 +95,7 @@ Jede Challenge ist eine harmlose Probe mit einer Flagge. Das Skript lässt die g
 .venv\Scripts\python.exe -m pytest
 ```
 
-Läuft ohne Modell und ohne GPU (Skript-Modell, harmlose Proben aus dem Speicher). Stand: 469 Tests, etwa 25 Sekunden. Der Live-Benchmark mit echtem Modell ist kein Teil von `pytest`: `tests/bench/run_live.py`.
+Läuft ohne Modell und ohne GPU (Skript-Modell, harmlose Proben aus dem Speicher). Stand 2026-10-31: 1023 Tests grün, 10 übersprungen (Docker-Images, Windows-Pfade), 38 bekannte xfails, etwa 40 Sekunden. Der Live-Benchmark mit echtem Modell ist kein Teil von `pytest`: `tests/bench/run_live.py`.
 
 ## Fehlerbehebung
 
@@ -92,9 +108,12 @@ Läuft ohne Modell und ohne GPU (Skript-Modell, harmlose Proben aus dem Speicher
 | `Port 11435 already in use` | läuft schon ein Ollama der Plattform. Nicht ein zweites starten. |
 | Modell fehlt | `start.ps1` lädt es nach, oder `ollama pull <tag>` mit `OLLAMA_HOST=127.0.0.1:11435`. |
 | Hash-Abweichung beim Install | Datei wurde gelöscht, nichts installiert. Pin in `infra/manifest.json` und Quelle prüfen, nicht umgehen. |
-| Dashboard-Tabs „Diagramme“, „Log“ fehlen | bekannte Lücke: `index.html` lädt Skripte, die noch nicht existieren (siehe [`../STATUS.md`](../STATUS.md)). |
+| Tab „Datei“: „Ghidra-Werkzeuge sind nicht geladen“ | Docker Desktop starten, einmalig `scripts\start.ps1 -BuildTools`, dann Server neu starten. Hex, Größe und Art gehen auch ohne. |
+| Tab „Datei“: „Kein Maschinencode“ | Text, Skript oder Container: Assembler und Pseudocode gibt es nur für PE, ELF, Mach-O. Text zeigt der Tab „Code“. |
+| Import abgelehnt (`checksum_mismatch`, `audit_invalid`) | Paket verändert oder beschädigt. Nicht reparieren, beim Absender ein neues Paket anfordern und den Paket-SHA-256 vergleichen. |
+| Auftrag nach Neustart `failed` mit „job interrupted by restart“ | Server wurde während des Laufs beendet. Ein Lauf lässt sich nicht sicher fortsetzen; neu starten. Daten und Audit-Kette bis zum Abbruch bleiben erhalten. |
+| Tab „Diagramme“ fehlt | noch nicht gebaut (Dashboard V2, siehe [`../STATUS.md`](../STATUS.md)). |
 | Datei fehlt nach einem Agentenlauf | Virenscanner (G Data) hat sie kurz entfernt. `git ls-files -d` prüfen, Ausnahme ist eingetragen. |
-| `infra/tools/rules/sw_analyst.yar` fehlt in einem Worktree | G Data hält die Regeltexte für einen PowerShell-Downloader, die Ausnahme gilt nur für den Hauptpfad. Images dort nicht bauen und die Löschung nicht committen. |
 
 ## Parallelarbeit im selben Arbeitsbaum
 

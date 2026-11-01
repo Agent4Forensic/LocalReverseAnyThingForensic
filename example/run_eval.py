@@ -23,6 +23,7 @@ from sw_analyst.common.audit import verify_file  # noqa: E402
 from sw_analyst.common.models import JobSpec, TargetQuestion  # noqa: E402
 from sw_analyst.common.store import Store  # noqa: E402
 from sw_analyst.common.util import sha256_hex  # noqa: E402
+from sw_analyst.gateway.container_tools import attach_container_tools  # noqa: E402
 from sw_analyst.gateway.dev_gateway import DevGateway  # noqa: E402
 from sw_analyst.llm.ollama import OllamaClient  # noqa: E402
 from sw_analyst.orchestrator.engine import JobEngine  # noqa: E402
@@ -37,9 +38,6 @@ def load_challenges() -> dict[str, dict]:
         c = json.loads(f.read_text(encoding="utf-8"))
         if c["id"] != f.parent.name or c["sample"]["builder"] not in BUILDERS:
             sys.exit(f"{f}: id must equal the folder name and sample.builder must exist in samples.BUILDERS")
-        if c["sample"].get("file") and not (f.parent / c["sample"]["file"]).is_file():
-            print(f"skip {c['id']}: {c['sample']['file']} missing (git-ignored third-party file, see README)")
-            continue
         found[c["id"]] = c
     return found
 
@@ -55,6 +53,7 @@ def run_one(c: dict, out: Path, model: str, url: str, num_ctx: int, minutes: int
                    budget_max_tasks=20, budget_max_steps=200, budget_max_minutes=minutes)
     job = store.create_job(spec, c["sample"]["name"], sha256_hex(data))
     gw = DevGateway(d)
+    attach_container_tools(gw)          # same tools as the server: Ghidra & co. when Docker and the images exist
     gw.store_sample(job["id"], data)
     t0 = time.monotonic()
     status = JobEngine(store, OllamaClient(model, url, num_ctx=num_ctx), gw).run_job(job["id"])
@@ -74,7 +73,8 @@ def main() -> int:
     ap.add_argument("--model", default="qwen3:8b")
     ap.add_argument("--url", default="http://127.0.0.1:11435")
     ap.add_argument("--num-ctx", type=int, default=16384)
-    ap.add_argument("--minutes", type=int, default=10, help="time budget per challenge")
+    ap.add_argument("--minutes", type=int, default=0,
+                    help="time budget per challenge (default: budget_minutes from challenge.json, else 10)")
     ap.add_argument("--out", default="")
     a = ap.parse_args()
     all_c = load_challenges()
@@ -88,7 +88,8 @@ def main() -> int:
     for i in ids:
         print(f"== {i}: {all_c[i]['title']} ...", flush=True)
         try:
-            r = run_one(all_c[i], out, a.model, a.url, a.num_ctx, a.minutes)
+            minutes = a.minutes or all_c[i].get("budget_minutes") or 10   # same default as the dashboard
+            r = run_one(all_c[i], out, a.model, a.url, a.num_ctx, minutes)
         except Exception as e:  # one broken challenge must not hide the others
             r = {"id": i, "flag": all_c[i]["flag"], "passed": False, "job_status": f"error: {e}", "minutes": 0,
                  "audit_valid": None, "report": ""}

@@ -1,0 +1,17 @@
+{
+  "id": "05-pe-xor-routine",
+  "title": "PE-Datei mit XOR-Routine",
+  "level": "schwer",
+  "description": "Eine minimale, nicht lauffähige PE32-Datei. Am Einstiegspunkt steht eine kleine, von Hand assemblierte Schleife: Sie läuft über 14 Byte am Anfang der Sektion .data und verknüpft jedes Byte per XOR mit einem festen Schlüssel. Das Ergebnis ist die Flagge. Nichts wird ausgeführt.",
+  "goal": "Die KI soll den Code am Einstiegspunkt lesen (disassemble/decompile, falls die Ghidra-Werkzeuge geladen sind), Schlüssel, Länge und Datenadresse belegen, die 14 Byte aus .data mit hexdump lesen und mit decode_layer (XOR, ein Byte) dekodieren. Im Dashboard zeigt der Tab Datei Hex, Assembler mit Erklärung und Pseudocode dieser Routine.",
+  "tests": "Rezept exe, Ghidra-Werkzeuge (Funktionsliste, Disassembly, Dekompilat), Übertragung eines Schlüssels aus Code auf Daten, Datei-Ansicht im Dashboard.",
+  "sample": {"name": "xor_routine.exe.bin", "builder": "pe_xor_routine"},
+  "job_description": "PE file, the entry point decodes data. Analyse statically.",
+  "questions": [
+    "Which key and which length does the routine at the entry point use?",
+    "Which string results from decoding the data the routine processes?"
+  ],
+  "flag": "FLAG{xor_loop}",
+  "budget_minutes": 20,
+  "requires": ["ghidra"]
+}

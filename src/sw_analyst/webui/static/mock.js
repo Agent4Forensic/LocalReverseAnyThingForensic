@@ -625,7 +625,6 @@
       };
     }
     if (method === 'GET' && path === '/jobs') return JOB_ORDER.map(function (id) { return summary(JOBS[id]); });
-    if (method === 'GET' && path === '/examples') return clone(EXAMPLES);
     if (method === 'POST' && path === '/jobs') return createJob(body);
     if (method === 'GET' && path === '/prompts') return PROMPTS.map(function (p) { return { id: p.id, version: p.version, sha256: p.sha256, purpose: p.purpose }; });
     if ((m = /^\/prompts\/([^/]+)$/.exec(path)) && method === 'GET') {
@@ -691,18 +690,9 @@
     throw fail(404, 'not_found', 'Unbekannter Pfad');
   }
 
-  var EXAMPLES = [
-    { id: '01-layered-flag', title: 'Doppelt kodierte Flagge', level: 'leicht', description: 'Eine kleine Textdatei besteht nur aus Base64-Text. Darunter liegt eine zweite Schicht und erst darin steht die Flagge.', sample_name: 'ctf.txt', job_description: 'CTF: find the flag.', questions: ['What is the flag?'] },
-    { id: '03-pe-appended-config', title: 'PE-Datei mit angehängter Konfiguration', level: 'mittel', description: 'Eine minimale, nicht lauffähige PE32-Datei mit einem Overlay hinter der letzten Sektion.', sample_name: 'bench.exe.bin', job_description: 'PE file with appended data.', questions: ['Which DLL does the file import?', 'What is the id value in the configuration appended after the last section?'] }
-  ];
-
   function createJob(form) {
     var raw = form && form.get ? form.get('spec') : null;
     var file = form && form.get ? form.get('sample') : null;
-    var exId = form && form.get ? form.get('example') : null;
-    var ex = exId ? EXAMPLES.filter(function (e) { return e.id === exId; })[0] : null;
-    if (exId && !ex) throw fail(422, 'unknown_example', 'Beispiel unbekannt');
-    if (ex) file = { size: 1, name: ex.sample_name };
     var spec = null;
     try {
       spec = JSON.parse(String(raw));

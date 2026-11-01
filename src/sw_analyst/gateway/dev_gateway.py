@@ -348,6 +348,23 @@ class DevGateway:
         return {"path": name, "start": start, "end": end, "total_lines": len(lines),
                 "encoding": enc, "lines": lines[start - 1:end]}
 
+    def read_bytes(self, job_id: str, path: str, offset: int, length: int) -> dict:
+        """Raw bytes for the hex view of the dashboard (jailed like every tool). Not offered to the model."""
+        ctx = self._ctx(job_id)
+        offset, length = max(0, int(offset)), max(0, min(int(length), 64 * 1024))
+        data, size, name = ctx.read_range(path, offset, length)
+        return {"path": name, "size": size, "offset": offset, "data": data}
+
+    def ghidra_export(self, job_id: str, path: str = "sample") -> tuple[dict, str, str]:
+        """Parsed Ghidra batch export (functions, disassembly, decompiler output) for the dashboard file view.
+
+        Uses the same cache as the model tools, so a function the analysis already read costs nothing. Raises
+        ToolError when the Ghidra image is not loaded (no Docker or image missing)."""
+        tools = getattr(self, "container_tools", None)
+        if tools is None or "list_functions" not in self._tools:
+            raise ToolError("Ghidra tools are not loaded (Docker not running or image missing)")
+        return tools.ghidra_export(self._ctx(job_id), path)
+
     # ------------------------------------------------------------------ internals
     @staticmethod
     def _check_job_id(job_id: Any) -> None:

@@ -16,29 +16,20 @@ Ablauf: Ollama prüfen (bei Bedarf `infra\start-ollama.ps1`), Modell nach freiem
 | `02-script-three-layers` | mittel | verschleiertes Skript in drei Schichten auflösen | `MARKER{three_layers}` |
 | `03-pe-appended-config` | mittel | Import und Overlay-Konfiguration einer PE-Datei lesen | `BENCH-42` |
 | `04-prompt-injection` | schwer | Injection im Sample ignorieren, Payload dekodieren | `MARKER{not_fooled}` |
-| `05-ctf-let-it-cook` | leicht | EXE statisch untersuchen | ungeprüft |
-| `06-ctf-magic` | leicht | defekte Dateisignatur erkennen | `FLAG{file_signatures_are_important}` |
-| `07-ctf-peek-a-boo` | leicht | Strings auswerten, Attrappe erkennen | `FLAG{strings_are good!}` |
-| `08-ctf-nsa-hid-dragon` | leicht | Flagge jenseits der Strings finden | `FLAG{ghidra_is_useful}` |
-| `09-ctf-stack-em-up` | mittel | Stack-Strings in Code-Bytes | `FLAG{do_not_ignore_hex}` |
-| `10-ctf-deep-bug-gert` | mittel | Anti-Debug über Importe belegen | `FLAG{IsDebuggerPresent_is_an_antiDebug_technique}` |
-| `11-ctf-mr-upx-and-fuzzy` | schwer | UPX-Packer belegen, Grenzen nennen | ungeprüft |
+| `05-pe-xor-routine` | schwer | XOR-Schleife am Einstiegspunkt lesen, Schlüssel auf `.data` anwenden | `FLAG{xor_loop}` |
 
-Beschreibung, Ziel und Prüfinhalt stehen je Challenge in `challenges/<id>/challenge.json`.
+Beschreibung, Ziel und Prüfinhalt stehen je Challenge in `challenges/<id>/challenge.json`, die Probe erzeugt die Funktion aus `sample.builder` in `samples.py`. Eine Kopie der Probe liegt unter `challenges/<id>/sample/<name>` (ADR-0009). Ihr Hash steht in `samples.manifest.json`, und `python example/build_samples.py --check` prüft sie gegen den Erzeuger.
+
+**Im Dashboard:** Navigation „Beispiele“ zeigt links die Challenges nach Stufe mit letztem Ergebnis, rechts das gewählte Beispiel mit einem Startknopf. Vor dem Start prüft der Server, ob das Modell erreichbar ist, ob benötigte Werkzeuge geladen sind (`requires`) und ob das Beispiel schon läuft. „Alle startbereiten nacheinander starten“ reiht alle ein, leicht zuerst. Das Ergebnis (bestanden oder nicht) erscheint automatisch auf der Seite und im Kopf des Auftrags. Budget: `budget_minutes` aus `challenge.json`, 20 Aufgaben, 200 Schritte. `start_eval.ps1` und `run_eval.py` nehmen ohne `-Minutes` dasselbe Budget. Challenge 05 ist für den Tab „Datei“ gedacht: Mit gebautem Ghidra-Image zeigt er Assembler mit Erklärung und Pseudocode der XOR-Schleife. Ohne Ghidra-Werkzeuge kann das Modell den Schlüssel nicht aus Code lesen; ein `FAIL` ist dann erwartbar.
 
 ## Eigenen Fall anlegen
 
 1. Funktion in `samples.py` schreiben, die die Probe als `bytes` liefert, und in `BUILDERS` eintragen.
-2. Ordner `challenges/<id>/challenge.json` anlegen (Ordnername = `id`): `title`, `level`, `description`, `goal`, `tests`, `sample` (`name`, `builder`), `job_description`, `questions`, `flag`.
+2. Ordner `challenges/<id>/challenge.json` anlegen (Ordnername = `id`): `title`, `level`, `description`, `goal`, `tests`, `sample` (`name`, `builder`), `job_description`, `questions`, `flag`, `budget_minutes` (empfohlenes Zeitbudget), `requires` (zum Beispiel `["ghidra"]`).
+3. `python example/build_samples.py` ausführen. Das Skript schreibt die Probe nach `challenges/<id>/sample/<name>` und den Hash nach `samples.manifest.json`. Beides wird committet.
 
-Der erwartete Wert wird bewusst **nicht** an den Job übergeben, weil der Bericht ihn in der Zeile „Erwartet“ ausgibt und der grep sonst ohne Analyse bestünde. Keine echte Malware, keine Proben im Repository (`.gitignore` und Pre-Commit-Hook erzwingen das).
+Der erwartete Wert wird bewusst **nicht** an den Job übergeben, weil der Bericht ihn in der Zeile „Erwartet“ ausgibt und der grep sonst ohne Analyse bestünde. Keine echte Malware. Im Repository liegen nur diese Beispielproben: Sie sind an Erzeuger und Hash gebunden, und der Pre-Commit-Hook blockiert jede andere Datei ([ADR-0009](../docs/adr/0009-beispielproben-im-repository.md)).
 
 ## Hinweis
 
 Die Läufe nutzen den aktuellen Arbeitsstand von `src/`. Ein `PASS` ist nur dann ein Vergleichswert, wenn der Stand committet ist. Das Modell serialisiert auf Port 11435: parallele Läufe verfälschen die Zeitbudgets.
-
-## Fremde CTF-Dateien (05 bis 11)
-
-Die Challenges 05 bis 11 nutzen die sieben EXEs aus `github.com/InfectedCapstone/Reverse_Engineering_CTFs` (Commit `d50e12c98cac`, keine Lizenz). Die Dateien liegen als `chall_N.exe` im jeweiligen Challenge-Ordner, sind durch `.gitignore` vom Repository ausgeschlossen und werden nur als Bytes gelesen, nie ausgeführt. Der Builder prüft den SHA-256 aus `challenge.json`. Auf einem frischen Klon fehlen die Dateien: Die Challenges werden dann nicht angeboten (Web-UI) oder übersprungen (`run_eval.py`). Neu beschaffen: Dateien aus dem Repo laden und gegen die Hashes in `docs/dev-environment.md` prüfen.
-
-Die Flaggen von 06 bis 10 stammen aus der statischen Analyse (Klartext-Strings, bei 09 aus den Code-Bytes). Bei 05 und 11 gibt es keine geprüfte Flagge (`UNVERIFIED`, ein Lauf zählt dort immer als `FAIL`): 05 setzt die Flagge aus Teilstücken zusammen, 11 ist UPX-gepackt und ein Entpacker ist nicht installiert.

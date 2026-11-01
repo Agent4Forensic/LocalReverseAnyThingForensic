@@ -33,7 +33,7 @@ Quelle der Wahrheit: `PROJEKTPLAN.md`. Aktueller Stand und offene Aufgaben: `doc
 
 ## Absolute Verbote
 1. Keine echte Malware beschaffen, herunterladen, öffnen, ausführen oder analysieren. Tests nur mit harmlosen, selbst erzeugten Proben aus `tests/corpus/`.
-2. Keine Samples ins Repository, nie. `.gitignore` und Pre-Commit-Hook (`.githooks/pre-commit`) erzwingen das.
+2. Keine Samples ins Repository, nie. `.gitignore` und Pre-Commit-Hook (`.githooks/pre-commit`) erzwingen das. Einzige Ausnahme (ADR-0009, Jan, 2026-11-01): die selbst erzeugten, harmlosen Beispielproben unter `example/challenges/*/sample/`, nur mit Eintrag in `example/samples.manifest.json` und bytegleich zur Erzeugerfunktion in `example/samples.py`.
 3. Keine Änderung an VM-Isolation, Gateway-Allowlist oder Audit-Log ohne ADR und ausdrückliche Freigabe durch Jan.
 4. Kein generisches `run_command`, `eval`, `exec` oder `shell=True` im Gateway.
 5. Keine neuen Abhängigkeiten ohne Begründung, Lizenzprüfung, Version- und Hash-Pin.

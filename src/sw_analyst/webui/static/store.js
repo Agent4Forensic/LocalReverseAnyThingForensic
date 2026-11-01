@@ -6,7 +6,7 @@
   var api = SW.api;
 
   var listeners = [];
-  var state = { system: null, systemError: null, jobs: [], jobsLoaded: false, prompts: null };
+  var state = { system: null, systemError: null, jobs: [], jobsLoaded: false };
   var cur = null;
   var globalTimer = null;
   var FRESH_MS = 6000;
@@ -121,6 +121,8 @@
     return api.get('/jobs/' + st.id).then(function (d) {
       if (st.destroyed) return;
       st.summary = d.summary;
+      st.importInfo = d['import'] || null;
+      st.example = d.example || null;
       st.spec = d.spec;
       st.progress = d.progress;
       st.totals = d.totals;
@@ -271,7 +273,8 @@
         scheduleAudit(st);
         break;
       case 'log':
-        if (addLog(st, { seq: env.seq, ts: d.ts || env.ts, level: d.level, type: d.type, message: d.message, data: d.data })) emit('log');
+        /* Stufe und Text stehen im Umschlag des Ereignisses (api.md, Live-Stream), env.data ist nur die Nutzlast. */
+        if (addLog(st, { seq: env.seq, ts: env.ts, level: env.level || 'info', type: env.type, message: env.message || '', data: d })) emit('log');
         break;
       default:
         break;
@@ -362,13 +365,7 @@
     });
   }
 
-  function loadPrompts() {
-    if (state.prompts) return Promise.resolve(state.prompts);
-    return api.get('/prompts').then(function (l) {
-      state.prompts = l || [];
-      return state.prompts;
-    });
-  }
+
 
   function tasksSorted(st) {
     return Array.from(st.tasks.values()).sort(function (a, b) {
@@ -389,7 +386,6 @@
     },
     loadAll: loadAll,
     ensureEvidenceList: ensureEvidenceList,
-    loadPrompts: loadPrompts,
     freshAge: freshAge,
     tasksSorted: tasksSorted
   };

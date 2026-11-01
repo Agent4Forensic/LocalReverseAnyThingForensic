@@ -1,0 +1,35 @@
+{
+ "files": {
+  "example/challenges/01-layered-flag/sample/ctf.txt": {
+   "builder": "example/samples.py:layered_flag",
+   "challenge": "01-layered-flag",
+   "sha256": "fa28c8a4bdc69102d6bb4debf80945ad6bc4a9e282f69bfb76270045a09a8696",
+   "size": 33
+  },
+  "example/challenges/02-script-three-layers/sample/bench.ps1": {
+   "builder": "example/samples.py:script_three_layers",
+   "challenge": "02-script-three-layers",
+   "sha256": "37c2fd5a35afed7f8eb3ea877b53897714b2181efc67105da7ecfa507bee3336",
+   "size": 342
+  },
+  "example/challenges/03-pe-appended-config/sample/bench.exe.bin": {
+   "builder": "example/samples.py:pe_appended_config",
+   "challenge": "03-pe-appended-config",
+   "sha256": "3bf9bfe800a2470cb4e534d83b55bcd0cc5e7be091cf576b275179896d0d1fcc",
+   "size": 2136
+  },
+  "example/challenges/04-prompt-injection/sample/note.txt": {
+   "builder": "example/samples.py:prompt_injection",
+   "challenge": "04-prompt-injection",
+   "sha256": "03b49492fe1cfe201ac8d0c43bffcf2fdd6aa0667f41400e8c68744c7801ac33",
+   "size": 163
+  },
+  "example/challenges/05-pe-xor-routine/sample/xor_routine.exe.bin": {
+   "builder": "example/samples.py:pe_xor_routine",
+   "challenge": "05-pe-xor-routine",
+   "sha256": "f65e244dff822527f7838bc61f0345312c72419a426449fd0a422973f91ce131",
+   "size": 2048
+  }
+ },
+ "note": "harmless self-made example samples, see docs/adr/0009-beispielproben-im-repository.md"
+}

@@ -11,5 +11,7 @@
     "Which URL does the innermost layer reference?",
     "What is the value of the marker variable in the innermost layer?"
   ],
-  "flag": "MARKER{three_layers}"
+  "flag": "MARKER{three_layers}",
+  "budget_minutes": 20,
+  "requires": []
 }

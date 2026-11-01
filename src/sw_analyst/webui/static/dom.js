@@ -2,6 +2,7 @@
    ueber setAttribute fuer unkritische Attribute in den DOM geschrieben. */
 (function () {
   'use strict';
+  var SAFE_API_HREF = /^(?!.*\.\.)(?!.*\/\/)\/api\/[A-Za-z0-9_\-\/.%?=&]*$/;
   var SW = (window.SW = window.SW || {});
   var SVGNS = 'http://www.w3.org/2000/svg';
 
@@ -41,7 +42,8 @@
       } else if (/^on/i.test(key) || key === 'style' || key === 'src' || key === 'srcdoc') {
         continue; /* bewusst nicht erlaubt */
       } else if (key === 'href') {
-        if (typeof val === 'string' && (val.charAt(0) === '#' || (val.charAt(0) === '/' && val.charAt(1) !== '/'))) el.setAttribute('href', val);
+        /* Nur Anker im Dashboard (#...) und gleich-originige API-Pfade (Export-Download), nie fremde Ziele. */
+        if (typeof val === 'string' && (val.charAt(0) === '#' || SAFE_API_HREF.test(val))) el.setAttribute('href', val);
       } else {
         el.setAttribute(key, val === true ? '' : String(val));
       }
@@ -233,6 +235,7 @@
   var STATUS = {
     pending: { label: 'Wartend', tone: 'neutral', icon: 'circle' },
     queued: { label: 'In Warteschlange', tone: 'neutral', icon: 'clock' },
+    uploading: { label: 'Wird übertragen', tone: 'neutral', icon: 'upload' },
     running: { label: 'Läuft', tone: 'info', icon: 'spinner' },
     done: { label: 'Erledigt', tone: 'ok', icon: 'checkcircle' },
     partial: { label: 'Teilweise', tone: 'warn', icon: 'alertcircle' },

@@ -10,7 +10,7 @@
   var store = SW.store;
   var ui = SW.ui;
 
-  var TAB_ORDER = ['activity', 'tree', 'queue', 'live', 'code', 'diagrams', 'log', 'guard', 'report'];
+  var TAB_ORDER = ['activity', 'data', 'tree', 'queue', 'live', 'code', 'file', 'log', 'guard', 'report'];
   var PHASES = [
     ['triage', 'Triage'], ['planning', 'Planung'], ['analysis', 'Analyse'], ['evaluation', 'Bewertung'],
     ['prioritization', 'Priorisierung'], ['translation', 'Übersetzung'], ['finalizing', 'Abschluss']
@@ -33,15 +33,18 @@
       h('div', { cls: 'card-h' }, icon('pulse'), h('h2', { id: 'act-h', text: 'Live-Aktivität' }), toggle), body);
     var dead = false;
     var inflight = false;
+    var again = false;
 
     function load() {
-      if (inflight) return;
+      /* Ereignisse waehrend einer laufenden Abfrage nicht verwerfen: danach genau einmal neu laden. */
+      if (inflight) { again = true; return; }
       inflight = true;
       ui.softGet('/jobs/' + st.id + '/activity').then(function (r) {
         inflight = false;
         if (dead) return;
         if (r.ok) { data = r.data; status = 'ok'; } else { status = r.missing ? 'missing' : 'error'; }
         paint();
+        if (again) { again = false; load(); }
       });
     }
 
@@ -59,25 +62,35 @@
       var a = data;
       var working = a.state === 'working';
       var phase = PHASES.filter(function (p) { return p[0] === a.phase; })[0];
-      var stepper = h('ol', { cls: 'phases', 'aria-label': 'Phase der Analyse' }, PHASES.map(function (p) {
-        var cur = working && p[0] === a.phase;
-        return h('li', { cls: ['phase', cur ? 'is-cur' : ''], 'aria-current': cur ? 'step' : null }, h('span', { text: p[1] }));
+      var pstate = {};
+      (a.phases || []).forEach(function (p) { pstate[p.id] = p; });
+      var stepper = h('ol', { cls: 'phases', 'aria-label': 'Phasen der Analyse' }, PHASES.map(function (p) {
+        var ps = pstate[p[0]] || { state: working && p[0] === a.phase ? 'cur' : 'open', count: 0 };
+        var cur = ps.state === 'cur';
+        var n = ps.total ? ps.count + '/' + ps.total : (ps.count ? String(ps.count) : '');
+        var word = { cur: 'läuft gerade', done: 'erledigt', open: a.state === 'finished' ? 'nicht erreicht' : 'noch offen' }[ps.state];
+        return h('li', { cls: ['phase', 'is-' + ps.state], 'aria-current': cur ? 'step' : null, title: p[1] + ': ' + word + (n ? ' (' + n + ')' : '') },
+          ps.state === 'done' ? icon('check', { size: 12 }) : cur ? icon('spinner', { size: 12, cls: 'is-spin' }) : null,
+          h('span', { text: p[1] }), n ? h('span', { cls: 'phase-n', text: n }) : null,
+          h('span', { cls: 'sr-only', text: ' – ' + word }));
       }));
+      var end = a.end ? endBox(a.end) : null;
       var head = h('div', { cls: 'act-head' },
         h('span', { cls: 'badge tone-' + (working ? 'info' : a.state === 'finished' ? 'ok' : 'neutral') }, icon(working ? 'spinner' : a.state === 'finished' ? 'checkcircle' : 'clock', { size: 13, cls: working ? 'is-spin' : '' }), h('span', { text: STATE_LABEL[a.state] || a.state })),
         working && phase ? h('span', { cls: 'act-phase', text: 'Phase: ' + phase[1] }) : null,
         a.model ? h('span', { cls: 'muted small mono act-model', text: (a.model.name || '') + ' · ' + (a.model.tokens_in || 0) + ' Token ein / ' + (a.model.tokens_out || 0) + ' aus' }) : null
       );
       if (collapsed) {
-        SW.dom.fill(body, head, a.step ? h('p', { cls: 'act-one' }, h('strong', { text: 'Schritt: ' }), a.step.what || '–') : null);
+        SW.dom.fill(body, head, stepper, a.step ? h('p', { cls: 'act-one' }, h('strong', { text: 'Schritt: ' }), a.step.what || '–') : null);
         return;
       }
       var t = a.task;
       var s = a.step;
       var next = (a.next || []).slice(0, 3);
       var recent = (a.recent || []).slice(0, 10);
+      if (a.state === 'finished') { SW.dom.fill(body, head, stepper, end); return; }
       SW.dom.fill(body,
-        head, stepper,
+        head, stepper, end,
         h('div', { cls: 'act-grid' },
           h('div', { cls: 'act-col' }, h('h3', { text: 'Aktuelle Aufgabe' }),
             t ? [
@@ -119,6 +132,38 @@
     return { el: el, dispose: function () { dead = true; off(); window.clearInterval(poll); } };
   }
 
+  /* Warum ein Lauf endete: Gruende aus orchestrator/engine.py und worker.py, auf Deutsch. */
+  var END_REASON = [
+    [/^stopping: time budget exhausted/, 'Zeitbudget aufgebraucht'],
+    [/^stopping: step budget exhausted/, 'Schrittbudget aufgebraucht'],
+    [/^stopping: task budget exhausted/, 'Aufgabenbudget aufgebraucht'],
+    [/^stopping: model not reachable/, 'Sprachmodell nicht erreichbar'],
+    [/^stopping: host protection: /, 'Host-Schutz hat gestoppt: '],
+    [/^job crashed: /, 'Interner Fehler: '],
+    [/^job interrupted by restart/, 'Durch Neustart des Servers unterbrochen'],
+    [/^upload interrupted by restart/, 'Upload durch Neustart unterbrochen'],
+    [/^worker caught an error: /, 'Fehler im Worker: ']
+  ];
+  function reasonDe(r) {
+    for (var i = 0; i < END_REASON.length; i++) {
+      var m = r.match(END_REASON[i][0]);
+      if (m) return END_REASON[i][1] + r.slice(m[0].length);
+    }
+    return r;
+  }
+  function endBox(e) {
+    var tone = { done: 'ok', partial: 'warn', failed: 'err', cancelled: 'neutral' }[e.status] || 'neutral';
+    var why = e.reason ? reasonDe(e.reason)
+      : e.status === 'done' ? 'Alle Aufgaben erledigt und alle Zielfragen beantwortet.'
+      : e.status === 'partial' ? 'Nicht alle Aufgaben erledigt oder nicht alle Zielfragen beantwortet.'
+      : e.status === 'cancelled' ? 'Vom Benutzer abgebrochen.'
+      : e.status === 'failed' ? 'Keine Analyseaufgabe wurde erfolgreich abgeschlossen.' : '';
+    return h('div', { cls: 'notice end-box tone-' + tone, role: 'status' }, fmt.statusIcon(e.status, 16), h('div', null,
+      h('p', null, h('strong', { text: 'Ergebnis: ' + fmt.statusInfo(e.status).label }), e.finished_at ? h('span', { cls: 'muted small', text: ' · beendet ' + fmt.dateTime(e.finished_at) }) : null),
+      why ? h('p', { cls: 'small' }, h('span', { cls: 'muted', text: 'Grund: ' }), why) : null,
+      e.summary_de || e.summary_en ? h('p', { cls: 'small' }, h('span', { cls: 'muted', text: 'Bilanz: ' }), e.summary_de || e.summary_en) : null));
+  }
+
   /* =================== Kopf =================== */
   function jobHeader(st) {
     var host = h('div', { cls: 'jh' });
@@ -139,19 +184,48 @@
             h('button', { type: 'button', cls: 'btn sm danger', disabled: cancelling, on: { click: doCancel } }, 'Ja, abbrechen'),
             h('button', { type: 'button', cls: 'btn sm', on: { click: function () { confirming = false; paint(); } } }, 'Nein'))
         : h('button', { type: 'button', cls: 'btn sm danger', on: { click: function () { confirming = true; paint(); } } }, icon('stop'), 'Abbrechen');
+      var imp = st.importInfo;
       SW.dom.fill(host,
-        h('p', { cls: 'crumb' }, h('a', { href: '/', text: '← Übersicht' })),
+        h('p', { cls: 'crumb' }, h('a', { href: '#/', text: '← Übersicht' })),
         h('div', { cls: 'page-h jh-top' },
           h('div', { cls: 'grow' }, h('h1', { id: 'job-h', tabindex: '-1', text: s.title }),
-            h('p', { cls: 'page-sub' }, h('span', { cls: 'mono', text: s.id }), ' · ', s.sample_name || '–', ' · ', h('span', { cls: 'mono', title: s.sample_sha256, text: fmt.shortHash(s.sample_sha256, 16) }))),
-          h('div', { cls: 'row' }, fmt.badge(s.status), cancelCtl)),
+            h('p', { cls: 'page-sub' }, h('span', { cls: 'mono', text: s.id }), ' · ', s.sample_name || '–',
+              ' · ', h('span', { title: 'Größe des Samples', text: s.sample_size === null || s.sample_size === undefined ? 'Größe unbekannt' : fmt.bytes(s.sample_size) }),
+              ' · ', h('span', { cls: 'mono', title: s.sample_sha256, text: fmt.shortHash(s.sample_sha256, 16) }))),
+          h('div', { cls: 'row' }, s.imported ? h('span', { cls: 'badge tone-info', text: 'Importiert' }) : null,
+            st.example ? h('a', { cls: 'badge ' + (st.example.flag_found === true ? 'tone-ok' : st.example.flag_found === false ? 'tone-err' : 'tone-neutral'),
+              href: '#/examples?id=' + encodeURIComponent(st.example.id),
+              title: 'Die erwartete Flagge wurde nicht an die KI gegeben; der Abgleich erfolgt nach dem Lauf.',
+              text: 'Beispiel ' + st.example.id.slice(0, 2) + ': ' + (st.example.flag_found === true ? 'bestanden' : st.example.flag_found === false ? 'nicht bestanden' : 'Prüfung nach dem Lauf') }) : null, fmt.badge(s.status), cancelCtl, s.imported ? null : exportCtl(s))),
+        s.imported ? h('div', { cls: 'notice tone-info', role: 'note' }, icon('info'), h('div', null,
+          h('p', { text: 'Importierte Analyse, schreibgeschützt. Original-ID ' + (s.original_id || '–') + (imp && imp.imported_at ? ' · importiert ' + fmt.dateTime(imp.imported_at) : '') + '.' }),
+          imp ? h('p', { cls: 'small', text: importChecks(imp) }) : null)) : null,
         h('div', { cls: 'jh-meta' },
           p ? h('div', { cls: 'jh-prog' }, ui.bar(p.percent, s.status === 'done' ? 'ok' : ''), h('span', { cls: 'small muted nowrap', text: p.done + '/' + p.tasks_total + ' Aufgaben · ' + (p.running ? p.running + ' läuft · ' : '') + (p.pending || 0) + ' offen' + (p.failed ? ' · ' + p.failed + ' fehlgeschlagen' : '') })) : null,
           h('span', { cls: 'small muted', text: 'Typ ' + (s.detected_type || '–') + ' / Rezept ' + (s.recipe || '–') }),
-          h('span', { cls: 'small muted', text: 'Dauer ' + (s.started_at ? fmt.duration(s.duration_ms) : '–') }),
-          st.totals ? h('span', { cls: 'small muted', text: st.totals.steps + ' Schritte · ' + st.totals.tool_calls + ' Werkzeugaufrufe · ' + st.totals.llm_calls + ' Modellaufrufe' }) : null,
+          h('span', { cls: 'small muted' }, 'Dauer ', s.status === 'running' && s.started_at ? SW.elapsed(s.started_at) : (s.started_at ? fmt.duration(s.duration_ms) : '–')),
+          st.totals ? h('span', { cls: 'small muted', text: st.totals.steps + ' Schritte · ' + st.totals.tool_calls + ' Werkzeug- · ' + st.totals.llm_calls + ' Modellaufrufe' }) : null,
           h('span', { cls: 'small conn-pill tone-' + (st.conn === 'live' ? 'ok' : st.conn === 'offline' ? 'err' : 'warn') }, h('span', { cls: 'dot', 'aria-hidden': 'true' }), connLabel))
       );
+    }
+    function exportCtl(s) {
+      if (s.status === 'running' || s.status === 'queued') return null;
+      var withFiles = h('input', { type: 'checkbox', 'aria-label': 'Sample und abgeleitete Dateien einschließen' });
+      var link = h('a', { cls: 'btn sm', href: api.href('/jobs/' + encodeURIComponent(s.id) + '/export', { include_files: 0 }), download: '' }, icon('arrowdown'), 'Exportieren');
+      withFiles.addEventListener('change', function () {
+        link.setAttribute('href', api.href('/jobs/' + encodeURIComponent(s.id) + '/export', { include_files: withFiles.checked ? 1 : 0 }));
+      });
+      return h('span', { cls: 'row', title: 'ZIP mit Daten, Audit-Kette, Bericht und Prüfsummen. Eine Kopie bleibt im Projektordner unter data/exports/. Mit Sample nur für harmlose Proben oder geschützte Ablage.' },
+        link, h('label', { cls: 'chk small' }, withFiles, ' mit Sample'));
+    }
+    function importChecks(imp) {
+      var c = imp.checks || {};
+      var parts = [];
+      parts.push('Prüfsummen aller ' + (c.entries_verified || 0) + ' Einträge ok');
+      parts.push('Audit-Kette ' + (c.audit_valid === false ? 'gebrochen' : 'gültig') + (c.audit_entries ? ' (' + c.audit_entries + ' Einträge)' : ''));
+      if (c.report_reproducible !== undefined) parts.push('Bericht ' + (c.report_reproducible ? 'bytegleich reproduziert' : 'weicht vom exportierten Bericht ab'));
+      if (imp.bundle_sha256) parts.push('Paket-SHA-256 ' + imp.bundle_sha256);
+      return parts.join(' · ');
     }
     function doCancel() {
       cancelling = true;

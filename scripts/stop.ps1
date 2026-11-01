@@ -87,7 +87,7 @@ try {
         $jid = $sys.worker.job_id
         if ($Force) {
             Write-Stage 'JOB' "-Force: cancelling job $jid" 'WARN'
-            try { Invoke-RestMethod -Uri "$Base/api/jobs/$jid/cancel" -Method Post -Headers @{ Origin = "http://127.0.0.1:8765" } -Body '' -TimeoutSec 5 | Out-Null }
+            try { Invoke-RestMethod -Uri "$Base/api/jobs/$jid/cancel" -Method Post -Headers @{ Origin = $Base } -Body '' -TimeoutSec 5 | Out-Null }
             catch { Write-Stage 'JOB' "cancel request failed: $($_.Exception.Message)" 'WARN' }
             for ($i = 0; $i -lt 20; $i++) {
                 Start-Sleep -Seconds 1

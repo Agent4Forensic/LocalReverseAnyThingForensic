@@ -27,7 +27,7 @@ T = {
         "question": "Frage", "answer": "Antwort", "expected": "Erwartet", "match": "Abgleich", "yes": "übereinstimmend",
         "no": "abweichend", "na": "kein Sollwert", "unresolved": "NICHT KLÄRBAR", "answered": "beantwortet",
         "confirmed": "bestätigt", "hypothesis": "Hypothese", "open_s": "offen", "rejected": "verworfen",
-        "self_eval": "Ziel (Selbstbewertung des Modells)", "reached": "erreicht", "not_reached": "nicht erreicht", "not_rated": "nicht bewertet", "done_when": "Abnahmekriterium",
+        "self_eval": "Ziel (Selbstbewertung des Modells)", "reached": "erreicht", "not_reached": "nicht erreicht", "not_rated": "nicht bewertet", "done_when": "Abnahmekriterium", "origin": "Herkunft", "reason": "Begründung",
         "untranslated": "[EN]", "limits": "Grenzen: rein statische Analyse, offline, lokales Modell. Aussagen ohne Beleg wurden verworfen oder als Hypothese geführt; offene Punkte sind keine Aussagen und haben keinen Beleg.",
     },
     "en": {
@@ -43,7 +43,7 @@ T = {
         "question": "Question", "answer": "Answer", "expected": "Expected", "match": "Comparison", "yes": "matches",
         "no": "differs", "na": "no expected value", "unresolved": "NOT DETERMINABLE", "answered": "answered",
         "confirmed": "confirmed", "hypothesis": "hypothesis", "open_s": "open", "rejected": "rejected",
-        "self_eval": "Goal (model's self-assessment)", "reached": "reached", "not_reached": "not reached", "not_rated": "not rated", "done_when": "Acceptance criterion",
+        "self_eval": "Goal (model's self-assessment)", "reached": "reached", "not_reached": "not reached", "not_rated": "not rated", "done_when": "Acceptance criterion", "origin": "origin", "reason": "reason",
         "untranslated": "", "limits": "Limits: static analysis only, offline, local model. Statements without evidence were rejected or kept as hypotheses; open points are not statements and have no evidence.",
     },
 }
@@ -55,6 +55,27 @@ def _cell(s) -> str:
     # shortcut: "<x" reads "< x" in the report (exact text stays in the evidence), until reports get a real Markdown sanitizer.
     # The space stops raw HTML in foreign viewers; "&lt;" would show literally in the dashboard.
     return re.sub(r"<(?=[A-Za-z/!?])", "< ", text)
+
+
+_TOKEN = re.compile(r"[A-Za-z0-9_.:@+/-]{0,80}")
+_BLOCK_START = re.compile(r"^(\s*)([#>|*+=`~-]|\d+[.)])")
+
+
+def _tok(s) -> str:
+    """IDs, status words, tool names, timestamps: unchanged when they look like one, otherwise through _cell.
+    Rows of an imported analysis are foreign input; a status such as '## Gutachten' must not become a heading."""
+    text = "" if s is None else str(s)
+    return text if _TOKEN.fullmatch(text) else _cell(text)
+
+
+def _hex(s) -> str:
+    text = "" if s is None else str(s)
+    return text if re.fullmatch(r"[0-9a-fA-F]{0,128}", text) else "-"
+
+
+def _para(s) -> str:
+    """A cell value that stands at the start of a line: a leading Markdown block marker is escaped."""
+    return _BLOCK_START.sub(lambda m: m.group(1) + "\\" + m.group(2), _cell(s))
 
 
 def _dur(ms: int) -> str:
@@ -81,40 +102,40 @@ def build_report(store: Store, job_id: str, lang: str = "de", model_name: str = 
             return en
         return de_txt if de_txt else f"{t['untranslated']} {en}"
 
-    out: list[str] = [f"# {t['title']} {job['id']}: {_cell(spec.get('title') if not de else spec.get('title'))}"]
+    out: list[str] = [f"# {t['title']} {_tok(job['id'])}: {_cell(spec.get('title'))}"]
     if live:
         out += ["", f"> **{t['live']}**"]
-    out += ["", f"## {t['summary']}", "", _cell(txt(job["summary_en"], job["summary_de"])) or "-", "", t["limits"]]
+    out += ["", f"## {t['summary']}", "", _para(txt(job["summary_en"], job["summary_de"])) or "-", "", t["limits"]]
 
     out += ["", f"## {t['job']}", ""]
     for label, key in (("description", "description"), ("context", "context_info"), ("focus", "focus")):
         if spec.get(key):
             out.append(f"- **{t[label]}:** {_cell(spec[key])}")
     for q in spec["target_questions"]:
-        out.append(f"- **{q['id']}:** {_cell(q['text_orig'])}")
+        out.append(f"- **{_tok(q['id'])}:** {_cell(q['text_orig'])}")
 
     out += ["", f"## {t['custody']}", "",
             f"| | |", "|---|---|",
             f"| {t['sample']} | {_cell(job['sample_name'])} |",
-            f"| SHA-256 | `{job['sample_sha256']}` |",
-            f"| {t['type']} / {t['recipe']} | {job['detected_type'] or '-'} / {job['recipe'] or '-'} |",
-            f"| {t['status']} | {job['status']} |",
-            f"| {t['started']} / {t['finished']} | {job['started_at'] or '-'} / {job['finished_at'] or '-'} |",
+            f"| SHA-256 | `{_hex(job['sample_sha256'])}` |",
+            f"| {t['type']} / {t['recipe']} | {_tok(job['detected_type']) or '-'} / {_tok(job['recipe']) or '-'} |",
+            f"| {t['status']} | {_tok(job['status'])} |",
+            f"| {t['started']} / {t['finished']} | {_tok(job['started_at']) or '-'} / {_tok(job['finished_at']) or '-'} |",
             f"| {t['duration']} | {_dur(job['duration_ms'])} |",
-            f"| {t['model']} | {model_name or '-'} |",
+            f"| {t['model']} | {_tok(model_name) or '-'} |",
             f"| {t['prompts']} | {PROMPT_PACK_VERSION} ({', '.join(p['id'] + ':' + p['sha256'][:8] for p in list_prompts())}) |",
-            f"| {t['audit']} | {t['valid'] if audit.valid else t['broken'] + ' ' + str(audit.broken_at)}; {audit.entries} entries; head `{audit.head_hash[:16]}` |"]
+            f"| {t['audit']} | {t['valid'] if audit.valid else t['broken'] + ' ' + str(audit.broken_at)}; {audit.entries} entries; head `{_hex(audit.head_hash[:16])}` |"]
     hashes = [e for e in evidence if e["tool"] in ("hash_file", "decode_layer", "sample_info")]
     if hashes:
         out += ["", f"| {t['evidence']} | {t['tool']} | SHA-256 |", "|---|---|---|"]
-        out += [f"| {e['id']} | {e['tool']} | `{e['result_sha256']}` |" for e in hashes]
+        out += [f"| {_tok(e['id'])} | {_tok(e['tool'])} | `{_hex(e['result_sha256'])}` |" for e in hashes]
 
     out += ["", f"## {t['detect']}", "", f"| # | {t['task']} | {t['tool']} | {t['result']} | {t['evidence']} | {t['time']} |",
             "|---|---|---|---|---|---|"]
     for tk in tasks:
         for s in store.list_steps(tk["id"]):
             if s["kind"] == "tool":
-                out.append(f"| {tk['id']}.{s['idx']} | {_cell(tk['title'])} | {s['tool']} | {_cell((s['output_preview'] or '').splitlines()[0] if s['output_preview'] else '')[:120]} | {s['evidence_id'] or ''} | {_dur(s['duration_ms'])} |")
+                out.append(f"| {_tok(tk['id'])}.{_tok(s['idx'])} | {_cell(tk['title'])} | {_tok(s['tool'])} | {_cell((s['output_preview'] or '').splitlines()[0] if s['output_preview'] else '')[:120]} | {_tok(s['evidence_id'])} | {_dur(s['duration_ms'])} |")
 
     out += ["", f"## {t['findings']}", ""]
     stat_name = {"confirmed": t["confirmed"], "hypothesis": t["hypothesis"], "open": t["open_s"], "rejected": t["rejected"]}
@@ -124,24 +145,24 @@ def build_report(store: Store, job_id: str, lang: str = "de", model_name: str = 
             continue
         out += [f"### {stat_name[status]}", ""]
         for f in rows:
-            out.append(f"- **{f['id']}** ({', '.join(f['evidence_ids']) or t['none']}): {_cell(txt(f['statement_en'], f['statement_de']))}")
+            out.append(f"- **{_tok(f['id'])}** ({', '.join(_tok(x) for x in f['evidence_ids']) or t['none']}): {_cell(txt(f['statement_en'], f['statement_de']))}")
             for q in f["quotes"]:
-                out.append(f"  - {q['evidence_id']}: `{_cell(q['quote'])[:240]}`")
+                out.append(f"  - {_tok(q.get('evidence_id'))}: `{_cell(q.get('quote')).replace('`', chr(39))[:240]}`")
             if f["reject_reason"]:
                 out.append(f"  - _{_cell(f['reject_reason'])}_")
         out.append("")
 
     out += [f"## {t['answers']}", ""]
     for a in answers:
-        out += [f"### {a['question_id']}: {_cell(a['text_orig'])}", ""]
+        out += [f"### {_tok(a['question_id'])}: {_cell(a['text_orig'])}", ""]
         if a["status"] == "answered":
             out.append(f"**{t['answer']}:** {_cell(txt(a['answer_en'], a['answer_de']))}")
-            out.append(f"- {t['evidence']}: {', '.join(a['finding_ids']) or t['none']}")
+            out.append(f"- {t['evidence']}: {', '.join(_tok(x) for x in a['finding_ids']) or t['none']}")
         else:
-            out.append(f"**{t['unresolved'] if a['status'] == 'unresolved' else a['status']}** - {_cell(txt(a['evaluation_en'], a['evaluation_de']))}")
+            out.append(f"**{t['unresolved'] if a['status'] == 'unresolved' else _tok(a['status'])}** - {_cell(txt(a['evaluation_en'], a['evaluation_de']))}")
         if a["expected"]:
-            m = {1: t["yes"], 0: t["no"], None: t["na"]}[a["match"]]
-            out.append(f"- {t['expected']}: `{_cell(a['expected'])}` - {t['match']}: {m}")
+            m = {1: t["yes"], 0: t["no"], None: t["na"]}.get(a["match"], t["na"])
+            out.append(f"- {t['expected']}: `{_cell(a['expected']).replace('`', chr(39))}` - {t['match']}: {m}")
         out.append("")
 
     iocs: dict[tuple, None] = {}
@@ -154,14 +175,14 @@ def build_report(store: Store, job_id: str, lang: str = "de", model_name: str = 
 
     out += ["", f"## {t['open']}", ""]
     ops = [f for f in findings if f["status"] in ("hypothesis", "open")]
-    out += [f"- {f['id']}: {_cell(txt(f['statement_en'], f['statement_de']))}" for f in ops] or [f"- {t['none']}"]
+    out += [f"- {_tok(f['id'])}: {_cell(txt(f['statement_en'], f['statement_de']))}" for f in ops] or [f"- {t['none']}"]
 
-    out += ["", f"## {t['method']}", "", f"| {t['task']} | {t['status']} | origin | {t['self_eval']} | {t['duration']} | reason | {t['done_when']} |", "|---|---|---|---|---|---|---|"]
-    out += [f"| {x['id']} {_cell(x['title'])} | {x['status']} | {x['origin']} | {({True: t['reached'], False: t['not_reached']}.get(x['params'].get('goal_reached'), t['not_rated']))} | {_dur(x['duration_ms'])} | {_cell(x['reason'])[:100]} | {_cell(x['params'].get('done_when'))[:100]} |" for x in tasks]
+    out += ["", f"## {t['method']}", "", f"| {t['task']} | {t['status']} | {t['origin']} | {t['self_eval']} | {t['duration']} | {t['reason']} | {t['done_when']} |", "|---|---|---|---|---|---|---|"]
+    out += [f"| {_tok(x['id'])} {_cell(x['title'])} | {_tok(x['status'])} | {_tok(x['origin'])} | {({True: t['reached'], False: t['not_reached']}.get(x['params'].get('goal_reached'), t['not_rated']))} | {_dur(x['duration_ms'])} | {_cell(x['reason'])[:100]} | {_cell(x['params'].get('done_when'))[:100]} |" for x in tasks]
     guard = store.list_guard_events(job_id)
     out += ["", f"**{t['guard']}:** {len(guard)}"]
-    out += [f"- {g['stage']}/{g['rule']} ({g['severity']}, {g['action']}): `{_cell(g['snippet'])[:100]}`" for g in guard[:20]]
+    out += [f"- {_tok(g['stage'])}/{_tok(g['rule'])} ({_tok(g['severity'])}, {_tok(g['action'])}): `{_cell(g['snippet']).replace('`', chr(39))[:100]}`" for g in guard[:20]]
 
     out += ["", f"## {t['appendix']}", "", f"| ID | {t['tool']} | version | SHA-256 | bytes |", "|---|---|---|---|---|"]
-    out += [f"| {e['id']} | {e['tool']} | {e['tool_version']} | `{e['result_sha256'][:16]}...` | {len(e['text'])} |" for e in evidence]
+    out += [f"| {_tok(e['id'])} | {_tok(e['tool'])} | {_tok(e['tool_version'])} | `{_hex(e['result_sha256'][:16])}...` | {len(e['text'])} |" for e in evidence]
     return "\n".join(out) + "\n"

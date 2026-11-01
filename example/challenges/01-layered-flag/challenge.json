@@ -8,5 +8,7 @@
   "sample": {"name": "ctf.txt", "builder": "layered_flag"},
   "job_description": "CTF: find the flag.",
   "questions": ["What is the flag?"],
-  "flag": "FLAG{layered_ok}"
+  "flag": "FLAG{layered_ok}",
+  "budget_minutes": 10,
+  "requires": []
 }

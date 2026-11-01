@@ -11,6 +11,7 @@ import io
 import json
 import os
 import tarfile
+import threading
 import zipfile
 from typing import Any, Optional
 
@@ -28,6 +29,8 @@ GHIDRA_TOOLS = {"list_functions", "disassemble", "decompile", "xrefs", "basic_bl
 TRIAGE_TOOLS = {"capa_scan", "floss_decode", "yara_scan"}
 JADX_TOOLS = {"jadx_decompile"}
 ALL_TOOLS = GHIDRA_TOOLS | TRIAGE_TOOLS | JADX_TOOLS
+MAX_CACHE_BYTES = 160 * 1024 * 1024   # a cached result is read into memory; jadx results are the largest (128 MiB text)
+RUN_SLOTS = threading.BoundedSemaphore(1)   # one container run at a time across every gateway of the process
 
 
 def _hex_addr(value: Any) -> int:
@@ -43,42 +46,64 @@ class ContainerTools:
         self._loaded: tuple[str, Any] = ("", None)   # the last parsed result; Ghidra exports can be large
         # A sample that hangs Ghidra must not cost 10 minutes on every call. In memory: a restart may try again.
         self._failed: dict[str, str] = {}
+        self._lock = threading.Lock()                      # guards _loaded and _file_locks
+        self._file_locks: dict[str, threading.Lock] = {}
 
     # ---- batch result ---------------------------------------------------------------------------------------
     def _result(self, ctx: _Ctx, op: str, logical: Any, parse=None) -> tuple[Any, str, str]:
-        """Returns (parsed result, logical name, version). Runs the container only on the first call per file."""
+        """Returns (parsed result, logical name, version). Runs the container only on the first call per file.
+
+        One lock per result file: worker and dashboard asking for the same file wait for one run, then both read
+        the cache. Container runs of all gateways (also those of imports) share one slot, because each can take
+        several GB of the 24 GB budget (ADR-0000). Cache reads never wait for a run."""
         data, name = ctx.read_all(logical)
         sha = hashlib.sha256(data).hexdigest()
         version = self.runner.version(op)
-        cache_dir = ctx.root / "tool-cache"
-        path = cache_dir / f"{op}-{version.rsplit(':', 1)[-1]}-{sha}.json"
+        path = ctx.root / "tool-cache" / f"{op}-{version.rsplit(':', 1)[-1]}-{sha}.json"
         key = str(path)
-        if self._loaded[0] == key:
-            return self._loaded[1], name, version
-        if path.is_file():
-            parsed = json.loads(path.read_text(encoding="utf-8"))
-        else:
-            if key in self._failed:
-                raise ToolError(self._failed[key])
-            try:
-                raw = self.runner.run(op, data)
-            except ContainerError as exc:
-                if exc.final:
-                    self._failed[key] = str(exc)
-                raise ToolError(str(exc)) from None
-            try:
-                parsed = parse(raw) if parse else json.loads(raw)
-            except (ValueError, UnicodeDecodeError, tarfile.TarError):
-                self._failed[key] = f"Tool '{op}' produced output that could not be read"
-                raise ToolError(self._failed[key]) from None
-            cache_dir.mkdir(exist_ok=True)
-            tmp = path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(parsed), encoding="utf-8")
-            os.replace(tmp, path)
-        self._loaded = (key, parsed)
+        with self._lock:
+            if self._loaded[0] == key:
+                return self._loaded[1], name, version
+            file_lock = self._file_locks.setdefault(key, threading.Lock())
+        with file_lock:
+            parsed = self._cached_or_run(op, data, path, key, parse)
+        with self._lock:
+            self._loaded = (key, parsed)
         return parsed, name, version
 
+    def _cached_or_run(self, op: str, data: bytes, path, key: str, parse) -> Any:
+        if path.is_file():
+            # A cache file can come from an imported bundle: same size cap as container output, then parse.
+            if path.stat().st_size > MAX_CACHE_BYTES:
+                raise ToolError(f"Cached result of '{op}' is larger than {MAX_CACHE_BYTES // 2**20} MiB; refused")
+            try:
+                return json.loads(path.read_text(encoding="utf-8"))
+            except (ValueError, UnicodeDecodeError):
+                raise ToolError(f"Cached result of '{op}' could not be read") from None
+        if key in self._failed:
+            raise ToolError(self._failed[key])
+        try:
+            with RUN_SLOTS:
+                raw = self.runner.run(op, data)
+        except ContainerError as exc:
+            if exc.final:
+                self._failed[key] = str(exc)
+            raise ToolError(str(exc)) from None
+        try:
+            parsed = parse(raw) if parse else json.loads(raw)
+        except (ValueError, UnicodeDecodeError, tarfile.TarError):
+            self._failed[key] = f"Tool '{op}' produced output that could not be read"
+            raise ToolError(self._failed[key]) from None
+        path.parent.mkdir(exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(parsed), encoding="utf-8")
+        os.replace(tmp, path)
+        return parsed
+
     # ---- Ghidra ---------------------------------------------------------------------------------------------
+    def ghidra_export(self, ctx: _Ctx, path: str) -> tuple[dict, str, str]:
+        return self._ghidra(ctx, {"path": path})
+
     def _ghidra(self, ctx: _Ctx, a: dict) -> tuple[dict, str, str]:
         res, name, version = self._result(ctx, "ghidra", a["path"])
         if not isinstance(res, dict) or not isinstance(res.get("functions"), list):
@@ -238,6 +263,13 @@ class ContainerTools:
         files: dict[str, str] = {}
         total = 0
         last_offset = -1
+        try:
+            return ContainerTools._read_jadx_tar(raw, files, total, last_offset)
+        except tarfile.TarError as exc:   # Python 3.12+ raises ReadError where 3.11 loops: same refusal on every version
+            raise ValueError(f"tar output unreadable: {exc}") from None
+
+    @staticmethod
+    def _read_jadx_tar(raw: bytes, files: dict, total: int, last_offset: int) -> dict:
         with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as tar:
             for count, member in enumerate(tar):
                 # A negative size moves tarfile backwards and it loops forever (Python 3.11.9). The tar comes from the container.
@@ -346,4 +378,6 @@ def attach_container_tools(gateway: DevGateway, runner: Optional[ContainerRunner
         if runner.has(op):
             gateway._tools[name] = _Tool(name, desc, params, handler)
             added.append(name)
+    if added:
+        gateway.container_tools = t     # read access for the dashboard file view (DevGateway.ghidra_export)
     return added

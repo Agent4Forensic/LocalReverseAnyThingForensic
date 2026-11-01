@@ -11,5 +11,7 @@
     "Which DLL does the file import?",
     "What is the id value in the configuration appended after the last section?"
   ],
-  "flag": "BENCH-42"
+  "flag": "BENCH-42",
+  "budget_minutes": 15,
+  "requires": []
 }
