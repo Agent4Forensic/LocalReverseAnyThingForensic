@@ -7,6 +7,7 @@ param(
     [int]$OllamaPort = 11435,
     [switch]$Force,
     [switch]$NoCleanup,     # skip the cleanup after stopping
+    [switch]$KeepDocker,    # do not stop Docker Desktop even if start.ps1 started it
     [switch]$DockerDeep     # also prune the shared Docker build cache older than 7 days (affects other projects)
 )
 $ErrorActionPreference = 'Stop'
@@ -18,6 +19,7 @@ $LogDir    = Join-Path $Data 'logs'
 $Py        = Join-Path $Root '.venv\Scripts\python.exe'
 $ToolsRoot = 'D:\Tools\sw-analyst'
 $Base      = "http://127.0.0.1:$Port"
+$OllamaUrl = "http://127.0.0.1:$OllamaPort"
 New-Item -ItemType Directory -Force -Path $RunDir, $LogDir | Out-Null
 $LogFile   = Join-Path $LogDir ("start-{0:yyyy-MM-dd}.log" -f (Get-Date))
 $Utf8      = New-Object System.Text.UTF8Encoding($false)
@@ -77,6 +79,46 @@ function Stop-Own([string]$Name, [int]$P, [scriptblock]$IsOwn) {
     Remove-Item (Join-Path $RunDir "$Name.pid") -ErrorAction SilentlyContinue
 }
 
+# Unloads every model from the GPU through the API (ollama frees the VRAM itself), only on our own ollama.
+function Unload-Models {
+    $o = Get-PortOwner $OllamaPort
+    if ($o -eq 0 -or -not (Test-OwnOllama $o)) { return }
+    try {
+        foreach ($m in @((Invoke-RestMethod -Uri "$OllamaUrl/api/ps" -TimeoutSec 3).models)) {
+            $body = @{ model = $m.name; keep_alive = 0 } | ConvertTo-Json -Compress
+            Invoke-RestMethod -Uri "$OllamaUrl/api/generate" -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 20 | Out-Null
+            Write-Stage 'STOP' "model $($m.name) unloaded from the GPU" 'OK'
+        }
+    } catch { Write-Stage 'STOP' "model unload failed ($($_.Exception.Message)); the process is stopped anyway" 'WARN' }
+}
+# Reports VRAM in use after ollama is gone, so a leftover holder is visible. Nothing is killed here.
+function Show-Gpu {
+    if (-not (Get-Command nvidia-smi -ErrorAction SilentlyContinue)) { return }
+    $ErrorActionPreference = 'Continue'
+    for ($i = 0; $i -lt 6; $i++) {
+        $g = (& nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader,nounits 2>$null | Select-Object -First 1) -split ','
+        if ($g.Count -lt 2) { return }
+        $used = [int]$g[0].Trim()
+        if ($used -lt 1500 -or $i -eq 5) { break }
+        Start-Sleep -Milliseconds 500   # the driver releases VRAM a moment after the process ends
+    }
+    $lvl = if ($used -ge 1500) { 'WARN' } else { 'OK' }
+    Write-Stage 'STOP' ("GPU memory in use: {0} of {1} MiB{2}" -f $used, $g[1].Trim(), $(if ($lvl -eq 'WARN') { ' (something else still uses the GPU; not touching it)' } else { '' })) $lvl
+}
+# Stops Docker Desktop only if start.ps1 started it (marker docker.pid); a Docker the user had running stays.
+function Stop-DockerIfOurs([bool]$Ours) {
+    if (-not $Ours) { return }
+    if ($KeepDocker) { Write-Stage 'STOP' 'Docker Desktop left running (-KeepDocker)'; return }
+    $ErrorActionPreference = 'Continue'
+    $out = Join-Path $RunDir 'docker-stop.out'
+    $p = Start-Process -FilePath 'docker' -ArgumentList @('desktop', 'stop') -WindowStyle Hidden -PassThru -RedirectStandardOutput $out -RedirectStandardError ($out + '.err')
+    $null = $p.Handle
+    if (-not $p.WaitForExit(120000)) { try { $p.Kill() } catch { }; Write-Stage 'STOP' 'docker desktop stop did not finish within 120 s' 'WARN' }
+    elseif ($p.ExitCode -ne 0) { Write-Stage 'STOP' "docker desktop stop failed (exit $($p.ExitCode)); quit Docker Desktop by hand" 'WARN' }
+    else { Write-Stage 'STOP' 'Docker Desktop stopped (it was started by start.ps1)' 'OK' }
+    Remove-Item -LiteralPath $out, ($out + '.err') -Force -ErrorAction SilentlyContinue
+}
+
 try {
     Write-Stage 'STOP' ("stop requested{0}" -f $(if ($Force) { ' (-Force)' } else { '' }))
 
@@ -115,12 +157,17 @@ try {
         $m = (& $Py -c $code $Data | Out-String).Trim()
         if ($m) { Write-Stage 'JOB' "job $m marked cancelled" 'WARN' }
     }
+    Unload-Models
     Stop-Own 'ollama' $OllamaPort { param($i) Test-OwnOllama $i }
+    Show-Gpu
+    $dockerOurs = Test-Path (Join-Path $RunDir 'docker.pid')
     if (-not $NoCleanup) {
         $ca = @{ Phase = 'post'; Port = $Port; OllamaPort = $OllamaPort }
         if ($DockerDeep) { $ca.DockerDeep = $true }
         & (Join-Path $PSScriptRoot 'cleanup.ps1') @ca
     }
+    Stop-DockerIfOurs $dockerOurs   # after the cleanup: it removes our containers through the Docker daemon
+    if ($dockerOurs) { Remove-Item (Join-Path $RunDir 'docker.pid') -ErrorAction SilentlyContinue }
     Write-Stage 'STOP' 'done, PID files removed' 'OK'
 } catch {
     Write-Stage 'STOP' "failed: $($_.Exception.Message)" 'FEHLER'

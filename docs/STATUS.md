@@ -361,3 +361,18 @@ Offen:
 - [ ] Security-Review vom 2026-10-31, niedrig und bewusst offen: Image-Label in `detect` nicht geprüft, Rohergebnis ohne eigenen Hash in Evidence, abgeschnittenes tar von `jadx` nicht erkannt, Listen in `meta` ungedeckelt, `xor_single_byte key=N` zählt nicht zum Schlüssellimit, kein Gesamtbudget in `ExportAll.java`. Python 3.11.9 bleibt, `parse_jadx_tar` fängt die negative tar-Größe selbst ab.
 
 Risiko: Die Container auf dem Entwicklungsrechner ersetzen die Hyper-V-VM nicht. Abweichungen von den ADR-Vorgaben stehen in ADR-0006, Abschnitt Umsetzung.
+
+## Start und Stopp: Docker, GPU und Fensterschließen (2026-11-01)
+
+Belegt (Diff, `tests/unit/test_preflight.py` grün):
+- [x] `start.ps1` startet Docker Desktop, wenn der Daemon nicht läuft (Schalter `-NoDocker` verhindert das). Der Start erfolgt früh, während Ollama das Modell lädt; vor der App wartet `start.ps1` bis zu 180 s auf den Daemon. Ein Marker `data\run\docker.pid` hält fest, dass `start.ps1` Docker gestartet hat.
+- [x] `stop.ps1` beendet Docker Desktop nur, wenn dieser Marker existiert (nie ein Docker, das Jan schon hatte), und nicht mit `-KeepDocker`. Das geschieht nach dem Cleanup, weil das Cleanup unsere Container über den Daemon entfernt.
+- [x] `stop.ps1` entlädt Modelle vor dem Beenden über die API aus der GPU (nur beim eigenen Ollama) und gibt danach den belegten GPU-Speicher aus. Ab 1500 MiB erscheint eine Warnung; fremde Prozesse werden nicht beendet.
+- [x] Scheitert `start.ps1` nach dem Ollama-Start, räumt es selbst per `stop.ps1 -Force` auf (Ollama, GPU und Docker bleiben nicht zurück).
+- [x] `preflight.py`: neue Log-Stufe `DATA`, weil `__main__` den Datenordner darunter loggt; Test ergänzt. Runbook `docs/runbooks/betrieb.md` beschreibt den Ablauf.
+
+Offen und nicht geprüft:
+- [ ] Die Skripte wurden nicht in einem echten Lauf getestet (Start mit gestopptem Docker, Stopp, Fenster schließen). Geprüft sind nur der Diff und die Python-Tests.
+- [ ] Fenster schließen statt `Strg+C`: Der Hook auf `PowerShell.Exiting` startet ein verstecktes `stop.ps1 -Force`. Das ist Best Effort, Windows gibt dem Host nur wenige Sekunden; nicht belegt.
+- [ ] `.claude/settings.json` (Liste aktivierter Plugins auf dem Dev-Rechner) ist bewusst nicht Teil dieses Commits, weil sie rechnerspezifisch ist.
+- [ ] Im Arbeitsverzeichnis von `main` fehlt `infra/tools/rules/sw_analyst.yar` (Löschung nicht von diesem Commit, vermutlich Virenscanner; `git ls-files -d` zeigt sie). Nicht angefasst.

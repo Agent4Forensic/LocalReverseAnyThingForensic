@@ -47,6 +47,8 @@ scripts\stop.ps1 -Force     # bricht einen laufenden Job ab
 
 `stop.ps1` beendet nur eigene Prozesse (App, Ollama auf Port 11435). Fremde Prozesse, ein anderes Ollama auf Port 11434 und `~/.ollama` bleiben unberührt. Danach räumt `cleanup.ps1 -Phase post` PID-Dateien, Caches, gelabelte Container, Netze und Volumes auf. Vorschau ohne Löschen: `scripts\cleanup.ps1 -Phase pre|post -DryRun`.
 
+Ablauf von `stop.ps1`: laufenden Job abwarten oder abbrechen, App stoppen, Modelle per API aus der GPU entladen, eigenes Ollama beenden, danach im Log den belegten GPU-Speicher ausgeben (Warnung ab 1500 MiB, es wird nichts Fremdes beendet), aufräumen. Docker Desktop startet `start.ps1` selbst, wenn der Daemon nicht läuft (nicht mit `-NoDocker`); `stop.ps1` beendet es nur dann wieder, wenn `start.ps1` es gestartet hat (Marker `data\run\docker.pid`), und nicht mit `-KeepDocker`. Scheitert der Start nach dem Ollama-Start, räumt `start.ps1` selbst per `stop.ps1 -Force` auf. Schließt man das Fenster statt `Strg+C`, übergibt PowerShell das Beenden an ein verstecktes `stop.ps1 -Force` (Best Effort, nicht belegt).
+
 **Wichtig:** `Strg+C` im `start.ps1`-Fenster löst ebenfalls den Stopp aus und beendet damit Ollama. Das unterbricht laufende Modellaufrufe (Fehler `WinError 10061`, Verbindung abgelehnt). Wer parallel Benchmarks fährt, startet dafür ein eigenes Ollama auf einem anderen Port.
 
 ## Ablage und Logs
