@@ -108,6 +108,11 @@ Check: expected "<expected>" vs. obtained "<answer>": match / no match
 **Example (synthetic CTF):** `Q1: What is the flag? Answer: flag{l4yer_three} | answered | confirmed. 1. Script contains Base64 block at lines 4-9 [EV-000003]. 2. decode_layer base64 -> gzip stream, magic 1F 8B [EV-000005]. 3. gunzip -> XOR with single byte 0x2A recovered from line 11 [EV-000006, "0x2A"]. 4. Result contains the flag [F-000009, "flag{l4yer_three}"]. Expected regex re:flag\{.+\}: match.`
 **Rules:** answers rely only on `confirmed` findings (chain.md section 4); hypotheses may be mentioned only as labelled hypotheses.
 
+## R5a Derivation of the answers (builder section "R6 Herleitung der Antworten" / "R6 How each answer was derived")
+**Purpose:** let a reader retrace each answer from the stored tool calls without trusting the model.
+**Must contain per question:** five parts: input data, technical path (numbered tool calls by evidence ID, including the calls that produced any `derived/…` file that was used), findings with ID, status and quote, meaning for the question with the fixed sentence that only the quotes are proven, and, if the question task has a summary, the model's account labelled as unverified.
+**Rules:** generated from the store only; all text is defanged and escaped; without findings the section says the question cannot be resolved and lists the question task's tool calls or "no tool calls".
+
 ## R6 Mandate and questions
 **Purpose:** record what was asked, by whom, with which context.
 **Must contain:** job ID, title, description, additional context, focus, target questions; original German text and English working translation side by side; date of mandate (UTC).
