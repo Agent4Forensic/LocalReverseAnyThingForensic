@@ -164,13 +164,19 @@ def build_report(store: Store, job_id: str, lang: str = "de", model_name: str = 
     # ---- Fragestellungen mit Kurzantwort ----------------------------------------------------------------------
     out += ["", f"## {t['qa']}", ""]
     if answers:
-        out += [f"| ID | {t['question']} | {t['answer']} | {t['status']} |", "|---|---|---|---|"]
+        out += [f"| ID | {t['question']} | {t['answer']} | {t['status']} | {t['evidence']} |", "|---|---|---|---|---|"]
         for a in answers:
             if a["status"] == "answered":
                 short, stat = txt(a["answer_en"], a["answer_de"]), t["answered"]
             else:
                 short, stat = txt(a["evaluation_en"], a["evaluation_de"]), (t["unresolved"] if a["status"] == "unresolved" else _tok(a["status"]))
-            out.append(f"| {_tok(a['question_id'])} | {_cell(str(a['text_orig'])[:160])} | {_cell(str(short or '')[:200])} | {stat} |")
+            # Every short answer names its proof: finding ids with their evidence; without them it is no fact.
+            fids = [x for x in (a.get("finding_ids") or []) if store.get_finding(x)]
+            proof = "; ".join(f"{_tok(x)} ({', '.join(_tok(e) for e in store.get_finding(x)['evidence_ids']) or '-'})" for x in fids)
+            if a["status"] != "answered":
+                short = (("offen, ungeprüfte Einschätzung des Modells: " if de else "open, unverified model assessment: ")
+                         + (short or ""))
+            out.append(f"| {_tok(a['question_id'])} | {_cell(str(a['text_orig'])[:160])} | {_cell(str(short or '')[:220])} | {stat} | {proof or '-'} |")
     else:
         out.append(t["no_questions"])
 

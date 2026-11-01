@@ -42,7 +42,7 @@
   SW.canDeleteJob = function (j) { return !j.imported && BUSY.indexOf(j.status) < 0; };
   /* Loescht einen Auftrag nach Bestaetigung; danach Liste neu laden und zur Uebersicht. */
   SW.deleteJob = function (j) {
-    var msg = 'Auftrag „' + j.title + '“ (' + j.id + ') endgültig löschen?\n\nDatenbankeinträge, Sample-Ordner und Audit-Log werden entfernt. Ein Nachweis bleibt in deleted_jobs.jsonl.';
+    var msg = 'Auftrag „' + j.title + '“ (' + j.id + ') aus dem Dashboard löschen?\n\nSample, abgeleitete Dateien und Datenbankeinträge werden entfernt. Das Audit-Log und ein Export der Einträge bleiben unverändert unter data/deleted/ archiviert; ein hash-verketteter Nachweis steht in deleted_jobs.jsonl.';
     if (!window.confirm(msg)) return Promise.resolve(false);
     var done = function () {
       store.refreshGlobal();

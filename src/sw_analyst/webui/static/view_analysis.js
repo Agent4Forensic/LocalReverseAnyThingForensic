@@ -66,6 +66,7 @@
         binary = !!d.binary;
         var first = !total;
         total = d.total_lines || 0;
+        scroller.style.setProperty('--vh', Math.min(viewH, Math.max(3, total) * RH + 6) + 'px');   /* short files: no empty box */
         var arr = [];
         (d.lines || []).forEach(function (l) { arr[l.n - 1 - ci * CH] = l.text; });
         chunks.set(ci, arr);
@@ -340,8 +341,10 @@
     var finals = {};
     (lin.final || []).forEach(function (p) { finals[p] = true; });
     var inEdge = {};
-    var s = svg('svg', { class: 'an-flow', width: L.w, height: L.h, viewBox: '0 0 ' + L.w + ' ' + L.h, role: 'group', 'aria-label': 'Umwandlungsprozess der Dateien' },
+    var s = svg('svg', { class: 'an-flow', width: '100%', viewBox: '0 0 ' + L.w + ' ' + L.h, preserveAspectRatio: 'xMinYMin meet', role: 'group', 'aria-label': 'Umwandlungsprozess der Dateien' },
       svg('defs', null, svg('marker', { id: 'an-arr', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' }, svg('path', { d: 'M0 0L10 5L0 10z', class: 'an-arrow' }))));
+    s.style.minWidth = Math.min(L.w, 860) + 'px';   /* fits the page width; very long chains scroll */
+    s.style.maxWidth = L.w + 'px';
     var gE = svg('g'), gN = svg('g');
     s.appendChild(gE); s.appendChild(gN);
     lin.edges.forEach(function (e) {

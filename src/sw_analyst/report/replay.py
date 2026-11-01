@@ -197,7 +197,7 @@ def build_replay_zip(store, gateway, rid: str, include_sample: bool) -> bytes:
                 data = f.read()
             if sha256_hex(data) == job["sample_sha256"]:
                 sample_bytes = data
-        except (OSError, Exception):  # noqa: BLE001 - no sample in the package, the script then asks for a path
+        except Exception:  # noqa: BLE001 - any failure only means: no sample in the package, the script asks for a path
             sample_bytes = None
     steps = collect_steps(store, rid)
     meta = {"version": 1, "job": {"id": job["id"], "title": job["title"], "sample_name": job["sample_name"],
@@ -537,7 +537,8 @@ def pause(enabled):
 
 
 def safe_out_name(logical):
-    return logical.split("/", 1)[-1] if logical != "sample" else "sample.bin"
+    name = logical.split("/", 1)[-1] if logical != "sample" else "sample.bin"
+    return name if name not in (".", "..", "") else "_" + name.replace(".", "dot")
 
 
 def main(argv=None):

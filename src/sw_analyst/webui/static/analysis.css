@@ -50,3 +50,4 @@
 .an-pseudo { margin: 0; max-height: 60vh; overflow: auto; font-family: var(--mono); font-size: 12.5px; white-space: pre; background: var(--surface-2); padding: 10px; border-radius: var(--radius); }
 @media (max-width: 900px) { .an-gh { grid-template-columns: minmax(0, 1fr); } }
 .an .seg { align-self: flex-start; }
+.an-flow { height: auto; }

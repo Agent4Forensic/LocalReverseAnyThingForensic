@@ -5,6 +5,8 @@ Input: one function dict of the Ghidra export (name, entry, disasm rows [address
 """
 from __future__ import annotations
 
+import bisect
+
 from sw_analyst.webui import inspect as insp
 
 MAX_STEPS = 200
@@ -39,7 +41,7 @@ def _target(text: str) -> int | None:
 
 
 def walkthrough(fn: dict) -> dict:
-    rows = _rows(fn)
+    rows = _rows(fn)[:4000]          # same limit as the dashboard (hostile export: bounded work)
     name = str(fn.get("name") or fn.get("entry") or "?")
     by_addr = {}
     for i, r in enumerate(rows, 1):
@@ -69,14 +71,17 @@ def walkthrough(fn: dict) -> dict:
         else:
             add("prolog", "Einstieg", f"Die Funktion {name} beginnt hier.", 1)
 
-        blocks = [b for b in (fn.get("blocks") or []) if isinstance(b, dict)]
+        blocks = [b for b in (fn.get("blocks") or []) if isinstance(b, dict)][:500]
+        addrs = sorted(by_addr)
         for bi, b in enumerate(blocks, 1):
             s = by_addr.get(_addr(b.get("start")) or -1)
             ea = _addr(b.get("end"))
-            e = max((i for a2, i in by_addr.items() if ea is not None and a2 <= ea), default=None)
+            k = bisect.bisect_right(addrs, ea) - 1 if ea is not None else -1
+            e = by_addr[addrs[k]] if k >= 0 else None
             if s is None:
                 continue
-            succ = [str(d) for d, _f in (b.get("succ") or []) if isinstance(b.get("succ"), list)]
+            raw = b.get("succ") if isinstance(b.get("succ"), list) else []
+            succ = [str(x[0] if isinstance(x, (list, tuple)) and x else x) for x in raw[:16]]
             tail = ("Folgt: " + ", ".join(succ[:4]) + ".") if succ else "Kein Nachfolger: die Funktion endet hier."
             add("block", f"Block {bi}: {b.get('start')}", f"Zusammenhängender Codeabschnitt ohne Verzweigung im Inneren. {tail}",
                 s, e or s)
