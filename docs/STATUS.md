@@ -443,3 +443,21 @@ Belegt:
 Offen:
 - [ ] Commit `a6eebb0` (ADR-0005, Detonation, Gateway-Änderungen, 36 Dateien) liegt auf `origin/feat/dynamic-analysis`, nicht auf `main`. Autor laut Git ist Jan; wer ihn erzeugt und gepusht hat, ist nicht geklärt. Das Git-Konto ist in allen Sitzungen dasselbe, der Autor belegt also nichts. Kein Review.
 - [ ] Der Launcher-Fix ist nicht in einem vollen Lauf von `start.ps1` geprüft, sondern über die Funktion `Invoke-Check` und die Testsuite.
+
+## KI-Modul Colibri: Modellwahl und Ablage (2026-11-01)
+
+Entscheidung von Jan: Colibri wird ein zentraler Bestandteil der KI. Das Modell wird ab 2026-11-02 auf die SSD mit dem Volume-Namen `ki_data` geladen. Nichts ist bisher geladen oder installiert.
+
+Gewählt (ADR-0012 steht noch aus): `Qwen3.6-35B-A3B`, Datei `Qwen3.6-35B-A3B-UD-Q4_K_M.gguf`.
+- Quelle: `unsloth/Qwen3.6-35B-A3B-GGUF`, Revision `a483e9e6cbd595906af30beda3187c2663a1118c`, Lizenz laut Modellkarte apache-2.0.
+- Größe 22134528992 Byte, SHA-256 `ac0e2c1189e055faa36eff361580e79c5bd6f8e76bffb4ce547f167d53e31a61`.
+- Laden per Revisions-URL mit Fortsetzen und Hash-Prüfung, ohne `huggingface_hub`, `coli setup` oder `START-HERE`. Das GGUF ist reine Datenablage und führt keinen Code aus; das Laden hängt daher nicht an der Prüfung der Engine.
+
+Belegt aus der Colibri-Doku v2.1.0, nicht auf diesem Rechner gemessen: 3,491/104.8 tok/s (Prompt/Decode) mit CUDA auf einer RTX PRO 4000 mit 24 GB; 73 bis 78 tok/s auf einer RTX 3070 mit 8 GB, wo Ollama dieselbe Datei mit 38 tok/s dekodiert. Die Doku nennt dort denselben Text wie auf der CPU bei Greedy-Decoding.
+
+Ablage: `E:` ist heute SanDisk Extreme (USB, exFAT, 466 GB frei). Der Launcher soll das Volume über den Namen `ki_data` finden, nicht über den Laufwerksbuchstaben, und ohne Volume oder bei falschem Hash abbrechen.
+
+Offen:
+- [ ] Engine ist noch nicht freigegeben: statische Prüfung, ADR-0012 und Gate aus dem Plan (JSON-Quote, Reproduzierbarkeit bei `temperature=0`, Speicher, Netz, Vergleich mit `qwen3:14b`). Colibri erzwingt das JSON-Schema nicht, und `seed` hat keine Wirkung.
+- [ ] Hypothese: exFAT ohne Rechte und ohne Journal sowie USB-Tempo stören den Betrieb nicht, weil der Hash beim Laden geprüft wird und das Modell überwiegend aus RAM und VRAM läuft. Nicht gemessen.
+- [ ] Zu prüfen im Spike: ob `gguf.json` aus `coli import` einen Laufwerksbuchstaben fest einträgt.
