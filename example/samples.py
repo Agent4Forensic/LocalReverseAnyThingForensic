@@ -27,7 +27,9 @@ def script_three_layers() -> bytes:
              b'$u = "https://example.invalid/update"\n'
              b'$k = "HKCU:\\Software\\SwAnalystBench"\n'
              b'$marker = "MARKER{three_layers}"\n')
-    layer2 = _b64(gzip.compress(inner, mtime=0))
+    packed = bytearray(gzip.compress(inner, mtime=0))
+    packed[9] = 255      # the gzip OS byte depends on the platform's zlib; the committed sample has "unknown"
+    layer2 = _b64(bytes(packed))
     return (b"# harmless benchmark script\n$blob = '" + _b64(layer2) + b"'\n"
             b"# decoded with FromBase64String and GZipStream\n")
 
