@@ -110,7 +110,11 @@ function Invoke-Check([string]$ModelTag) {
     $a = @('-m', 'sw_analyst', '--check', '--json', '--port', "$Port", '--ollama-url', $OllamaUrl, '--data-dir', $Data)
     if ($ModelTag) { $a += @('--model', $ModelTag) }
     $txt = (& $Py @a | Out-String)
-    try { return ($txt | ConvertFrom-Json).results } catch { return @([pscustomobject]@{ name = 'preflight'; status = 'FEHLER'; detail = 'python check produced no result'; fix = 'run: python -m sw_analyst --check' }) }
+    # A crash prints nothing to stdout; ConvertFrom-Json then returns null without throwing, and null must not read as 'no errors'.
+    $results = $null
+    try { $results = ($txt | ConvertFrom-Json).results } catch { }
+    if ($null -ne $results) { return $results }
+    return @([pscustomobject]@{ name = 'preflight'; status = 'FEHLER'; detail = 'python check produced no result'; fix = 'run: python -m sw_analyst --check' })
 }
 function Show-Results($Results) {
     foreach ($r in $Results) {
@@ -256,8 +260,9 @@ try {
     # ---- re-check: abort on real errors ----
     $OllamaDir = if (Test-Path $OllamaExe) { $ol.target } elseif ((Get-OllamaVersions).Count -gt 0) { (Get-OllamaVersions)[0].FullName } else { $null }
     $results = Invoke-Check $ModelTag
+    if ($null -eq $results) { Exit-Fail 'CHECK' 'python checks did not run (.venv missing after INSTALL); nothing was started' }
     $fatal = @($results | Where-Object { $_.status -eq 'FEHLER' -and -not ($_.name -eq 'ollama:binary' -and $OllamaDir) })
-    Write-Stage 'CHECK' ("re-check: {0} checks, {1} errors, {2} warnings" -f $results.Count, $fatal.Count, @($results | Where-Object { $_.status -eq 'WARN' }).Count)
+    Write-Stage 'CHECK' ("re-check: {0} checks, {1} errors, {2} warnings" -f @($results).Count, $fatal.Count, @($results | Where-Object { $_.status -eq 'WARN' }).Count)
     if ($fatal.Count -gt 0) { Show-Results $fatal; Exit-Fail 'CHECK' 'errors remain; nothing was started' }
     if (-not $OllamaDir) { Exit-Fail 'OLLAMA' 'no ollama installation available' }
     $OllamaExe = Join-Path $OllamaDir 'ollama.exe'
