@@ -33,8 +33,11 @@ def _inside(path: Path, root: Path) -> bool:
 
 
 def _writable_then_retry(func, path, _exc):
-    """Make the parent directory writable and retry; never chmod the entry itself (it may be a symlink)."""
+    """Make the parent directory writable and retry. A symlink itself is never chmodded (it would change the target);
+    Windows refuses to delete a read-only file (samples are 0o444), so there a real file is made writable first."""
     os.chmod(os.path.dirname(path), stat.S_IRWXU)
+    if os.name == "nt" and not os.path.islink(path):
+        os.chmod(path, stat.S_IWRITE)
     func(path)
 
 

@@ -77,6 +77,7 @@ def test_symlinked_job_dir_target_is_not_followed(tmp_path):
     outside.mkdir(exist_ok=True)
     (outside / "f").write_text("keep")
     import shutil
+    (tmp_path / "jobs" / jid / "sample").chmod(0o644)      # read-only blocks the setup rmtree on Windows
     shutil.rmtree(tmp_path / "jobs" / jid)
     (tmp_path / "jobs" / jid).symlink_to(outside, target_is_directory=True)
     try:
