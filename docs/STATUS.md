@@ -202,6 +202,9 @@ Offen:
 - [x] Ergebnis automatisch: Seite aktualisiert sich, Auftragskopf zeigt „Beispiel NN: bestanden / nicht bestanden“.
 - [x] Geprüft: 5 neue API-Tests (1047 grün gesamt), Browserlauf mit und ohne Ghidra, 0 Konsolenfehler.
 
+## Seite „Prompts“ entfernt (von Jan beauftragt, 2026-11-01)
+- [x] Navigationspunkt, Route `#/prompts`, Ansicht und Ladefunktion aus dem Dashboard entfernt; alte Links landen auf der Übersicht. Die API `/api/prompts` bleibt für Skripte bestehen. Prompt-ID, Version und Hash je Aufgabe bleiben im Aufgabendetail sichtbar (Nachvollziehbarkeit), ebenso im Bericht.
+
 ## Aufräumen vor Start und nach Stopp (von Jan beauftragt, 2026-10-31)
 - [x] `scripts/cleanup.ps1` (Stage `CLEAN`), von `start.ps1` (`-Phase pre`) und `stop.ps1` (`-Phase post`) aufgerufen; abschaltbar mit `-NoCleanup`, prüfbar mit `cleanup.ps1 -Phase pre|post -DryRun`.
 - **pre:** veraiste PID-Dateien, verwaiste eigene App-Prozesse (nicht in `app.pid`), verwaiste Modell-Runner, Laufzeit-Scratch in `data\run`, `data\tmp`, `*.partial`-Installreste, Logs älter als 14 Tage, beendete Docker-Container mit Label `sw-analyst`.
