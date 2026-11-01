@@ -23,6 +23,8 @@ from sw_analyst.report.defang import defang_text, find_iocs
 _WS = re.compile(r"\s+")
 MIN_QUOTE = 8                 # the prompt promises 8 to 120 characters (ACTION_SCHEMA)
 TOOL_ERROR = "[tool error]"
+NOTE_PREFIX = "[note]"
+HINT_LINE_CHARS = 300        # lines are cut before the similarity search (cost cap)
 _WORD = re.compile(r"[a-z0-9_$]+")
 _STOP = frozenset("""a an and are as at be been by can could did do does for from has have in into is it its may might
 no not of on or so than that the then there these this those to was were which will with without would
@@ -35,29 +37,49 @@ def norm(s: str) -> str:
     return _WS.sub(" ", (s or "")).strip()
 
 
+def _echo_forms(params: dict) -> list[str]:
+    """How the gateway may print the model's own arguments: full or clipped strings, numbers in decimal and hex."""
+    forms: set[str] = set()
+    for k, v in params.items():
+        if k == "path" or isinstance(v, bool):
+            continue
+        if isinstance(v, str) and len(v) >= 2:
+            forms.update({v, v[:200], v[:40]})
+        elif isinstance(v, int) and abs(v) >= 10:
+            forms.update({str(v), f"0x{v:x}", f"0x{v:02x}"})
+    return sorted((f for f in forms if len(f) >= 2), key=len, reverse=True)
+
+
 def quotable_text(ev: dict) -> str:
-    """Evidence text a quote may come from: no tool error, and no echo of the model's own string arguments."""
+    """Evidence text a quote may come from: no tool error, no platform note, no echo of the model's own arguments.
+    The gateway keeps string arguments on one line (control characters are refused), so the echo can only stand in
+    the header line; notes ('[note] ...') and an explicitly given key are platform text, not sample content."""
     text = ev.get("text") or ""
     if text.startswith(TOOL_ERROR):
         return ""
-    params = ev.get("params") or {}
-    echoes = sorted({str(v) for k, v in params.items() if k != "path" and isinstance(v, str) and len(v) >= 2},
-                    key=len, reverse=True)
-    if not echoes:
-        return text
-    head, sep, rest = text.partition("\n")
-    for v in echoes:
+    lines = [ln for ln in text.split("\n") if not ln.startswith(NOTE_PREFIX) and "(given) used" not in ln]
+    if not lines:
+        return ""
+    head = lines[0]
+    for v in _echo_forms(ev.get("params") or {}):
         head = head.replace(v, " ")
-    return head + sep + rest
+    return "\n".join([head] + lines[1:])
 
 
 def content_words(s: str) -> set[str]:
     return {w for w in _WORD.findall((s or "").lower()) if w not in _STOP and (len(w) >= 3 or any(c.isdigit() for c in w))}
 
 
+def relevant(statement: str, quote: str) -> bool:
+    """A quote carries a statement only if both talk about the same thing: two shared content words, or one shared
+    specific value (contains a digit or is at least 8 characters long)."""
+    shared = content_words(statement) & content_words(quote)
+    return len(shared) >= 2 or any(len(w) >= 8 or any(c.isdigit() for c in w) for w in shared)
+
+
 def closest_line(quote: str, text: str) -> str:
     """Most similar line of the evidence for a quote that was not found verbatim, or '' if nothing is close."""
-    lines = [norm(x) for x in text.splitlines()[:HINT_LINES_SCAN]]
+    lines = [norm(x)[:HINT_LINE_CHARS] for x in text.splitlines()[:HINT_LINES_SCAN]]
     lines = [x for x in lines if len(x) >= MIN_QUOTE]
     q = norm(quote)
     if not q or not lines:
@@ -130,10 +152,11 @@ def verify_finding(store: Store, job_id: str, raw: dict) -> VerifiedFinding:
             if unquoted:
                 return VerifiedFinding(statement, "hypothesis", ids, good_quotes,
                                        "downgraded from confirmed: not in the quotes: " + ", ".join(unquoted))
-            if not content_words(statement) & content_words(joined):
+            if not relevant(statement, joined):
                 return VerifiedFinding(statement, "hypothesis", ids, good_quotes,
-                                       "downgraded from confirmed: the quote shares no word or value with the "
-                                       "statement; quote the line that shows the stated fact")
+                                       "downgraded from confirmed: the quote shares too little with the statement "
+                                       "(two words, or one value such as a name with digits, an address or a long "
+                                       "identifier); quote the line that shows the stated fact")
             return VerifiedFinding(statement, "confirmed", ids, good_quotes)
         reason = "; ".join(problems) or "no evidence cited"
         # Unverifiable claim is not kept as fact. If evidence exists it survives as a hypothesis.

@@ -87,3 +87,15 @@ def test_structure_refuses_paths_outside_the_job(tmp_path: Path):
     client, store, gw = _app(tmp_path)
     jid = _job(store, gw, b"harmless")
     assert client.get(f"/api/jobs/{jid}/inspect/structure", params={"path": "../../etc/passwd"}).status_code == 404
+
+
+def test_quotes_from_other_files_are_not_placed_and_regions_stay_inside(tmp_path: Path):
+    client, store, gw = _app(tmp_path)
+    data = b"MZ" + b"\x00" * 58 + b"\xff\xff\x00\x00" + b"kernel32.dll appears here" + b"\x00" * 20
+    jid = _job(store, gw, data)
+    ev = store.add_evidence(jid, None, "strings_extract", "1", {"path": "derived/layer1"}, "kernel32.dll appears here")
+    store.add_finding(jid, "T-1", "Layer 1 names kernel32.dll.", "confirmed", [ev["id"]],
+                      [{"evidence_id": ev["id"], "quote": "kernel32.dll appears here"}])
+    d = client.get(f"/api/jobs/{jid}/inspect/structure").json()
+    assert not [r for r in d["regions"] if r["source"] == "finding"]
+    assert all(0 <= r["offset"] < d["size"] and r["offset"] + r["length"] <= d["size"] for r in d["regions"])

@@ -15,11 +15,14 @@ Kleine Modelle scheitern außerdem oft am exakten Abschreiben: Ein Zitat weicht 
 3. **Größeres Modell:** Diese Option scheidet aus (Hardware).
 
 ## Entscheidung
-1. `quotable_text(ev)`: Aus der Kopfzeile einer Evidence werden die String-Argumente des Aufrufs entfernt (außer `path`). Eine Evidence, die mit `[tool error]` beginnt, ist nie zitierbar. Das gilt für Zitate, für die Prüfung der Antwortwerte und für das Protokoll von Injektionsversuchen.
+1. `quotable_text(ev)`: Aus der Kopfzeile einer Evidence werden die Argumente des Aufrufs entfernt (außer `path`): Strings voll und gekürzt, Zahlen dezimal und hexadezimal. Plattformzeilen (`[note] …`, „key … (given) used“) sind nie zitierbar, ebenso eine Evidence, die mit `[tool error]` beginnt. Das gilt für Zitate, für die Prüfung der Antwortwerte und für das Protokoll von Injektionsversuchen.
+1a. **Gateway:** String-Argumente dürfen keinen Zeilenumbruch und kein Steuerzeichen enthalten. Sonst könnte ein Muster mit Zeilenumbruch erfundenen Text aus der Kopfzeile in eine zitierbare Zeile schieben (Security-Review vom 2026-11-01). Die Allowlist bleibt unverändert; die Prüfung macht nur die Eingabe strenger.
 2. `MIN_QUOTE = 8`, wie im Prompt versprochen.
-3. **Bezug:** Ein `confirmed`-Zitat muss mindestens ein Inhaltswort oder einen Wert mit der Aussage teilen (Stoppwörter ausgenommen). Sonst wird die Aussage zur Hypothese herabgestuft.
+3. **Bezug:** Ein `confirmed`-Zitat muss mit der Aussage zwei Inhaltswörter teilen (Stoppwörter ausgenommen) oder einen spezifischen Wert, also ein Wort mit Ziffer oder ab 8 Zeichen. Sonst wird die Aussage zur Hypothese herabgestuft.
 4. **Reparaturhilfe:** Wird ein Zitat nicht gefunden, schickt der Prüfer die ähnlichste echte Zeile dieser Evidence (difflib, Schwelle 0,55) als `untrusted_data`-Block in die Reparaturrunde. Das Modell kann sie wörtlich übernehmen, wenn sie die Aussage trägt. Bestätigt wird weiterhin nur, was wörtlich in der Evidence steht.
 5. **Indikator-Hinweise:** Nach jedem Werkzeugergebnis hängt die Plattform die per festen Mustern gefundenen IOCs (höchstens 8) als `untrusted_data`-Block an. Das Modell muss sie nicht selbst finden und abschreiben. Ein Indikator allein bleibt keine Verhaltensaussage (Prompt-Regel b).
+
+6. **Hex-Ansicht:** Ein Befundzitat wird in einer Datei nur gesucht, wenn sein Beleg genau diese Datei gelesen hat. Treffer heißen „Zitat-Fundstelle“ (Textsuche), nicht Fundort. Die Suche ist begrenzt (200 Zitate, 16 MiB) und wird zwischengespeichert.
 
 ## Folgen
 - **Strengere Prüfung:** Es gibt weniger falsche `confirmed`-Befunde. Einige bisher bestätigte, unpräzise Aussagen werden zur Hypothese. Zwei bestehende Tests waren genau so formuliert („x“, „The question is answered.“) und wurden an die Regel angepasst.

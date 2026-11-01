@@ -22,6 +22,7 @@ MAX_ZIP_ENTRIES = 400
 MAX_ZIP_CD_BYTES = 1024 * 1024
 SEARCH_LIMIT = 16 * 1024 * 1024     # quotes are searched in the first 16 MiB; beyond that only evidence ranges count
 MAX_HITS_PER_QUOTE = 3
+MAX_QUOTES = 200                    # distinct quotes searched per request (cost cap)
 
 Reader = Callable[[int, int], bytes]   # (offset, length) -> bytes, at most 64 KiB per call
 
@@ -290,8 +291,17 @@ def analysis_regions(path: str, evidence: list[dict], findings: list[dict], read
                     "group": "Belege", "level": 0, "source": "evidence", "tone": "evidence",
                     "evidence_id": ev["id"], "finding_ids": [f["id"] for f in fs][:20], "status": best})
     searched = min(size, SEARCH_LIMIT)
-    quotes = [(f, q) for f in findings if f["status"] != "rejected" for q in (f.get("quotes") or [])
-              if len(q.get("quote") or "") >= 8]
+    # Only quotes whose evidence read THIS file: a quote from a decoded layer or another member says nothing about
+    # where it stands here, and a short quote would match arbitrary places.
+    reads_here = {ev["id"] for ev in evidence if (ev.get("params") or {}).get("path", "sample") == path}
+    quotes: dict[str, tuple[dict, dict]] = {}
+    for f in findings:
+        if f["status"] == "rejected":
+            continue
+        for q in f.get("quotes") or []:
+            text = q.get("quote") or ""
+            if len(text) >= 8 and q.get("evidence_id") in reads_here and text not in quotes and len(quotes) < MAX_QUOTES:
+                quotes[text] = (f, q)
     if quotes and searched:
         buf = bytearray()
         pos = 0
@@ -302,9 +312,8 @@ def analysis_regions(path: str, evidence: list[dict], findings: list[dict], read
             buf += chunk
             pos += len(chunk)
         data = bytes(buf)
-        for f, q in quotes:
-            text = q["quote"]
-            for enc, label in (("utf-8", ""), ("utf-16-le", " (UTF-16)")):
+        for text, (f, q) in quotes.items():
+            for enc, label in (("utf-8", ""), ("utf-16-le", ", UTF-16")):
                 try:
                     needle = text.encode(enc)
                 except UnicodeEncodeError:
@@ -315,8 +324,10 @@ def analysis_regions(path: str, evidence: list[dict], findings: list[dict], read
                     if i < 0:
                         break
                     out.append({"offset": i, "length": len(needle),
-                                "label": f"{f['id']} {_STATUS_DE.get(f['status'], f['status'])}{label}",
-                                "explain": f.get("statement_de") or f["statement_en"],
+                                "label": f"{f['id']} {_STATUS_DE.get(f['status'], f['status'])} (Zitat-Fundstelle{label})",
+                                "explain": "Das Zitat dieses Befunds steht hier wörtlich in der Datei (Textsuche; "
+                                           "bei mehreren Treffern ist nicht jeder die zitierte Stelle). Aussage: "
+                                           + (f.get("statement_de") or f["statement_en"]),
                                 "group": "Befunde", "level": 1, "source": "finding", "tone": f["status"],
                                 "finding_id": f["id"], "evidence_id": q.get("evidence_id"), "status": f["status"]})
                     hits += 1
@@ -327,7 +338,12 @@ def analysis_regions(path: str, evidence: list[dict], findings: list[dict], read
 def build(kind: str, path: str, read: Reader, size: int, evidence: list[dict], findings: list[dict]) -> dict:
     regions, notes = structure(kind, read, size)
     found, searched = analysis_regions(path, evidence, findings, read, size)
-    allr = sorted(regions + found, key=lambda r: (r["offset"], -r["length"]))
+    allr = []
+    for r in regions + found:      # hostile headers may point past the end: clamp, drop what starts outside
+        if 0 <= r["offset"] < size:
+            r["length"] = max(1, min(r["length"], size - r["offset"]))
+            allr.append(r)
+    allr.sort(key=lambda r: (r["offset"], -r["length"]))
     if len(allr) > MAX_REGIONS:
         notes.append(f"{len(allr) - MAX_REGIONS} regions not shown (limit {MAX_REGIONS})")
         allr = allr[:MAX_REGIONS]

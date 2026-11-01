@@ -471,6 +471,8 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
         return {"path": b["path"], "size": b["size"], "offset": b["offset"], "length": len(b["data"]),
                 "rows": insp.hex_rows(b["data"], b["offset"])}
 
+    _structure_cache: dict[tuple, dict] = {}
+
     @app.get("/api/jobs/{job_id}/inspect/structure")
     def inspect_structure(job_id: str, path: str = "sample"):
         """What the bytes mean: format structure (fixed parsers) and where evidence and finding quotes lie."""
@@ -484,9 +486,20 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
                 return ref.gateway.read_bytes(ref.rid, path, off, ln)["data"]
             except ToolError:
                 return b""
-        kind = insp.file_kind(read(0, 4096))["kind"]
-        evidence = ref.store._q("SELECT id, tool, source_ref_json FROM evidence WHERE job_id=? ORDER BY id", (ref.rid,))
-        return hexmap.build(kind, path, read, entry["size"], evidence, ref.store.list_findings(ref.rid))
+        evidence = ref.store._q("SELECT id, tool, params_json, source_ref_json FROM evidence WHERE job_id=? ORDER BY id",
+                                (ref.rid,))
+        findings = ref.store.list_findings(ref.rid)
+        # Same file, same evidence and findings: same result. The cache spares repeated 16 MiB quote searches.
+        key = (ref.public, path, entry["sha256"], len(evidence), len(findings),
+               sum(len(f.get("statement_de") or "") for f in findings))   # translations arrive later
+        hit = _structure_cache.get(key)
+        if hit is None:
+            kind = insp.file_kind(read(0, 4096))["kind"]
+            hit = hexmap.build(kind, path, read, entry["size"], evidence, findings)
+            if len(_structure_cache) >= 32:
+                _structure_cache.pop(next(iter(_structure_cache)))
+            _structure_cache[key] = hit
+        return hit
 
     @app.get("/api/jobs/{job_id}/inspect/functions")
     def inspect_functions(job_id: str, path: str = "sample"):
