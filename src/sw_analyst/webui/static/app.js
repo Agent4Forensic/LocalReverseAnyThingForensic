@@ -86,7 +86,10 @@
     SW.dom.fill(jobsNav,
       h('p', { cls: 'nav-h', id: 'nav-jobs-h', text: 'Aufträge' }),
       jobs.length ? jobs.map(function (j) {
-        return h('a', { href: '#/job/' + encodeURIComponent(j.id) + '/activity', title: j.title, 'aria-current': r.jobId === j.id ? 'page' : null }, fmt.statusIcon(j.status), h('span', { cls: 'lbl', text: j.title }));
+        var link = h('a', { href: '#/job/' + encodeURIComponent(j.id) + '/activity', title: j.title, 'aria-current': r.jobId === j.id ? 'page' : null }, fmt.statusIcon(j.status), h('span', { cls: 'lbl', text: j.title }));
+        if (!(SW.canDeleteJob && SW.canDeleteJob(j))) return link;
+        return h('div', { cls: 'nav-row' }, link,
+          h('button', { type: 'button', cls: 'nav-del', title: 'Auftrag löschen', 'aria-label': 'Auftrag ' + j.title + ' löschen', on: { click: function () { SW.deleteJob(j); } } }, icon('trash', { size: 13 })));
       }) : h('p', { cls: 'hint', text: 'Noch keine Aufträge.' })
     );
   }
@@ -119,7 +122,7 @@
         h('aside', { cls: 'side' },
           h('a', { cls: 'brand', href: '#/', 'aria-label': 'sw-analyst, zur Übersicht' },
             h('span', { cls: 'brand-mark' }, icon('shieldcheck', { size: 16 })),
-            h('span', { cls: 'brand-name' }, 'sw-analyst', h('span', { cls: 'brand-sub', text: 'Statische Analyse' }))
+            h('span', { cls: 'brand-name' }, 'sw-analyst', h('span', { cls: 'brand-sub', text: 'Statische und dynamische Analyse' }))
           ),
           h('nav', { cls: 'nav', id: 'nav-main', 'aria-label': 'Hauptnavigation' }),
           jobsNav,

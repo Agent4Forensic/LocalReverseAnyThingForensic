@@ -331,6 +331,18 @@ flowchart LR
   D --> E[Messung Challenges 01-04]:::open --> F[Gegenprobe zweites Werkzeug]:::open --> G[Analystenurteil]:::open --> H[Referenzwissen lokal]:::open
 ```
 
+### Dashboard v3 (Auftrag von Jan, 2026-11-01, Branch `feat/webui-v3`)
+- [x] Statisch **und** dynamisch sichtbar: Tab „Dynamische Analyse“ mit Lücken (GAP-Befunde), Plan und Voraussetzungen; Ausführung bleibt aus, bis die Analyse-VM steht (Entscheidung Jan: sichtbar, Ausführung aus; ADR-0005 bleibt Entwurf).
+- [x] Aktivität klarer (Jetzt-Karte, Zeitleiste mit Symbolen je Schrittart), Aufgabenbaum in Klartext (warum, was, wann fertig, Ergebnis), Erhobene Daten gruppiert mit Filter und Suche.
+- [x] Volle Seitenbreite, Branding „Statische und dynamische Analyse“.
+- [x] Tab „Analyse“ vereint Code und Datei: Flowchart der Umwandlung (Sample → Schichten → Endergebnis) mit Zwischenständen, ganze Datei als Text, Hex mit Anmerkungen, Ghidra (Funktionen, Assembler, Pseudocode, Basic Blocks, Querverweise) und Lernpfad.
+- [x] Bericht als Gutachten in einem Tab (Kurzfassung, Fragen mit Kurzantwort und Beleg, Auftrag, Methodik in Fließtext mit Begriffen, Ergebnisse, Herleitung, Grenzen, Anhang) mit Diagrammen.
+- [x] Export „Nachvollzug-Skript“: ZIP mit Probe (optional), `replay.py`, `run_replay.cmd`; vollzieht jede Umwandlung mit Hash-Prüfung bis zur Antwort nach, führt die Probe nie aus.
+- [x] Aufträge löschen (ADR-0011): Audit-Log und Datenbank-Export bleiben unter `data/deleted/` archiviert, Nachweis hash-verkettet.
+- [x] Beispiele 06 bis 09 (schwer, sehr schwer), harmlos, mit Flagge und automatischem Abgleich.
+- [ ] Lernpfad und Ghidra-Ansicht mit echtem Ghidra-Lauf auf Jans Rechner prüfen (hier nur mit nachgebautem Export getestet).
+- [ ] Beispiele 06 bis 09 mit dem lokalen Modell laufen lassen und Trefferquote festhalten.
+
 ### Belegzwang (zuerst)
 - [x] F-01 kritisch: `grep` gibt das Modell-Muster in der Ausgabe zurück, daraus entsteht ein `confirmed`-Beleg. Behoben 2026-11-01 (ADR-0010): `quotable_text` nimmt das Argument-Echo aus der Kopfzeile, Werkzeugfehler sind kein Beleg; Test über den vollen Weg in `tests/unit/test_local_ai_quality.py`.
 - [x] F-02 Zitat muss zur Aussage passen; `MIN_QUOTE` 8 wie im Prompt, `confirmed` nur mit gemeinsamem Inhaltswort oder Wert (ADR-0010).
@@ -393,6 +405,8 @@ Belegt (Diff, `tests/unit/test_preflight.py` grün):
 - [x] `stop.ps1` entlädt Modelle vor dem Beenden über die API aus der GPU (nur beim eigenen Ollama) und gibt danach den belegten GPU-Speicher aus. Ab 1500 MiB erscheint eine Warnung; fremde Prozesse werden nicht beendet.
 - [x] Scheitert `start.ps1` nach dem Ollama-Start, räumt es selbst per `stop.ps1 -Force` auf (Ollama, GPU und Docker bleiben nicht zurück).
 - [x] `preflight.py`: neue Log-Stufe `DATA`, weil `__main__` den Datenordner darunter loggt; Test ergänzt. Runbook `docs/runbooks/betrieb.md` beschreibt den Ablauf.
+
+- [x] `start.ps1` baut fehlende Tool-Images selbst, nachdem der Docker-Daemon bereit ist (`-NoBuild` und `-NoDocker` überspringen, `-Offline` baut nichts; ein Fehler beim Bau ist nur eine Warnung). `-BuildTools` bleibt als wirkungsloser Schalter für alte Aufrufe. Geprüft: PowerShell-Syntax. Nicht geprüft: echter Lauf mit fehlenden Images.
 
 Offen und nicht geprüft:
 - [ ] Die Skripte wurden nicht in einem echten Lauf getestet (Start mit gestopptem Docker, Stopp, Fenster schließen). Geprüft sind nur der Diff und die Python-Tests.

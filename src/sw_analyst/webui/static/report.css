@@ -1,0 +1,26 @@
+/* Tab Bericht: Gutachten-Darstellung und Diagramme. Keine Inline-Styles, nur Klassen und CSS-Variablen. */
+.report-body { max-width: none; line-height: 1.6; }
+.report-body .md-h1 { font-size: 24px; margin-top: 4px; }
+.report-body .md-h2 { font-size: 18px; margin-top: 30px; padding-bottom: 5px; border-bottom: 2px solid var(--accent); color: var(--accent-text); }
+.report-body .md-h3 { font-size: 15px; margin-top: 20px; color: var(--ink); }
+.report-body .md-p { max-width: none; }
+.report-body .md-table th { white-space: nowrap; }
+.report-body .md-quote { font-size: 13.5px; }
+.rp-toc { display: flex; flex-wrap: wrap; gap: 6px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.rp-fig { margin: 14px 0 18px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-2); overflow-x: auto; }
+.rp-svg { display: block; max-width: 100%; height: auto; font-family: var(--font); }
+.rp-edge { stroke: var(--line-strong); stroke-width: 1.6; fill: none; }
+.rp-arrhead { fill: var(--line-strong); }
+.rp-node rect { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1.4; }
+.rp-node.is-done rect { stroke: var(--ok); fill: var(--ok-bg); }
+.rp-node.is-cur rect { stroke: var(--info); fill: var(--info-bg); stroke-width: 2.2; }
+.rp-node.is-part rect { stroke: var(--warn); fill: var(--warn-bg); }
+.rp-node.is-off rect { stroke-dasharray: 5 4; fill: var(--surface-3); stroke: var(--muted); }
+.rp-t { font-size: 12.5px; font-weight: 700; fill: var(--ink); }
+.rp-s { font-size: 11.5px; fill: var(--ink-2); }
+.rp-bar { fill: var(--neutral); }
+.rp-bar.b-confirmed, .rp-bar.b-answered { fill: var(--ok); }
+.rp-bar.b-hypothesis { fill: var(--warn); }
+.rp-bar.b-open, .rp-bar.b-unresolved { fill: var(--info); }
+.rp-bar.b-rejected { fill: var(--err); }
+@media print { .rp-toc { display: none; } .rp-fig { break-inside: avoid; } }

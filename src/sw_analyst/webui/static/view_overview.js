@@ -38,6 +38,24 @@
     );
   }
 
+  var BUSY = ['queued', 'running', 'uploading'];
+  SW.canDeleteJob = function (j) { return !j.imported && BUSY.indexOf(j.status) < 0; };
+  /* Loescht einen Auftrag nach Bestaetigung; danach Liste neu laden und zur Uebersicht. */
+  SW.deleteJob = function (j) {
+    var msg = 'Auftrag „' + j.title + '“ (' + j.id + ') aus dem Dashboard löschen?\n\nSample, abgeleitete Dateien und Datenbankeinträge werden entfernt. Das Audit-Log und ein Export der Einträge bleiben unverändert unter data/deleted/ archiviert; ein hash-verketteter Nachweis steht in deleted_jobs.jsonl.';
+    if (!window.confirm(msg)) return Promise.resolve(false);
+    var done = function () {
+      store.refreshGlobal();
+      if (window.location.hash !== '' && window.location.hash !== '#/') window.location.hash = '#/';
+      return true;
+    };
+    if (api.isMock) return Promise.resolve(done());
+    return window.fetch(api.href('/jobs/' + encodeURIComponent(j.id)), { method: 'DELETE', headers: { Accept: 'application/json' }, credentials: 'same-origin' }).then(function (r) {
+      if (r.ok) return done();
+      return r.json().then(function (b) { return (b && b.error && b.error.message) || 'Fehler ' + r.status; }, function () { return 'Fehler ' + r.status; }).then(function (m) { window.alert('Löschen abgelehnt: ' + m); return false; });
+    }, function () { window.alert('Server nicht erreichbar.'); return false; });
+  };
+
   function jobRow(j) {
     return h('tr', null,
       h('td', null, h('a', { href: '#/job/' + encodeURIComponent(j.id) + '/activity', text: j.title }),
@@ -47,8 +65,11 @@
       h('td', { cls: 'num nowrap', text: j.sample_size === null || j.sample_size === undefined ? '–' : fmt.bytes(j.sample_size) }),
       h('td', { text: [j.detected_type, j.recipe].filter(Boolean).join(' / ') || '–' }),
       h('td', { cls: 'nowrap', text: fmt.dateTime(j.created_at) }),
-      h('td', { cls: 'num nowrap', text: j.finished_at || j.started_at ? fmt.duration(j.duration_ms) : '–' })
-    );
+      h('td', { cls: 'num nowrap', text: j.finished_at || j.started_at ? fmt.duration(j.duration_ms) : '–' }),
+      h('td', { cls: 'nowrap' }, SW.canDeleteJob(j)
+        ? h('button', { type: 'button', cls: 'btn sm danger', 'aria-label': 'Auftrag ' + j.title + ' löschen', on: { click: function () { SW.deleteJob(j); } } }, icon('trash'), 'Löschen')
+        : h('span', { cls: 'muted small', text: j.imported ? 'schreibgeschützt' : '' })))
+    ;
   }
 
   SW.views.overview = function () {
@@ -101,7 +122,7 @@
       SW.dom.fill(listHost, !store.state.jobsLoaded ? ui.loading() : jobs.length
         ? h('div', { cls: 'tbl-wrap' }, h('table', { cls: 'tbl' },
             h('caption', { cls: 'sr-only', text: 'Aufträge, neueste zuerst' }),
-            h('thead', null, h('tr', null, ['Auftrag', 'Status', 'Sample', 'Größe', 'Typ / Rezept', 'Angelegt', 'Dauer'].map(function (c, i) { return h('th', { scope: 'col', cls: i === 3 || i === 6 ? 'num' : '', text: c }); }))),
+            h('thead', null, h('tr', null, ['Auftrag', 'Status', 'Sample', 'Größe', 'Typ / Rezept', 'Angelegt', 'Dauer', 'Aktion'].map(function (c, i) { return h('th', { scope: 'col', cls: i === 3 || i === 6 ? 'num' : '', text: c }); }))),
             h('tbody', null, jobs.map(jobRow))))
         : ui.empty('Keine Aufträge', filter === 'all' ? 'Mit „Neuer Auftrag“ legen Sie die erste Analyse an.' : 'Kein Auftrag passt zum Filter.', 'list'));
     }
@@ -155,7 +176,7 @@
     var qid = 0;
     var qs = [];
     var errBox = h('div', { role: 'alert' });
-    var dropInfo = h('p', { cls: 'drop-info muted', text: 'Datei hierher ziehen oder auswählen. Maximal 64 MiB. Das Sample wird nie ausgeführt.' });
+    var dropInfo = h('p', { cls: 'drop-info muted', text: 'Datei hierher ziehen oder auswählen. Maximal 64 MiB. Das Sample wird derzeit nicht ausgeführt: Die dynamische Ausführung ist deaktiviert, bis die Analyse-VM steht.' });
     var fileInput = h('input', { type: 'file', id: 'f-sample', cls: 'sr-only', tabindex: '-1' });
     var drop = h('div', { cls: 'drop', role: 'button', tabindex: '0', 'aria-describedby': 'drop-hint', 'aria-label': 'Sample auswählen oder ablegen' },
       icon('upload', { size: 26 }), h('div', { id: 'drop-hint' }, h('strong', { text: 'Sample ablegen' }), dropInfo), fileInput);
@@ -170,7 +191,7 @@
       }
       file = f || null;
       drop.classList.remove('is-bad');
-      SW.dom.fill(dropInfo, file ? file.name + ' · ' + fmt.bytes(file.size) : 'Datei hierher ziehen oder auswählen. Maximal 64 MiB. Das Sample wird nie ausgeführt.');
+      SW.dom.fill(dropInfo, file ? file.name + ' · ' + fmt.bytes(file.size) : 'Datei hierher ziehen oder auswählen. Maximal 64 MiB. Das Sample wird derzeit nicht ausgeführt: Die dynamische Ausführung ist deaktiviert, bis die Analyse-VM steht.');
       drop.classList.toggle('has-file', !!file);
     }
     drop.addEventListener('click', function () { fileInput.click(); });
@@ -274,7 +295,7 @@
 
     qs.push({ key: ++qid, text: '', expected: '' });
     paintQs(false);
-    var el = h('div', { cls: 'stack narrow' },
+    var el = h('div', { cls: 'stack' },
       h('div', { cls: 'page-h' }, h('div', { cls: 'grow' }, h('h1', { text: 'Neuer Auftrag' }), h('p', { cls: 'page-sub', text: 'Beschreiben Sie die Aufgabe, formulieren Sie Zielfragen und laden Sie das Sample hoch.' }))),
       form
     );

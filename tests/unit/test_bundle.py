@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import io
 import json
+import pathlib
 import re
 import sqlite3
 import struct
@@ -195,7 +196,8 @@ def test_round_trip_keeps_rows_audit_and_ids(src, tmp_path, files):
     if files:
         assert got == {f["path"]: f["sha256"] for f in gw.list_files(jid)}
         assert got["sample"] == sha256_hex(SAMPLE)
-        assert (d / "jobs" / jid / "tool-cache" / f"ghidra-{'a' * 64}-{'b' * 64}.json").is_file()
+        cached = d / "jobs" / jid / "tool-cache" / f"ghidra-{'a' * 64}-{'b' * 64}.json"
+        assert pathlib.Path(bundle._lp(cached)).is_file()      # the path may pass MAX_PATH on Windows
     else:
         assert got == {}
     assert reg.resolve(f"I0001-J-9999") is None and reg.resolve("I0002-" + jid) is None

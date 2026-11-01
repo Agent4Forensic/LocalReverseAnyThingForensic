@@ -174,7 +174,7 @@ button { cursor: pointer; }
 .conn.tone-err .dot { background: var(--err); }
 .conn.tone-warn .dot { background: var(--warn); }
 .mock-flag { margin: 0 8px; font-size: 11.5px; padding: 3px 8px; border: 1px dashed var(--warn); color: var(--warn); border-radius: 4px; }
-.main { min-width: 0; padding: 20px 26px 60px; outline: none; max-width: 1560px; }
+.main { min-width: 0; padding: 20px 26px 60px; outline: none; width: 100%; }
 .main:focus-visible { outline: none; }
 
 @media (max-width: 899px) {
@@ -225,7 +225,7 @@ button { cursor: pointer; }
 .card-b { padding: 12px 14px; }
 .stack { display: flex; flex-direction: column; gap: 14px; }
 .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.grow { flex: 1; min-width: 0; }
+.grow { flex: 1 1 240px; min-width: 0; }
 .page-h { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 16px; flex-wrap: wrap; }
 .page-h h1 { flex: 1; min-width: 200px; }
 .page-sub { color: var(--muted); margin: 2px 0 0; }
@@ -282,7 +282,7 @@ select { width: auto; }
 .panel-b pre { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; max-height: 340px; overflow: auto; }
 
 /* Markdown */
-.markdown { max-width: 920px; line-height: 1.6; }
+.markdown { max-width: none; line-height: 1.6; }
 .markdown > :first-child { margin-top: 0; }
 .md-h { margin: 22px 0 8px; }
 .md-h1 { font-size: 22px; }
@@ -306,7 +306,11 @@ select { width: auto; }
 h1 { font-size: 22px; margin: 0; line-height: 1.25; }
 h2 { font-size: 15px; margin: 0; }
 h3 { font-size: 13.5px; margin: 0 0 6px; }
-.narrow { max-width: 920px; }
+.narrow { max-width: none; }
+.nav-row { display: flex; align-items: center; gap: 2px; }
+.nav-row > a { flex: 1; min-width: 0; }
+.nav-del { border: 0; background: transparent; color: var(--muted); padding: 5px; border-radius: 4px; cursor: pointer; display: inline-flex; flex: none; }
+.nav-del:hover, .nav-del:focus-visible { background: var(--surface-3); color: var(--err); }
 .linkbtn { border: 0; background: none; padding: 0; color: var(--accent-text); text-align: left; cursor: pointer; font: inherit; }
 .linkbtn:hover { text-decoration: underline; }
 .chk { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }

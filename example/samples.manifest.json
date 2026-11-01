@@ -29,6 +29,30 @@
    "challenge": "05-pe-xor-routine",
    "sha256": "f65e244dff822527f7838bc61f0345312c72419a426449fd0a422973f91ce131",
    "size": 2048
+  },
+  "example/challenges/06-polyglot-zip-xor/sample/release_notes.txt": {
+   "builder": "example/samples.py:polyglot_zip_xor",
+   "challenge": "06-polyglot-zip-xor",
+   "sha256": "6673d6ef80b6a272249bce5e877185b7e294e83f67d33b7273244bf708ccab7d",
+   "size": 989
+  },
+  "example/challenges/07-pe-rsrc-xor-config/sample/rsrc_config.exe.bin": {
+   "builder": "example/samples.py:pe_rsrc_xor_config",
+   "challenge": "07-pe-rsrc-xor-config",
+   "sha256": "9d7a7e36ddedf3c1f77295c30eab0af3d19c510e7c9d56cb5049f40193ac6134",
+   "size": 2068
+  },
+  "example/challenges/08-script-mini-vm/sample/vm_stub.py": {
+   "builder": "example/samples.py:script_mini_vm",
+   "challenge": "08-script-mini-vm",
+   "sha256": "f116679b2866b9d962e8fa062a7e610009b99f705392915640a059c54b7cf96d",
+   "size": 1499
+  },
+  "example/challenges/09-matroschka-seven/sample/matroschka.txt": {
+   "builder": "example/samples.py:matroschka_seven",
+   "challenge": "09-matroschka-seven",
+   "sha256": "c8fe4fb8d385c71cf367c50ccb6e95b9924181f3f2f6df4b2917b8aae690395d",
+   "size": 829
   }
  },
  "note": "harmless self-made example samples, see docs/adr/0009-beispielproben-im-repository.md"
