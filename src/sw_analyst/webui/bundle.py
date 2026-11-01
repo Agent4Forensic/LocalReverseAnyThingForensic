@@ -108,6 +108,12 @@ def _member_ok(name: Any) -> bool:
     return len(parts) == 3 and parts[0] == "files" and parts[1] in _FILE_DIRS and _name_ok(parts[2])
 
 
+def _lp(path: Path) -> str:
+    """Extended-length path on Windows: tool-cache names are ~140 characters and the import path pushes past MAX_PATH."""
+    p = os.path.abspath(path)
+    return "\\\\?\\" + p if os.name == "nt" and not p.startswith("\\\\") else p
+
+
 def _rmtree(path: Path) -> None:
     """Remove a directory this module created; read-only files (the sample) must not block it on Windows."""
     for dirpath, _dirs, files in os.walk(path):
@@ -118,7 +124,7 @@ def _rmtree(path: Path) -> None:
                     os.chmod(p, 0o644)
                 except OSError:
                     pass
-    shutil.rmtree(path, ignore_errors=True)
+    shutil.rmtree(_lp(path), ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------- audit link
@@ -411,7 +417,7 @@ def _target(tmp: Path, job_id: str, name: str) -> Path:
 
 def _write_new(path: Path, data: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "xb") as f:
+    with open(_lp(path), "xb") as f:
         f.write(data)
 
 
@@ -473,7 +479,7 @@ def _unpack(data: bytes, tmp: Path) -> tuple[dict, dict]:
             if name.startswith("files/"):
                 target = _target(tmp, job_id, name)
                 try:
-                    with open(target, "xb") as out:
+                    with open(_lp(target), "xb") as out:
                         sha, n = _stream(zf, zi, want["size"], out.write)
                 except FileExistsError:
                     raise _fail("bad_bundle", f"Entry {_short(name)} collides with another file name") from None
