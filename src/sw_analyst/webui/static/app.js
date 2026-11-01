@@ -1,5 +1,5 @@
 /* Shell, Hash-Routing und Theme-Umschalter. Ansichten registrieren sich in SW.views / SW.tabs.
-   Routen: #/  #/new  #/examples  #/prompts  #/job/<id>/<tab>?<params> */
+   Routen: #/  #/new  #/examples  #/job/<id>/<tab>?<params> */
 (function () {
   'use strict';
   var SW = (window.SW = window.SW || {});
@@ -32,7 +32,6 @@
     var r = { query: query, name: 'overview', jobId: null, tab: null };
     if (parts[0] === 'new') r.name = 'new';
     else if (parts[0] === 'examples') r.name = 'examples';
-    else if (parts[0] === 'prompts') r.name = 'prompts';
     else if (parts[0] === 'job' && parts[1]) {
       r.name = 'job';
       r.jobId = parts[1];
@@ -81,8 +80,7 @@
     SW.dom.fill(nav,
       navLink('#/', 'dashboard', 'Übersicht', r.name === 'overview'),
       navLink('#/new', 'plus', 'Neuer Auftrag', r.name === 'new'),
-      navLink('#/examples', 'list', 'Beispiele', r.name === 'examples'),
-      navLink('#/prompts', 'book', 'Prompts', r.name === 'prompts')
+      navLink('#/examples', 'list', 'Beispiele', r.name === 'examples')
     );
     var jobs = store.state.jobs.slice(0, 8);
     SW.dom.fill(jobsNav,

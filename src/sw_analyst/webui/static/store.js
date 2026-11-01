@@ -6,7 +6,7 @@
   var api = SW.api;
 
   var listeners = [];
-  var state = { system: null, systemError: null, jobs: [], jobsLoaded: false, prompts: null };
+  var state = { system: null, systemError: null, jobs: [], jobsLoaded: false };
   var cur = null;
   var globalTimer = null;
   var FRESH_MS = 6000;
@@ -365,13 +365,7 @@
     });
   }
 
-  function loadPrompts() {
-    if (state.prompts) return Promise.resolve(state.prompts);
-    return api.get('/prompts').then(function (l) {
-      state.prompts = l || [];
-      return state.prompts;
-    });
-  }
+
 
   function tasksSorted(st) {
     return Array.from(st.tasks.values()).sort(function (a, b) {
@@ -392,7 +386,6 @@
     },
     loadAll: loadAll,
     ensureEvidenceList: ensureEvidenceList,
-    loadPrompts: loadPrompts,
     freshAge: freshAge,
     tasksSorted: tasksSorted
   };

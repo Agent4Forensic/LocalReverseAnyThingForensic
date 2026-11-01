@@ -1,4 +1,4 @@
-/* Ansichten: Uebersicht, Neuer Auftrag, Prompts. */
+/* Ansichten: Uebersicht, Neuer Auftrag. */
 (function () {
   'use strict';
   var SW = (window.SW = window.SW || {});
@@ -279,46 +279,5 @@
       form
     );
     return { el: el, title: 'Neuer Auftrag' };
-  };
-
-  /* =================== Prompts =================== */
-  SW.views.prompts = function () {
-    var listHost = h('div', { cls: 'plist' });
-    var detailHost = h('div', { cls: 'pdetail' }, ui.empty('Prompt auswählen', 'Wählen Sie links einen Prompt, um Version, Hash und Text zu sehen.', 'book'));
-    var selected = null;
-
-    function select(id) {
-      selected = id;
-      paint(store.state.prompts || []);
-      SW.dom.fill(detailHost, ui.loading());
-      api.get('/prompts/' + id).then(function (p) {
-        if (selected !== id) return;
-        SW.dom.fill(detailHost,
-          h('div', { cls: 'row' }, h('h2', { cls: 'grow mono', text: p.id }), h('span', { cls: 'tag mono', text: 'v' + p.version })),
-          h('p', { text: p.purpose }),
-          h('dl', { cls: 'kv' }, h('dt', { text: 'SHA-256' }), h('dd', { cls: 'mono small', text: p.sha256 })),
-          h('h3', { cls: 'step-title', text: 'Text (wird unverändert an das Modell gesendet)' }),
-          h('pre', { cls: 'prompt-text', tabindex: '0', text: p.text })
-        );
-      }, function (err) { SW.dom.fill(detailHost, ui.errorBox(err.message)); });
-    }
-    function paint(list) {
-      SW.dom.fill(listHost, list.map(function (p) {
-        return h('button', { type: 'button', cls: 'plist-i', 'aria-pressed': selected === p.id ? 'true' : 'false', on: { click: function () { select(p.id); } } },
-          h('span', { cls: 'mono plist-id', text: p.id }), h('span', { cls: 'tag mono', text: 'v' + p.version }), h('span', { cls: 'plist-p muted small', text: p.purpose }));
-      }));
-    }
-    SW.dom.fill(listHost, ui.loading());
-    store.loadPrompts().then(function (l) {
-      if (!l.length) SW.dom.fill(listHost, ui.noData('Der Server liefert noch keine Prompts.'));
-      else paint(l);
-    }, function (err) { SW.dom.fill(listHost, ui.errorBox(err.message)); });
-
-    return {
-      title: 'Prompts',
-      el: h('div', { cls: 'stack' },
-        h('div', { cls: 'page-h' }, h('div', { cls: 'grow' }, h('h1', { text: 'Prompts' }), h('p', { cls: 'page-sub', text: 'Versionierte Prompts der Analysekette. Jeder Lauf protokolliert ID, Version und Hash des verwendeten Prompts.' }))),
-        h('div', { cls: 'split' }, h('section', { cls: 'card', 'aria-label': 'Promptliste' }, listHost), h('section', { cls: 'card card-b', 'aria-label': 'Promptdetail' }, detailHost)))
-    };
   };
 })();
