@@ -1,9 +1,9 @@
 /* Tab Bericht: Gutachten-Darstellung und Diagramme. Keine Inline-Styles, nur Klassen und CSS-Variablen. */
-.report-body { max-width: 62rem; line-height: 1.6; }
+.report-body { max-width: none; line-height: 1.6; }
 .report-body .md-h1 { font-size: 24px; margin-top: 4px; }
 .report-body .md-h2 { font-size: 18px; margin-top: 30px; padding-bottom: 5px; border-bottom: 2px solid var(--accent); color: var(--accent-text); }
 .report-body .md-h3 { font-size: 15px; margin-top: 20px; color: var(--ink); }
-.report-body .md-p { max-width: 70ch; }
+.report-body .md-p { max-width: none; }
 .report-body .md-table th { white-space: nowrap; }
 .report-body .md-quote { font-size: 13.5px; }
 .rp-toc { display: flex; flex-wrap: wrap; gap: 6px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }

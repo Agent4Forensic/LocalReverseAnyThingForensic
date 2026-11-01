@@ -307,8 +307,14 @@
       withFiles.addEventListener('change', function () {
         link.setAttribute('href', api.href('/jobs/' + encodeURIComponent(s.id) + '/export', { include_files: withFiles.checked ? 1 : 0 }));
       });
+      var rpBase = '/jobs/' + encodeURIComponent(s.id) + '/replay';
+      var replay = h('a', { cls: 'btn sm', href: api.href(rpBase, { include_sample: withFiles.checked ? 1 : 0 }), download: '',
+        title: 'Ordner (ZIP) mit Skript: run_replay.cmd öffnet ein Terminal und vollzieht jede Umwandlung Schritt für Schritt nach, mit Hash-Prüfung, bis zur Antwort. Die Probe wird dabei nie ausgeführt.' }, icon('arrowdown'), 'Nachvollzug-Skript');
+      withFiles.addEventListener('change', function () {
+        replay.setAttribute('href', api.href(rpBase, { include_sample: withFiles.checked ? 1 : 0 }));
+      });
       return h('span', { cls: 'row', title: 'ZIP mit Daten, Audit-Kette, Bericht und Prüfsummen. Eine Kopie bleibt im Projektordner unter data/exports/. Mit Sample nur für harmlose Proben oder geschützte Ablage.' },
-        link, h('label', { cls: 'chk small' }, withFiles, ' mit Sample'));
+        link, replay, h('label', { cls: 'chk small' }, withFiles, ' mit Sample'));
     }
     function importChecks(imp) {
       var c = imp.checks || {};
