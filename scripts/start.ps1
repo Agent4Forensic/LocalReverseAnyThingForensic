@@ -285,7 +285,15 @@ try {
     }
     $ownerPid = 0
     for ($i = 0; $i -lt 10 -and $ownerPid -eq 0; $i++) { $ownerPid = Get-PortOwner $OllamaPort; if ($ownerPid -eq 0) { Start-Sleep -Milliseconds 500 } }
-    if ($ownerPid -eq 0) { Exit-Fail 'OLLAMA' "nothing listens on port $OllamaPort" }
+    if ($ownerPid -eq 0) {
+        # netstat drops the row now and then (seen while Docker Desktop boots). If the API answers, our own ollama
+        # (the only ollama.exe under the tools dir) is the owner; otherwise nothing listens and we stop.
+        $apiOk = $false
+        try { $null = Get-Json "$OllamaUrl/api/version"; $apiOk = $true } catch { }
+        $own = @(Get-Process -Name ollama -ErrorAction SilentlyContinue | Where-Object { $_.Path -and (Test-UnderTools $_.Path) })
+        if ($apiOk -and $own.Count -eq 1) { $ownerPid = $own[0].Id; Write-Stage 'OLLAMA' "netstat shows no listener; API answers, taking pid $ownerPid from the process list" 'WARN' }
+        else { Exit-Fail 'OLLAMA' "nothing listens on port $OllamaPort (api answers: $apiOk, own ollama processes: $($own.Count))" }
+    }
     $op = Get-Process -Id $ownerPid
     if (-not $op.Path -or -not (Test-UnderTools $op.Path)) { Exit-Fail 'OLLAMA' "port $OllamaPort is held by a foreign process ($($op.Name), pid $($op.Id)); not touching it" }
     @{ pid = $op.Id; name = $op.Name; started = (Get-Date).ToString('s') } | ConvertTo-Json -Compress | Set-Content (Join-Path $RunDir 'ollama.pid') -Encoding ASCII
