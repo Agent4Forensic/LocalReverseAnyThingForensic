@@ -309,9 +309,9 @@ Quelle: `docs/review/code-review/SUMMARY.md` (Stellen, Modelle, Nachweis je Fund
 - [!] Modell-Pins mit Digest (F-13): Die Digests lassen sich nur mit einem Netzzugriff beim Pull ermitteln. Freigabe und Vorgehen klären.
 
 ### Belegzwang (zuerst)
-- [ ] F-01 kritisch: `grep` gibt das Modell-Muster in der Ausgabe zurück, daraus entsteht ein `confirmed`-Beleg (`dev_gateway.py:712,724`, `verifier.py:51,78`). Test über den vollen Weg (Gateway, Verifier, Antwort), dann Muster aus der Evidence-Prüfung ausnehmen oder nicht echoen.
+- [x] F-01 kritisch (behoben in `verifier.py`, ADR-0011): `grep` gibt das Modell-Muster in der Ausgabe zurück, daraus entsteht ein `confirmed`-Beleg (`dev_gateway.py:712,724`, `verifier.py:51,78`). Test über den vollen Weg (Gateway, Verifier, Antwort), dann Muster aus der Evidence-Prüfung ausnehmen oder nicht echoen.
 - [ ] F-02 Zitat muss zur Aussage passen; `MIN_QUOTE` von 4 auf den im Prompt versprochenen Wert (`verifier.py:16,49-58`).
-- [ ] F-03 Antwortprüfung: Werte jeder Antwort an Belege binden, nicht nur `WORD{...}` (`engine.py:436`, `runner.py:252`). Wartet auf die andere Sitzung.
+- [~] F-03 Antwortprüfung (Werte mit Buchstaben und Ziffern geprüft, ADR-0011): Werte jeder Antwort an Belege binden, nicht nur `WORD{...}` (`engine.py:436`, `runner.py:252`). Wartet auf die andere Sitzung.
 - [ ] F-04 IOC-Liste aus geprüften Zitaten, nicht aus dem Aussagetext (`builder.py:139-143`). Wartet auf die andere Sitzung.
 
 ### Ressourcen und Robustheit
@@ -361,3 +361,63 @@ Offen:
 - [ ] Security-Review vom 2026-10-31, niedrig und bewusst offen: Image-Label in `detect` nicht geprüft, Rohergebnis ohne eigenen Hash in Evidence, abgeschnittenes tar von `jadx` nicht erkannt, Listen in `meta` ungedeckelt, `xor_single_byte key=N` zählt nicht zum Schlüssellimit, kein Gesamtbudget in `ExportAll.java`. Python 3.11.9 bleibt, `parse_jadx_tar` fängt die negative tar-Größe selbst ab.
 
 Risiko: Die Container auf dem Entwicklungsrechner ersetzen die Hyper-V-VM nicht. Abweichungen von den ADR-Vorgaben stehen in ADR-0006, Abschnitt Umsetzung.
+
+## Probleme aus Job J-0001, Beispiel 03-pe-appended-config (von Jan gemeldet, 2026-11-01)
+Beobachtung aus dem Dashboard, im Code gegengeprüft und auf `fix/job-j0001-findings` behoben, Entscheidungen in [ADR-0011](adr/0011-deterministische-schritte-und-nachlauf.md). Messlauf: 26 min 42 s, 36 Modellaufrufe, 19 von 23 Aufgaben, 4 wegen Budget übersprungen, Status "Teilweise", Header "Beispiel 03: nicht bestanden".
+
+### P1 Falsches Ergebnis und Ursache in der Kette
+- [x] Q2 im Bericht lautet `BENC-42`, richtig ist `BENCH-42` (H fehlt). Q1 (`KERNEL32.dll`) stimmt. Dekodiertes JSON laut Code-Tab (EV-000014): `{"server": "http://example.invalid/beacon", "id": "BENCH-42"}`.
+- [x] `decode_layer` T-000012: Offset 0x800 mit Präfix `CFG:` scheitert (0x3a außerhalb des Base64-Alphabets). Richtig erst T-000024 (Offset 2052 = 0x804, 84 Byte zu 61 Byte, `derived/layer01.bin`). Maßnahme: Präfix (`CFG:` usw.) automatisch erkennen und abtrennen; Vorschau (ASCII und Hex) des Ergebnisses in den Beleg schreiben.
+- [x] Modell hat den Wert im Kopf dekodiert (F-000054 `BENC-42`), nicht aus dem Decode-Beleg gelesen. Maßnahme: nach jedem Decode automatisch `identify_type`, `strings_extract` und JSON-Parse auf das neue Artefakt, ohne Modell.
+- [x] Bericht meldet "0 Artefakte analysiert", obwohl `derived/layer01.bin` per `identify_type`/`hash_file` geprüft wurde. Zählung prüfen.
+
+### P2 Verifier und Befundlogik
+- [x] Verifier prüft nur, ob das Zitat wörtlich im Beleg steht, nicht ob der behauptete Wert daraus folgt. F-000054 (`BENC-42`) zitiert nur den Base64-String (EV-000005) und wurde "bestätigt". Maßnahme: abgeleitete Werte müssen im Ausgabe-Beleg eines Decode-Werkzeugs stehen.
+- [x] F-000049 (`BENCH-42`, richtig) und F-000048 wurden herabgestuft ("quote not found verbatim in the evidence"). Maßnahme: Zitat aus dem Beleg übernehmen, tolerant gegen Whitespace und Escaping.
+- [x] F-000036 "keine Konfigurationsstrukturen" ist bestätigt und widerspricht F-000013 (Konfiguration gefunden). Widerspruch F-000046 erkannt, nicht aufgelöst. Zwei Werte zum selben Feld (`BENC-42`/`BENCH-42`) blockieren den Abschluss nicht. Maßnahme: Widerspruch zum selben Feld blockiert den Abschluss, bis ein deterministischer Beleg einen Wert widerlegt.
+
+### P3 Effizienz und Budget
+- [~] Redundante Aufgaben zum selben Dekodierproblem (für das PE-Overlay behoben, Skripte und Ressourcen offen): T-000018, 19, 22, 23, 24. Übersprungen wurden u. a. T-000021 "Answer Q2". Maßnahme: deterministische Schritte vor die Modellplanung ziehen.
+- [x] Anzeige "0 Token ein / 0 aus" passt nicht zu 36 Modellaufrufen (Zähl- oder Anzeigefehler).
+
+### P4 Offene Punkte werden nicht bereinigt
+- [x] Doppelte GAP-Einträge (F-000016, 22, 31, 34, 37, 40, 43) bleiben offen, obwohl Q2 als beantwortet gilt; F-000012, F-000014, F-000021 usw. stehen weiter als offene Fragen/Hypothesen. Maßnahme: Gaps deduplizieren und bei beantworteter Zielfrage automatisch schließen.
+- [x] Packing-Hypothesen F-000010/F-000011 (Entropie `.data` 7,59, 1 Import) ohne Klärung.
+- [!] Nachlauf append-only (umgesetzt als `--follow-up`, auf der echten Datenbank noch nicht ausgeführt, siehe unten): neuer Beleg für `layer01.bin`, neuer Befund `id=BENCH-42`, F-000054 und F-000045 als widerlegt markieren, Q2 neu beantworten, Status partial zu complete.
+
+### P5 Ghidra-Ergebnisse fehlen im Bericht
+- [x] Bericht enthält nur Einzeiler (F-000032, F-000033). EV-000010: nur `0x401010 | 17 | entry | undefined entry(void)`. EV-000011: nur Signatur `void entry(void)` und Warnung "bad instruction data", kein Rumpf. Keine Disassembly erhoben (Werkzeug fehlt im Rezept `exe`).
+- [x] Bestätigt durch `example/samples.py` und `test_entry_point_of_the_sample_is_a_nop_sled_without_ret`, nicht durch einen Werkzeugbeleg: 0x401010 = Dateioffset 0x210; Bereich 0x200 bis 0x3ff ist komplett 0x90 (NOP) ohne `ret`, daher leere Dekompilierung und `.text`-Entropie 0,000. Erst prüfen, dann als Befund führen.
+- [x] Rezept `exe`: Werkzeug `disassemble` ergänzen; neuer Berichtsabschnitt "R6 Code-Auszüge (Ghidra)" mit Funktionstabelle, Disassembly, Pseudo-Code, Beleg-ID, Version, SHA-256 und Warn-Callout.
+- [x] Code-Tab: dritte Ansicht "Ghidra" (Funktionsliste, Disassembly neben Pseudo-Code, Sprung VA zu RVA zu Dateioffset im Hexdump).
+
+### P6 Darstellung von Code und Belegen
+- [x] `pre.ev-prev`: `max-height: 4.6em`, `overflow: hidden`, graue Schrift, kein Hintergrund. Ausgabe wird abgeschnitten, Code ist kaum vom Text zu unterscheiden. Maßnahme: ohne Höhenbegrenzung oder mit `<details>`; Druck und Export ohne `max-height`.
+- [x] Hashes, Offsets, Adressen, Zitate und dekodierte Werte stehen im Bericht als Fließtext. Warnungen (z. B. "bad instruction data") sind keine eigenen Callouts. Kein Syntax-Highlighting, keine Zeilennummern, keine Kopieren-Buttons, keine Kopfzeile mit Beleg-ID, Hash und Werkzeugversion.
+- [x] CSS: `.codeblock` mit Kopfzeile, Zeilennummern, Token-Farben und Callouts; `mark.val` für dekodierte Werte.
+
+### P7 Platznutzung der Webseite
+- [x] Inhalt nutzt nur etwa 830 px Breite links, rechts bleibt auf großen Bildschirmen viel Platz leer; Hexdump, Belegtabelle und Bericht werden zu schmal (Umbruch oder Abschneiden). Maßnahme: `max-width` des Hauptbereichs entfernen oder auf 1600 bis 1800 px erhöhen; Code-Tab als zwei Spalten (Hexdump | Ghidra und Befunde); Belegtabelle volle Breite.
+- [x] Live-Aktivität und Ergebnis-Banner brauchen oben viel Höhe. Maßnahme: Live-Aktivität nach Abschluss standardmäßig eingeklappt, Banner kompakter.
+
+### Ergebnis der Behebung (2026-11-01)
+Ursachen, im Code bestätigt:
+- `BENC-42`: Die Prüfung verglich nur das Zitat, nicht den Wert der Aussage. Das Modell zitierte den Base64-Text und nannte einen selbst dekodierten Wert.
+- „0 Token“: `/activity` lieferte die Felder nie, und `agents.py` zeichnete keine Token auf. Für J-0001 stehen 212699 ein und 37489 aus in den Schritten; die Hilfsagenten des Laufs fehlen darin.
+- „0 Artefakte“: Es zählten nur vertieft analysierte Dateien. `layer01.bin` ist Text und wird nur triagiert. Der Bericht nennt jetzt beides.
+- „Werkzeug fehlt im Rezept“ traf nicht zu: `disassemble` steht in `ghidra_full`, das Modell rief es nur nicht auf. Die Plattform erhebt es nun selbst, sofern das Image vorhanden ist.
+
+Geprüft:
+- Testlauf `tests/unit tests/forensic tests/security tests/integration tests/ctf`: 3 Fehler, alle in `test_bundle.py` und bereits vor dieser Arbeit vorhanden (siehe unten). Neu: `tests/unit/test_job_findings.py`, `tests/unit/test_webui_report_view.py`.
+- Nachlauf auf einer Kopie von J-0001: Status `done`, Q2 `BENCH-42` aus F-000064, F-000045 und F-000054 widerlegt, 19 Punkte geschlossen, Audit-Kette gültig (733 Einträge), Beginn, Ende und Dauer unverändert. F-000046 und F-000047 bleiben offen, weil ihr Text weder ein dekodiertes Feld noch das Overlay nennt; die 4 übersprungenen Aufgaben, darunter die Synthese, sind nicht nachgeholt.
+- Dashboard gegen das echte Backend auf dieser Kopie (Headless-Edge, 1920 px): Bericht mit R6, Tab Ghidra ohne Image mit Grund, Aktivität mit Token: 0 Konsolenfehler, keine horizontale Scrollleiste. Mit Mock-Daten auch 390 px, hell und dunkel.
+- Code-Review des Backend-Diffs (eigener Agent): Die bestätigten Funde sind behoben und mit Tests abgesichert, darunter Teilwerte als Beleg, Zitate nur aus Escapes, Antwort über frei gewählte JSON-Schlüssel der Probe und zu breites Schließen von Lücken. Bewusst nicht behoben: der Schutz des Nachlaufs prüft nur den angegebenen Port (eine App auf anderem Port erkennt er nicht), `except OSError` in `Store.emit` (ist F-08, braucht ADR und Freigabe). Die Speicherbedenken bei `locate_quote` treffen nicht zu, Werkzeugausgaben sind auf 20000 Zeichen begrenzt.
+
+Offen und nicht geprüft:
+- [!] **Nachlauf auf dem echten J-0001 steht aus:** Die App lief auf Port 8765 mit `data/`, und der Nachlauf verweigert dann den Start, weil zwei Schreiber die Audit-Kette brechen würden. Nach `scripts\stop.ps1`: `$env:PYTHONPATH="src"; .venv\Scripts\python.exe -m sw_analyst --follow-up J-0001`. Die deutschen Texte neuer Befunde bleiben dabei unübersetzt (`[EN]`), weil der Nachlauf kein Modell nutzt.
+- [ ] Die laufende App lädt den Python-Code erst nach einem Neustart neu; die statischen Dateien liefert sie schon in der neuen Fassung.
+- [ ] Kein Modelllauf mit dem neuen Stand. Die strengere Prüfung stuft mehr Befunde herab; die Wirkung ist nicht gemessen. Beispiel 03 prüft nun vor allem die Plattform (ADR-0011).
+- [ ] Disassembly im Bericht nur mit Testdaten geprüft: Auf dem Rechner sind derzeit keine `sw-analyst`-Images vorhanden.
+- [ ] Deterministisches Dekodieren nur für das PE-Overlay, nicht für Skripte und Ressourcen.
+- [ ] `tests/unit/test_bundle.py` (3 Fehler, nur unter Windows): Der Pfad zur Datei in `tool-cache` im Temp-Ordner von pytest ist 274 Zeichen lang und überschreitet die Grenze von 259. Im Projektordner sind es 232 Zeichen, ein echter Import funktioniert dort. Ein tieferer Installationsort würde aber scheitern, mit der irreführenden Meldung `io_error`.
+- [ ] Security-Review vor dem Merge nach `main` (CLAUDE.md, Arbeitsweise 9).
