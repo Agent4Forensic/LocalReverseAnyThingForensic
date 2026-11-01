@@ -9,6 +9,13 @@
   var store = SW.store;
   var ui = SW.ui;
 
+  /* Status-Label eines Befunds: "closed" = geschlossene Luecke, "rejected" mit Grund "refuted ..." = widerlegt. */
+  fmt.findingBadge = function (f) {
+    if (f.status === 'closed') return fmt.badge('closed', 'Geschlossen');
+    if (f.status === 'rejected' && /^refuted/i.test(f.reject_reason || '')) return fmt.badge('rejected', 'Widerlegt');
+    return fmt.badge(f.status);
+  };
+
   /* =================== Live-Bericht =================== */
   function questionCard(st, a) {
     var matchBadge = a.match === true
@@ -29,12 +36,13 @@
   function findingCard(st, f, target) {
     var fresh = store.freshAge(st, 'f:' + f.id) !== null;
     return h('article', { cls: ['fcard', 'f-' + f.status, fresh ? 'is-fresh' : '', target ? 'is-target' : ''], id: 'f-' + f.id, tabindex: '-1' },
-      h('div', { cls: 'row' }, h('span', { cls: 'mono fid', text: f.id }), fmt.badge(f.status), h('span', { cls: 'grow' }),
+      h('div', { cls: 'row' }, h('span', { cls: 'mono fid', text: f.id }), fmt.findingBadge(f), h('span', { cls: 'grow' }),
         f.task_id ? h('a', { cls: 'small mono', href: ui.tabHref(st.id, 'tree', { task: f.task_id }), text: 'Aufgabe ' + f.task_id }) : null),
       h('p', { cls: 'fstmt', text: f.statement_de || f.statement_en }),
       f.statement_de && f.statement_en ? h('details', { cls: 'step-prev' }, h('summary', { text: 'Englisches Original' }), h('p', { cls: 'small', text: f.statement_en })) : null,
-      f.status === 'rejected' && f.reject_reason ? h('div', { cls: 'notice tone-err', role: 'note' }, icon('xcircle'), h('p', { text: 'Verworfen: ' + f.reject_reason })) : null,
+      f.status === 'rejected' && f.reject_reason ? h('div', { cls: 'notice tone-err', role: 'note' }, icon('xcircle'), h('p', { text: (/^refuted/i.test(f.reject_reason) ? 'Widerlegt: ' : 'Verworfen: ') + f.reject_reason })) : null,
       f.status === 'hypothesis' ? h('p', { cls: 'small muted', text: 'Hypothese: nicht bestätigt und nicht Grundlage einer Antwort.' }) : null,
+      f.status === 'closed' ? h('p', { cls: 'small muted', text: 'Geschlossene Lücke: Die offene Frage wurde durch spätere Belege geklärt.' }) : null,
       (f.quotes || []).length ? h('div', { cls: 'quotes' }, f.quotes.map(function (q) {
         return h('blockquote', { cls: 'quote' }, h('code', { text: q.quote }), ' ', ui.evidenceChip(st.id, q.evidence_id));
       })) : null,
@@ -61,7 +69,7 @@
         var c = counts();
         SW.dom.fill(segHost, ui.seg('Befunde filtern', [
           ['all', 'Alle (' + c.all + ')'], ['confirmed', 'Bestätigt (' + (c.confirmed || 0) + ')'], ['hypothesis', 'Hypothese (' + (c.hypothesis || 0) + ')'],
-          ['open', 'Offen (' + (c.open || 0) + ')'], ['rejected', 'Verworfen (' + (c.rejected || 0) + ')']
+          ['open', 'Offen (' + (c.open || 0) + ')'], ['closed', 'Geschlossen (' + (c.closed || 0) + ')'], ['rejected', 'Verworfen (' + (c.rejected || 0) + ')']
         ], filter, function (v) { filter = v; paintFindings(); }));
       }
       function paintQuestions() {

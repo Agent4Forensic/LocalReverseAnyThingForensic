@@ -82,10 +82,79 @@
     var head = 'DEMO-BLOB\u0000\u0001\u0002'.split('');
     for (i = 0; i < 256; i++) BIN.push(i < head.length ? head[i].charCodeAt(0) & 255 : (i * 7 + 3) & 255);
   })();
-  function hexdump() {
+  /* Winziges PE (nur Kopf + .text + .bss) fuer die Ghidra-Ansicht; Image-Basis 0x400000, .text VA 0x1000 = Dateioffset 0x200. */
+  var PE = [];
+  (function () {
+    var i;
+    for (i = 0; i < 0x400; i++) PE.push(i >= 0x200 ? 0x90 : 0);
+    function w16(o, v) { PE[o] = v & 255; PE[o + 1] = (v >> 8) & 255; }
+    function w32(o, v) { w16(o, v & 0xffff); w16(o + 2, (v >>> 16) & 0xffff); }
+    w16(0, 0x5a4d); w32(0x3c, 0x80);
+    w32(0x80, 0x4550); w16(0x84, 0x14c); w16(0x86, 2); w16(0x94, 0xe0); w32(0x98 + 60, 0x200);
+    var sec = 0x98 + 0xe0;
+    '.text'.split('').forEach(function (c, k) { PE[sec + k] = c.charCodeAt(0); });
+    w32(sec + 8, 0x100); w32(sec + 12, 0x1000); w32(sec + 16, 0x200); w32(sec + 20, 0x200);
+    '.bss'.split('').forEach(function (c, k) { PE[sec + 40 + k] = c.charCodeAt(0); });
+    w32(sec + 40 + 8, 0x1000); w32(sec + 40 + 12, 0x2000);
+    [0x55, 0x8b, 0xec, 0x83, 0xec, 0x10, 0xb8, 0x2a, 0x00, 0x00, 0x00, 0x89, 0x45, 0xfc, 0xc9, 0xc3].forEach(function (b, k) { PE[0x200 + k] = b; });
+    [0x31, 0xc0, 0xc3].forEach(function (b, k) { PE[0x220 + k] = b; });
+  })();
+  var PE_PATH = 'derived/demo_pe.exe';
+  var GH_FN = {
+    entry: { name: 'entry', entry: '00401000', size: 16, signature: 'void entry(void)', thunk: false,
+      disasm: [['00401000', '55', 'PUSH EBP'], ['00401001', '8b ec', 'MOV EBP,ESP'], ['00401003', '83 ec 10', 'SUB ESP,0x10'], ['00401006', 'b8 2a 00 00 00', 'MOV EAX,0x2a'], ['0040100b', '89 45 fc', 'MOV dword ptr [EBP + -0x4],EAX ; lokale Variable'], ['0040100e', 'c9', 'LEAVE'], ['0040100f', 'c3', 'RET']],
+      decompiled: 'void entry(void)\n\n{\n  int local_8;\n  \n  local_8 = 0x2a;\n  return;\n}' },
+    helper: { name: 'helper', entry: '00401020', size: 3, signature: 'int helper(void)', thunk: false,
+      disasm: [['00401020', '31 c0', 'XOR EAX,EAX'], ['00401022', 'c3', 'RET']], decompiled: 'int helper(void)\n\n{\n  return 0;\n}' },
+    __thunk: { name: 'thunk_EXIT', entry: '00402000', size: 6, signature: 'void thunk_EXIT(void)', thunk: true, disasm: [], decompiled: '' }
+  };
+  function bytesFor(path) {
+    if (path === PE_PATH) return PE;
+    if (path === 'derived/blob_demo.bin') return BIN;
+    return null;
+  }
+  function hexRows(bytes, offset, length) {
+    var rows = [];
+    for (var o = offset - (offset % 16); o < Math.min(bytes.length, offset + length); o += 16) {
+      var chunk = bytes.slice(o, o + 16);
+      rows.push({ offset: o, hex: chunk.map(function (b) { return ('0' + b.toString(16)).slice(-2); }).join(' '), ascii: chunk.map(function (b) { return b >= 32 && b < 127 ? String.fromCharCode(b) : '.'; }).join('') });
+    }
+    return rows;
+  }
+  function inspect(job, sub, q) {
+    var path = q.path || 'sample';
+    var bytes = bytesFor(path);
+    if (!bytes) throw fail(404, 'not_found', 'Datei ' + path + ' ist nicht Teil dieses Auftrags (Mock hat Ghidra-Daten nur für ' + PE_PATH + ')');
+    var isPe = path === PE_PATH;
+    if (sub === 'inspect') {
+      return { path: path, size: bytes.length, sha256: fakeHash(path), kind: { label: isPe ? 'Windows-PE (EXE/DLL)' : 'Unbekannte Binärdaten', machine_code: isPe },
+        location: 'mock/' + path, is_sample: false,
+        code: { available: isPe, reason: isPe ? '' : 'Kein Maschinencode: Assembler und Pseudocode gibt es nur für PE, ELF und Mach-O.', tool: 'Ghidra (Container, offline)' },
+        files: files(job).map(function (f) { return { path: f.path, size: f.size }; }) };
+    }
+    if (sub === 'inspect/hex') {
+      var off = Math.max(0, parseInt(q.offset || '0', 10) || 0);
+      var len = Math.max(16, Math.min(parseInt(q.length || '1024', 10) || 1024, 65536));
+      return { path: path, size: bytes.length, offset: off, length: Math.min(len, bytes.length - off), rows: hexRows(bytes, off, len) };
+    }
+    if (!isPe) throw fail(409, 'no_ghidra', 'Kein Maschinencode');
+    if (sub === 'inspect/functions') {
+      var fns = ['entry', 'helper', '__thunk'].map(function (k) { var f = GH_FN[k]; return { name: f.name, entry: f.entry, size: f.size, signature: f.signature, thunk: f.thunk, instructions: f.disasm.length, decompiled: !!f.decompiled }; });
+      return { path: path, tool_version: 'ghidra-12.1.4', program: { format: 'Portable Executable (PE)', language: 'x86:LE:32:default', compiler: 'windows', image_base: '00400000', entry: '00401000' }, functions: fns, total: fns.length, truncated: false };
+    }
+    var key = ['entry', 'helper', '__thunk'].filter(function (k) { return GH_FN[k].name === q['function'] || GH_FN[k].entry === q['function']; })[0];
+    if (!key) throw fail(404, 'not_found', 'Funktion nicht gefunden');
+    var g = GH_FN[key];
+    return { path: path, tool_version: 'ghidra-12.1.4', name: g.name, entry: g.entry, size: g.size, signature: g.signature, thunk: g.thunk,
+      disasm: g.disasm.map(function (r) { return { address: r[0], bytes: r[1], text: r[2], explain: 'Mock-Erklärung zu ' + r[2].split(' ')[0] }; }),
+      disasm_truncated: false, decompiled: g.decompiled, blocks: 1,
+      findings: key === 'entry' ? [{ id: 'F001', status: 'confirmed', statement_de: 'Mock-Befund zur Einstiegsfunktion (0x401000).', statement_en: 'Mock finding about the entry function.', evidence_ids: ['EV-000001'] }, { id: 'F010', status: 'closed', statement_de: 'Geschlossene Lücke: Rückgabewert 0x2a geklärt.', statement_en: 'Closed gap.', evidence_ids: [] }] : [] };
+  }
+  function hexdump(bytes) {
+    bytes = bytes || BIN;
     var lines = [];
-    for (var off = 0; off < BIN.length; off += 16) {
-      var chunk = BIN.slice(off, off + 16);
+    for (var off = 0; off < bytes.length; off += 16) {
+      var chunk = bytes.slice(off, off + 16);
       var hex = chunk.map(function (b) { return ('0' + b.toString(16)).slice(-2); }).join(' ');
       var asc = chunk.map(function (b) { return b >= 32 && b < 127 ? String.fromCharCode(b) : '.'; }).join('');
       lines.push(('00000000' + off.toString(16)).slice(-8) + '  ' + (hex + new Array(49).join(' ')).slice(0, 47) + '  |' + asc + '|');
@@ -457,6 +526,10 @@
     var j2 = newJob('job-0002', 'CTF-Test: Mehrfach kodiertes Skript (abgeschlossen)', 'done', NOW0 - 40 * 60e3, demoSpec('CTF-Test: Mehrfach kodiertes Skript (abgeschlossen)', true), 'crackme.py');
     j2.startedMs = NOW0 - 40 * 60e3 + 3000;
     buildScenario(j2, 'done');
+    [['F010', 'closed', null, 'Geschlossene Lücke: Die Frage nach der zweiten Kodierungsstufe ist durch EV-000005 geklärt.'],
+     ['F011', 'rejected', 'refuted: EV-000006 zeigt match: true, die Annahme „CHECK passt nicht“ ist widerlegt.', 'Der SHA-256 der Flagge weicht von CHECK ab.']].forEach(function (d) {
+      j2.findings.push({ id: d[0], task_id: 'T009', statement_en: d[3], statement_de: d[3], status: d[1], reject_reason: d[2], evidence_ids: ['EV-000006'], quotes: [], created_at: iso(j2.finishedMs) });
+    });
 
     var j3 = newJob('job-0003', 'CTF-Test: Mehrfach kodiertes Skript', 'running', NOW0 - 3 * 60e3, demoSpec('CTF-Test: Mehrfach kodiertes Skript', true), 'crackme.py');
     j3.startedMs = NOW0 - 24000;
@@ -530,6 +603,27 @@
       return { task_id: t.id, title: t.title, origin: t.origin, status: t.status, priority: t.priority, reason: t.reason, position: i + 1 };
     });
   }
+  var PHASE_IDS = ['triage', 'planning', 'analysis', 'evaluation', 'prioritization', 'translation', 'finalizing'];
+  function activity(job) {
+    var fin = job.status !== 'running' && job.status !== 'queued';
+    var all = [];
+    Object.keys(job.steps).forEach(function (k) { job.steps[k].forEach(function (st) { all.push(st); }); });
+    all.sort(function (a, b) { return Date.parse(b.started_at) - Date.parse(a.started_at); });
+    var run = job.tasks.filter(function (t) { return t.status === 'running'; })[0];
+    var last = all[0];
+    var q = queue(job).filter(function (x) { return x.status === 'pending'; });
+    return {
+      state: fin ? 'finished' : job.status === 'running' ? 'working' : 'idle',
+      phase: fin ? 'finalizing' : 'analysis',
+      phases: PHASE_IDS.map(function (id, i) { return { id: id, state: fin || i < 2 ? 'done' : i === 2 ? 'cur' : 'open', count: i < 3 ? all.length : 0 }; }),
+      model: { name: 'qwen3:14b', tokens_in: all.length * 812, tokens_out: all.length * 96 },
+      task: run ? { id: run.id, title: run.title, goal: run.reason, origin: run.origin, started_at: run.started_at, elapsed_ms: Date.now() - Date.parse(run.started_at) } : null,
+      step: run && last ? { kind: last.kind, tool: last.tool, what: last.what, how: last.how, why: last.why, started_at: last.started_at, elapsed_ms: 0, input_preview: last.input_preview } : null,
+      next: q.slice(0, 3), queue_length: q.length,
+      recent: all.slice(0, 10).map(function (st) { return { status: st.status, ts: st.started_at, kind: st.kind, what: st.what, duration_ms: st.duration_ms }; }),
+      end: fin ? { status: job.status, finished_at: job.finishedMs ? iso(job.finishedMs) : null, reason: '', summary_de: job.tasks.length + ' Aufgaben, ' + job.findings.length + ' Befunde.' } : null
+    };
+  }
   function jobSpec(job) {
     var s = clone(job.spec);
     s.target_questions = (s.target_questions || []).map(function (q) {
@@ -545,6 +639,7 @@
     if (job.evidence['EV-000004']) list.push({ path: 'derived/stage1_rot13.txt', kind: 'derived', size: B64.length + 1, sha256: fakeHash('stage1') });
     if (job.evidence['EV-000005']) list.push({ path: 'derived/stage2_flag.txt', kind: 'derived', size: FLAG.length + 1, sha256: fakeHash('stage2') });
     list.push({ path: 'derived/blob_demo.bin', kind: 'derived', size: BIN.length, sha256: fakeHash('blob') });
+    list.push({ path: PE_PATH, kind: 'derived', size: PE.length, sha256: fakeHash('demo_pe') });
     return list;
   }
   function fileContent(job, q) {
@@ -554,6 +649,7 @@
     else if (path === 'derived/stage1_rot13.txt') all = [B64];
     else if (path === 'derived/stage2_flag.txt') all = [FLAG];
     else if (path === 'derived/blob_demo.bin') { all = hexdump(); binary = true; }
+    else if (path === PE_PATH) { all = hexdump(PE); binary = true; }
     else throw fail(404, 'not_found', 'Datei nicht gefunden: ' + path);
     var start = Math.max(1, parseInt(q.start || '1', 10) || 1);
     var end = Math.min(all.length, parseInt(q.end || String(start + 399), 10) || all.length);
@@ -602,6 +698,26 @@
       f.quotes.forEach(function (q) { out.push('\n> ' + q.evidence_id + ': `' + q.quote + '`'); });
       out.push('');
     });
+    if (job.status !== 'queued') {
+      out.push('## ' + L('R6 Code-Auszüge (Ghidra)', 'R6 Code excerpts (Ghidra)'));
+      out.push('> [!WARNING] ' + L('Ghidra meldet „bad instruction data“ bei 0x401010; der Bereich ist vermutlich Füllbytes (NOP).', 'Ghidra reports "bad instruction data" at 0x401010; the range is probably padding (NOP).'));
+      out.push('> [!NOTE] ' + L('Mock-Beispiel, kein echtes Sample.', 'Mock example, not a real sample.'));
+      out.push('\n```asm ev=EV-000003 tool=disassemble version=ghidra-12.1.4 sha256=' + fakeHash('asm-block'));
+      out.push('00401000  55          PUSH EBP');
+      out.push('00401001  8b ec       MOV EBP,ESP           ; Stackrahmen');
+      out.push('00401003  83 ec 10    SUB ESP,0x10');
+      out.push('00401006  b8 2a 00 00 00  MOV EAX,0x2a');
+      out.push('0040100f  c3          RET');
+      out.push('```\n');
+      out.push('```c ev=EV-000003 tool=decompile version=ghidra-12.1.4 sha256=' + fakeHash('c-block'));
+      out.push('void entry(void)  // Einstieg');
+      out.push('{');
+      out.push('  int local_8 = 0x2a;');
+      out.push('  return;');
+      out.push('}');
+      out.push('```\n');
+      out.push(L('Dekodierter Wert: ==' + FLAG + '== (aus EV-000005); Hash der Probe ', 'Decoded value: ==' + FLAG + '== (from EV-000005); sample hash ') + fakeHash('crackme.py') + L(', Einstieg bei 0x401000.', ', entry at 0x401000.') + '\n');
+    }
     out.push('## ' + L('Zeitverlauf', 'Timeline'));
     out.push('| ' + L('Aufgabe', 'Task') + ' | Status | ' + L('Dauer', 'Duration') + ' |');
     out.push('| --- | --- | --- |');
@@ -664,11 +780,13 @@
     }
     if (sub === 'findings') return clone(job.findings);
     if (sub === 'answers') return clone(job.answers);
-    if (sub === 'evidence') return job.evOrder.map(function (id) { var e = job.evidence[id]; return { id: id, task_id: e.task_id, tool: e.tool, tool_version: e.tool_version, result_sha256: e.result_sha256, size: e.size, created_at: e.created_at }; });
+    if (sub === 'evidence') return job.evOrder.map(function (id) { var e = job.evidence[id]; return { id: id, task_id: e.task_id, tool: e.tool, tool_version: e.tool_version, params: e.params, result_sha256: e.result_sha256, size: e.size, created_at: e.created_at, preview: e.text.slice(0, 400), injection_flags: e.injection_flags }; });
     if ((m = /^evidence\/([^/]+)$/.exec(sub))) {
       if (!job.evidence[m[1]]) throw fail(404, 'not_found', 'Evidence nicht gefunden');
       return clone(job.evidence[m[1]]);
     }
+    if (sub === 'activity') return activity(job);
+    if (sub === 'inspect' || sub.indexOf('inspect/') === 0) return inspect(job, sub, q);
     if (sub === 'files') return files(job);
     if (sub === 'files/content') return fileContent(job, q);
     if (sub === 'log') {

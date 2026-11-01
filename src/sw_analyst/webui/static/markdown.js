@@ -1,13 +1,18 @@
 /* Kleiner Markdown-Renderer, der ausschliesslich DOM-Knoten aufbaut (kein HTML-Parsing).
    Unterstuetzt: Ueberschriften, Absaetze, Listen (verschachtelt), Tabellen, Codebloecke,
-   Zitate, Trennlinien, Code/fett/kursiv im Text. Links werden nicht aktiv (nur #-Anker). */
+   Zitate, Trennlinien, Code/fett/kursiv im Text. Links werden nicht aktiv (nur #-Anker).
+   Bericht-Erweiterungen: Codeblock mit Infostring (asm|c|text, ev=, tool=, version=, sha256=), Callouts
+   (> [!WARNING] / > [!NOTE]), ==dekodierter Wert==, Hashes und 0x-Adressen im Fliesstext als Code. */
 (function () {
   'use strict';
   var SW = (window.SW = window.SW || {});
   var h = SW.dom.h;
 
   var EV_RE = /\bEV-\d{4,8}\b/;
-  var INLINE_RE = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(\[[^\]\n]+\]\([^)\n]*\))|(\*[^*\s][^*\n]*\*)/;
+  var INLINE_RE = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(\[[^\]\n]+\]\([^)\n]*\))|(\*[^*\s][^*\n]*\*)|(==[^=\n]+==)/;
+  /* Fliesstext: SHA-256 (64 Hex) und 0x-Adressen/Offsets werden zu <code>; mit Belegchip auch EV-IDs. */
+  var AUTO_RE = /\b[0-9a-fA-F]{64}\b|\b0x[0-9a-fA-F]{2,}\b/;
+  var AUTO_EV_RE = /\b[0-9a-fA-F]{64}\b|\b0x[0-9a-fA-F]{2,}\b|\bEV-\d{4,8}\b/;
 
   function inline(parent, text, opts) {
     var rest = String(text);
@@ -42,27 +47,136 @@
         var em = h('em');
         inline(em, tok.slice(1, -1), opts);
         parent.appendChild(em);
+      } else if (m[5]) {
+        parent.appendChild(h('mark', { cls: 'val', text: tok.slice(2, -2) }));
       }
       rest = rest.slice(m.index + tok.length);
     }
   }
 
   function plain(parent, text, opts) {
-    if (!opts || !opts.evidenceChip) {
-      parent.appendChild(document.createTextNode(text));
-      return;
-    }
+    var re = opts && opts.evidenceChip ? AUTO_EV_RE : AUTO_RE;
     var rest = text;
     while (rest.length) {
-      var m = EV_RE.exec(rest);
+      var m = re.exec(rest);
       if (!m) {
         parent.appendChild(document.createTextNode(rest));
         return;
       }
       if (m.index > 0) parent.appendChild(document.createTextNode(rest.slice(0, m.index)));
-      parent.appendChild(opts.evidenceChip(m[0]));
+      parent.appendChild(m[0].slice(0, 3) === 'EV-' ?opts.evidenceChip(m[0]) : h('code', { cls: 'md-code md-auto', text: m[0] }));
       rest = rest.slice(m.index + m[0].length);
     }
+  }
+
+  /* ---------- Codeblock: Kopfzeile, Zeilennummern, Kopieren, einfache Faerbung (nur Textknoten/Spans) ---------- */
+  var REGS = 'e?[abcd]x|r?[abcd]l|[abcd][hl]|[re]?[sd]il?|[re]?[sb]pl?|r(?:[89]|1[0-5])[dwb]?|[re]?ip|[cdefgs]s|[xy]mm\\d+|[xw]\\d{1,2}|sp|lr|pc';
+  var C_KW = 'if|else|for|while|do|return|void|int|char|short|long|unsigned|signed|struct|union|enum|goto|switch|case|default|break|continue|sizeof|const|static|byte|word|dword|qword|bool|undefined\\d?|uint|ulong|ushort|code';
+  var TOK_RE = new RegExp('(0x[0-9a-fA-F]+|\\b[0-9a-fA-F]{2,}h\\b)|(\\b\\d+\\b)|(\\b(?:' + REGS + ')\\b)|(\\b(?:' + C_KW + ')\\b)', 'gi');
+  var ASM_HEAD = /^(\s*(?:0x)?[0-9a-fA-F]{4,16}:?\s+)?((?:[0-9a-fA-F]{2}\s+)*)([A-Za-z][A-Za-z0-9.]*)(?=\s|$)/;
+  var CB_LANGS = { asm: 1, c: 1, text: 1 };
+
+  function cbSpan(parent, cls, text) {
+    if (text) parent.appendChild(cls ? h('span', { cls: cls, text: text }) : document.createTextNode(text));
+  }
+  function cbLine(parent, line, lang) {
+    if (lang === 'text') { parent.appendChild(document.createTextNode(line)); return; }
+    var ci = lang === 'asm' ? line.indexOf(';') : line.indexOf('//');
+    var code = ci >= 0 ? line.slice(0, ci) : line;
+    var cmt = ci >= 0 ? line.slice(ci) : '';
+    if (lang === 'asm') {
+      var hm = ASM_HEAD.exec(code);
+      if (hm) {
+        cbSpan(parent, 'tk-hex', hm[1] || '');
+        cbSpan(parent, 'tk-byte', hm[2] || '');
+        cbSpan(parent, 'tk-mn', hm[3]);
+        code = code.slice(hm[0].length);
+      }
+    }
+    TOK_RE.lastIndex = 0;
+    var last = 0, m;
+    while ((m = TOK_RE.exec(code))) {
+      cbSpan(parent, '', code.slice(last, m.index));
+      /* Schluesselwoerter nur in C; im Assembler sind "code"/"byte" Operandenwoerter und bleiben neutral. */
+      cbSpan(parent, m[1] ? 'tk-hex' : m[2] ? 'tk-num' : m[3] ? 'tk-reg' : lang === 'c' ? 'tk-kw' : '', m[0]);
+      last = m.index + m[0].length;
+    }
+    cbSpan(parent, '', code.slice(last));
+    cbSpan(parent, 'tk-cmt', cmt);
+  }
+  function copyButton(getText) {
+    var label = h('span', { text: 'Kopieren' });
+    var btn = h('button', { type: 'button', cls: 'btn sm ghost cb-copy', 'aria-label': 'Code in die Zwischenablage kopieren' }, label);
+    var timer = 0;
+    function say(t) {
+      label.textContent = t;
+      window.clearTimeout(timer);
+      timer = window.setTimeout(function () { label.textContent = 'Kopieren'; }, 2000);
+    }
+    btn.addEventListener('click', function () {
+      if (!navigator.clipboard || !navigator.clipboard.writeText) { say('Nicht möglich'); return; }
+      navigator.clipboard.writeText(getText()).then(function () { say('Kopiert'); }, function () { say('Nicht möglich'); });
+    });
+    return btn;
+  }
+  function parseInfo(info) {
+    var parts = info.split(/\s+/);
+    var meta = {};
+    parts.slice(1).forEach(function (kv) {
+      var i = kv.indexOf('=');
+      if (i > 0) meta[kv.slice(0, i)] = kv.slice(i + 1).slice(0, 200);
+    });
+    return { lang: parts[0].toLowerCase().slice(0, 20), meta: meta };
+  }
+  function codeblock(info, raw, opts) {
+    var lang = info.lang, meta = info.meta;
+    var lines = raw.split('\n');
+    var gutter = h('pre', { cls: 'cb-gutter', 'aria-hidden': 'true', text: lines.map(function (_, i) { return String(i + 1); }).join('\n') });
+    var code = h('code');
+    lines.forEach(function (l, i) {
+      if (i) code.appendChild(document.createTextNode('\n'));
+      cbLine(code, l, lang);
+    });
+    var evNode = meta.ev ? (opts && opts.evidenceChip && EV_RE.test(meta.ev) ? opts.evidenceChip(meta.ev) : h('span', { cls: 'tag mono', text: meta.ev })) : null;
+    var head = h('div', { cls: 'cb-head' },
+      evNode,
+      meta.tool ? h('span', { cls: 'tag mono', text: meta.tool }) : null,
+      meta.version ? h('span', { cls: 'small muted mono', text: meta.version }) : null,
+      meta.sha256 ? h('span', { cls: 'small muted mono', title: 'SHA-256 ' + meta.sha256, text: 'sha256 ' + meta.sha256.slice(0, 12) + '…' }) : null,
+      h('span', { cls: 'grow' }),
+      h('span', { cls: 'small muted', text: lines.length + (lines.length === 1 ? ' Zeile' : ' Zeilen') }),
+      copyButton(function () { return raw; }));
+    return h('div', { cls: 'codeblock', 'data-lang': lang },
+      head, h('div', { cls: 'cb-body', role: 'region', 'aria-label': 'Code' + (meta.ev ? ' aus ' + meta.ev : ''), tabindex: '0' }, gutter, h('pre', { cls: 'cb-pre' }, code)));
+  }
+
+  /* ---------- Callouts: "> [!WARNING] Text" und "> [!NOTE] Text" ---------- */
+  var CALLOUT = /^\[!(WARNING|NOTE)\]\s*(.*)$/;
+  var CALLOUT_KIND = { WARNING: ['warn', 'Warnung', 'alert'], NOTE: ['note', 'Hinweis', 'info'] };
+  function quote(q, root, opts) {
+    var seg = [];
+    function flush() {
+      if (!seg.length) return;
+      var bq = h('blockquote', { cls: 'md-quote' });
+      parseBlocks(seg, bq, opts);
+      root.appendChild(bq);
+      seg = [];
+    }
+    for (var i = 0; i < q.length; i++) {
+      var cm = CALLOUT.exec(q[i]);
+      if (!cm) { seg.push(q[i]); continue; }
+      flush();
+      var kind = CALLOUT_KIND[cm[1]];
+      var body = h('div', { cls: 'callout-b' });
+      var first = h('p', { cls: 'md-p' }, h('strong', { text: kind[1] + (cm[2] ? ': ' : '') }));
+      inline(first, cm[2], opts);
+      body.appendChild(first);
+      var more = [];
+      while (i + 1 < q.length && !CALLOUT.test(q[i + 1])) more.push(q[++i]);
+      if (more.length) parseBlocks(more, body, opts);
+      root.appendChild(h('div', { cls: 'callout ' + kind[0], role: 'note' }, SW.dom.icon(kind[2], { size: 16 }), body));
+    }
+    flush();
   }
 
   var FENCE = /^\s*```/;
@@ -106,7 +220,7 @@
         continue;
       }
       if (FENCE.test(line)) {
-        var lang = line.replace(/^\s*```/, '').trim();
+        var info = line.replace(/^\s*```/, '').trim();
         var buf = [];
         i++;
         while (i < lines.length && !FENCE.test(lines[i])) {
@@ -114,9 +228,14 @@
           i++;
         }
         i++;
+        var finfo = parseInfo(info);
+        if (CB_LANGS[finfo.lang]) {
+          root.appendChild(codeblock(finfo, buf.join('\n'), opts));
+          continue;
+        }
         var code = h('code', { text: buf.join('\n') });
         var pre = h('pre', { cls: 'md-pre', tabindex: '0' }, code);
-        if (lang) pre.setAttribute('data-lang', lang.slice(0, 20));
+        if (info) pre.setAttribute('data-lang', finfo.lang);
         root.appendChild(pre);
         continue;
       }
@@ -140,9 +259,7 @@
           q.push(lines[i].replace(/^\s*>\s?/, ''));
           i++;
         }
-        var bq = h('blockquote', { cls: 'md-quote' });
-        parseBlocks(q, bq, opts);
-        root.appendChild(bq);
+        quote(q, root, opts);
         continue;
       }
       if (line.indexOf('|') >= 0 && i + 1 < lines.length && TABLE_SEP.test(lines[i + 1]) && lines[i + 1].indexOf('-') >= 0) {

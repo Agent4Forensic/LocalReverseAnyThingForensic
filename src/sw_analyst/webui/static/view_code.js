@@ -1,5 +1,6 @@
 /* Tab Code: Quelltext/Disassembly mit KI-Anmerkungen, Hexdump fuer Binaerdaten und Modus "Lernpfad"
-   (Funktionsliste, Ablaufplan je Funktion, Randnotizen). Alle Zeilen werden nur als Text eingefuegt. */
+   (Funktionsliste, Ablaufplan je Funktion, Randnotizen) und Modus "Ghidra" (Hexdump | Funktionen, Disassembly,
+   Pseudocode, Befunde; Klick auf eine Adresse springt im Hexdump an die Stelle). Alle Zeilen nur als Text. */
 (function () {
   'use strict';
   var SW = (window.SW = window.SW || {});
@@ -18,7 +19,7 @@
       var st = ctx.st;
       var jobId = ctx.jobId;
       var dead = false;
-      var mode = ctx.route.query.mode === 'lern' ? 'lern' : 'read';
+      var mode = ctx.route.query.mode === 'lern' ? 'lern' : ctx.route.query.mode === 'ghidra' ? 'ghidra' : 'read';
       var wrap = false;
       var files = st.files;
       var fns = null;
@@ -29,11 +30,15 @@
       var stepIdx = -1;
       var fnSel = null;
       var gen = 0;
+      var gh = null;      /* Ghidra-Zustand je Datei, siehe ghEnsure() */
 
       var sideHost = h('div', { cls: 'code-side' });
       var barHost = h('div', { cls: 'stepbar-host' });
       var codeHost = h('div', { cls: 'code', role: 'region', 'aria-label': 'Quelltext', tabindex: '0' });
       var toolHost = h('div', { cls: 'code-tools row' });
+      var ghHost = h('div', { cls: 'gh' });
+      var ghMsgHost = h('div', { 'aria-live': 'polite' });
+      var splitEl = h('div', { cls: 'code-split' });
 
       /* ---------- Laden ---------- */
       function newCur(path) {
@@ -68,6 +73,7 @@
           cur = newCur(path);
           paintCode();
           paintSide();
+          if (mode === 'ghidra') { ghEnsure(); paintGh(); }
         }
         var c = cur;
         return ensure(c, upto || 1).then(function () {
@@ -116,15 +122,207 @@
       }
       function setMode(m) {
         mode = m;
-        if (m === 'lern' && !wt && wts && wts.length) selectWalkthrough(wts[0]);
+        splitEl.classList.toggle('is-ghidra', m === 'ghidra');
+        ghHost.hidden = m !== 'ghidra';
+        if (m === 'ghidra') { ghEnsure(); paintGh(); paintSide(); paintBar(); paintCode(); }
+        else if (m === 'lern' && !wt && wts && wts.length) selectWalkthrough(wts[0]);
         else { paintSide(); paintBar(); paintCode(); }
         paintTools();
+      }
+
+      /* ---------- Ghidra: Funktionen, Disassembly, Pseudocode, Sprung in den Hexdump ---------- */
+      var base = '/jobs/' + encodeURIComponent(jobId);
+
+      function parseHex(v) {
+        var t = String(v == null ? '' : v).trim().replace(/^0x/i, '');
+        if (!/^[0-9a-fA-F]{1,16}$/.test(t)) return null;
+        var n = parseInt(t, 16);
+        return n <= Number.MAX_SAFE_INTEGER ? n : null;
+      }
+      function hx(n) { return '0x' + n.toString(16); }
+      function u16(b, o) { return b[o] | (b[o + 1] << 8); }
+      function u32(b, o) { return (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0; }
+
+      /* PE-Kopf aus den ersten Bytes: Sektionstabelle (Name, VA, Groesse im Speicher, Rohoffset und Rohgroesse). */
+      function parsePE(b) {
+        if (b.length < 0x40 || b[0] !== 0x4d || b[1] !== 0x5a) return { error: 'Keine PE-Datei (MZ-Kennung fehlt). Der Sprung über die Sektionstabelle ist nur für PE umgesetzt; für ELF und Mach-O liefert die API keine Sektionen.' };
+        var pe = u32(b, 0x3c);
+        if (pe + 24 > b.length) return { need: pe + 24 };
+        if (u32(b, pe) !== 0x00004550) return { error: 'PE-Signatur nicht gefunden; der Kopf ist beschädigt.' };
+        var ns = u16(b, pe + 6);
+        var opt = pe + 24;
+        var first = opt + u16(b, pe + 20);
+        if (ns > 96) return { error: 'Ungewöhnlich viele Sektionen (' + ns + '); der Kopf wird nicht ausgewertet.' };
+        if (first + ns * 40 > b.length) return { need: first + ns * 40 };
+        var secs = [];
+        for (var i = 0, o = first; i < ns; i++, o += 40) {
+          var name = '';
+          for (var k = 0; k < 8 && b[o + k]; k++) name += String.fromCharCode(b[o + k]);
+          secs.push({ name: name || '(ohne Name)', vsize: u32(b, o + 8), va: u32(b, o + 12), rawsize: u32(b, o + 16), raw: u32(b, o + 20) });
+        }
+        return { secs: secs, headers: u32(b, opt + 60) };
+      }
+      function readHead(path, len) {
+        return api.get(base + '/inspect/hex', { path: path, offset: 0, length: len }).then(function (d) {
+          var bytes = [];
+          (d.rows || []).forEach(function (r) { r.hex.split(' ').forEach(function (x) { if (x) bytes.push(parseInt(x, 16)); }); });
+          return bytes;
+        });
+      }
+      function loadSections(g) {
+        readHead(g.path, 4096).then(function (bytes) {
+          var pe = parsePE(bytes);
+          if (pe.need && pe.need <= 65536 && pe.need > bytes.length) return readHead(g.path, pe.need).then(parsePE);
+          return pe;
+        }).then(function (pe) {
+          if (dead || gh !== g) return;
+          if (pe.secs) g.secs = pe; else { g.secs = null; g.secNote = pe.error || 'Die Sektionstabelle liegt außerhalb des gelesenen Dateikopfs.'; }
+          if (g.pending) { var a = g.pending; g.pending = null; ghJump(a); }
+        }, function (err) {
+          if (dead || gh !== g) return;
+          g.secs = null;
+          g.secNote = 'Dateikopf nicht lesbar: ' + err.message;
+          if (g.pending) { var a2 = g.pending; g.pending = null; ghJump(a2); }
+        });
+      }
+
+      /* VA minus Image-Basis = RVA; die Sektion mit RVA im Bereich [VA, VA+Groesse) liefert Dateioffset = Rohoffset + (RVA - VA). */
+      function ghMsg(tone, text) {
+        SW.dom.fill(ghMsgHost, h('div', { cls: 'notice tone-' + tone, role: 'note' }, icon(tone === 'ok' ? 'checkcircle' : tone === 'info' ? 'info' : 'alert'), h('p', { cls: 'mono small', text: text })));
+      }
+      function ghJump(addr) {
+        var g = gh;
+        if (!g || g.state !== 'ok') return;
+        var va = parseHex(addr);
+        if (va === null) { ghMsg('warn', 'Kein Sprung: "' + addr + '" ist keine Hex-Adresse.'); return; }
+        var ib = parseHex(g.prog.image_base);
+        if (ib === null) { ghMsg('warn', 'Kein Sprung: Ghidra liefert keine Image-Basis für diese Datei.'); return; }
+        if (g.secs === undefined) { g.pending = addr; ghMsg('info', 'Sektionstabelle wird gelesen …'); return; }
+        if (g.secs === null) { ghMsg('warn', 'Kein Sprung: ' + g.secNote); return; }
+        var rva = va - ib;
+        var head = hx(va) + ' − Basis ' + hx(ib) + ' = RVA ' + hx(rva);
+        if (rva < 0) { ghMsg('warn', 'Kein Sprung: ' + head + '. Die Adresse liegt unter der Image-Basis.'); return; }
+        var off = null;
+        var why = '';
+        var list = g.secs.secs;
+        if (rva < g.secs.headers && (!list.length || rva < list[0].va)) { off = rva; why = 'Dateikopf'; }
+        list.forEach(function (s) {
+          if (off !== null || rva < s.va || rva >= s.va + Math.max(s.vsize, s.rawsize)) return;
+          if (rva - s.va >= s.rawsize) { why = 'Sektion ' + s.name + ' belegt dort nur Speicher (' + s.rawsize + ' Byte in der Datei)'; return; }
+          off = s.raw + (rva - s.va);
+          why = 'Sektion ' + s.name + ' (VA ' + hx(s.va) + ', Rohoffset ' + hx(s.raw) + ')';
+        });
+        if (off === null) { ghMsg('warn', 'Kein Sprung: ' + head + '. ' + (why || 'Keine Sektion enthält diese RVA.')); return; }
+        if (!cur || cur.path !== g.path || !cur.binary) { ghMsg('warn', 'Kein Sprung: ' + head + ' → Dateioffset ' + hx(off) + ', aber die Datei wird links nicht als Hexdump gezeigt.'); return; }
+        var line = Math.floor(off / 16) + 1;
+        ghMsg('ok', head + ' → ' + why + ' → Dateioffset ' + hx(off) + ' (Hexdump-Zeile ' + line + ')');
+        jumpTo(g.path, line, line, 'focus');
+      }
+
+      function ghEnsure() {
+        var path = cur && cur.path;
+        if (!path || (gh && gh.path === path)) return;
+        var g = (gh = { path: path, state: 'loading', fns: [], fnSel: null, fn: null, fnState: '', secs: undefined, pending: null, prog: {} });
+        SW.dom.clear(ghMsgHost);
+        api.get(base + '/inspect', { path: path }).then(function (info) {
+          if (dead || gh !== g) return null;
+          if (!info.code || !info.code.available) {
+            g.state = 'na';
+            g.reason = (info.code && info.code.reason) || 'Für diese Datei liegt kein Ghidra-Ergebnis vor.';
+            paintGh(); paintSide();
+            return null;
+          }
+          return api.get(base + '/inspect/functions', { path: path }).then(function (d) {
+            if (dead || gh !== g) return;
+            g.state = 'ok';
+            g.prog = d.program || {};
+            g.fns = d.functions || [];
+            g.total = d.total;
+            g.truncated = d.truncated;
+            g.version = d.tool_version;
+            g.tool = (info.code && info.code.tool) || 'Ghidra im Offline-Container';
+            paintGh(); paintSide();
+            loadSections(g);
+            var pick = g.fns.filter(function (f) { return f.entry === g.prog.entry; })[0] || g.fns.filter(function (f) { return !f.thunk; })[0] || g.fns[0];
+            if (pick) ghSelect(pick.name);
+          });
+        }).catch(function (err) {
+          if (dead || gh !== g) return;
+          g.state = 'err';
+          g.reason = 'Ghidra-Ergebnis nicht verfügbar: ' + err.message;
+          paintGh(); paintSide();
+        });
+      }
+      function ghSelect(name) {
+        var g = gh;
+        if (!g) return;
+        g.fnSel = name;
+        g.fn = null;
+        g.fnState = 'loading';
+        paintGh(); paintSide();
+        api.get(base + '/inspect/function', { path: g.path, function: name }).then(function (f) {
+          if (dead || gh !== g || g.fnSel !== name) return;
+          g.fn = f; g.fnState = 'ok';
+          paintGh();
+          ghJump(f.entry);
+        }, function (err) {
+          if (dead || gh !== g || g.fnSel !== name) return;
+          g.fnState = 'err'; g.fnErr = err.message;
+          paintGh();
+        });
+      }
+      function addrBtn(a) {
+        return h('button', { type: 'button', cls: 'linkbtn mono', title: 'Im Hexdump anzeigen', on: { click: function () { ghJump(a); } }, text: a });
+      }
+      function ghFnList() {
+        if (!gh || gh.state === 'loading') return ui.loading('Ghidra liest die Datei …');
+        if (gh.state !== 'ok') return ui.noData('Keine Funktionen (Grund steht im Ghidra-Bereich).');
+        return h('ul', { cls: 'flist fnlist' }, gh.fns.map(function (f) {
+          var on = gh.fnSel === f.name;
+          return h('li', null, h('button', { type: 'button', cls: ['flist-b', 'fn-b', on ? 'is-sel' : ''], 'aria-pressed': on ? 'true' : 'false', title: f.signature, on: { click: function () { ghSelect(f.name); } } },
+            h('span', { cls: 'fn-top' }, h('span', { cls: 'mono fn-name trunc', text: f.name }), f.thunk ? h('span', { cls: 'tag', text: 'Thunk' }) : null),
+            h('span', { cls: 'small muted mono', text: f.entry + ' · ' + f.size + ' Byte' })));
+        }));
+      }
+      function ghFn(f) {
+        var asm = h('div', { cls: 'tbl-wrap asm-wrap', tabindex: '0', role: 'region', 'aria-label': 'Disassembly von ' + f.name },
+          h('table', { cls: 'asm' },
+            h('caption', { cls: 'sr-only', text: 'Disassembly; ein Klick auf die Adresse springt im Hexdump' }),
+            h('thead', null, h('tr', null, ['Adresse', 'Bytes', 'Befehl'].map(function (c) { return h('th', { scope: 'col', text: c }); }))),
+            h('tbody', null, (f.disasm || []).map(function (r) {
+              return h('tr', null, h('td', { cls: 'a-addr' }, addrBtn(r.address)), h('td', { cls: 'a-bytes', text: r.bytes }), h('td', { cls: 'a-ins', title: r.explain || '', text: r.text }));
+            }))));
+        var findings = f.findings || [];
+        return h('div', { cls: 'stack' },
+          h('div', { cls: 'row' }, h('h3', { cls: 'grow mono', text: f.name + '  ' + (f.signature || '') }), addrBtn(f.entry), h('span', { cls: 'tag', text: f.size + ' Byte' }), h('span', { cls: 'tag', text: (f.disasm || []).length + ' Befehle' })),
+          h('div', { cls: 'gh-panes' },
+            h('section', { cls: 'card', 'aria-label': 'Disassembly' }, h('div', { cls: 'card-h' }, h('h2', { text: 'Disassembly' })), h('div', { cls: 'card-b tight' }, asm,
+              f.disasm_truncated ? h('p', { cls: 'small muted', text: 'Funktion ist länger als die Exportgrenze; nicht alle Befehle sind aufgeführt.' }) : null)),
+            h('section', { cls: 'card', 'aria-label': 'Pseudocode' }, h('div', { cls: 'card-h' }, h('h2', { text: 'Pseudocode' })), h('div', { cls: 'card-b' },
+              f.decompiled ? h('pre', { cls: 'pseudo', tabindex: '0', text: f.decompiled }) : h('p', { cls: 'muted', text: 'Keine Decompiler-Ausgabe für diese Funktion (Thunk, Zeitlimit oder Exportgrenze). Das Disassembly ist vollständig.' }),
+              h('p', { cls: 'small muted', text: 'Pseudocode nähert den Code nur an; Belege zitieren Disassembly oder Dekompilat mit Evidence-ID.' })))),
+          ui.section('Befunde zu dieser Funktion', findings.length ? h('ul', { cls: 'quotes' }, findings.map(function (x) {
+            return h('li', null, fmt.findingBadge(x), ' ', h('a', { cls: 'mono', href: ui.tabHref(jobId, 'live', { finding: x.id }), text: x.id }), ' ', x.statement_de || x.statement_en, ' ', ui.chips(jobId, x.evidence_ids));
+          })) : h('p', { cls: 'muted', text: 'Kein Befund nennt diese Funktion (Name oder Adresse).' })));
+      }
+      function paintGh() {
+        if (mode !== 'ghidra') return;
+        var g = gh;
+        if (!g || g.state === 'loading') { SW.dom.fill(ghHost, ui.section('Ghidra', ui.loading('Ghidra liest die Datei … Der erste Aufruf je Datei kann einige Minuten dauern, danach kommt das Ergebnis aus dem Cache.'))); return; }
+        if (g.state !== 'ok') { SW.dom.fill(ghHost, ui.section('Ghidra', h('div', { cls: 'notice tone-info', role: 'note' }, icon('info'), h('p', { text: g.reason })))); return; }
+        var p = g.prog;
+        SW.dom.fill(ghHost, ui.section('Ghidra: Disassembly und Pseudocode', h('div', { cls: 'stack' },
+          h('p', { cls: 'small muted' }, (p.format || '–') + ' · ' + (p.language || '–') + ' · Image-Basis ' + (p.image_base || '–') + ' · Einstieg ' + (p.entry || '–') + ' · ' + g.total + ' Funktion(en) · ' + (g.version || '')),
+          g.truncated ? h('div', { cls: 'notice tone-warn', role: 'note' }, icon('alert'), h('p', { text: 'Exportgrenze erreicht: nicht jede Funktion ist aufgeführt.' })) : null,
+          ghMsgHost,
+          g.fnState === 'loading' ? ui.loading('Funktion wird geladen …') : g.fnState === 'err' ? ui.errorBox(g.fnErr) : g.fn ? ghFn(g.fn) : ui.noData('Wähle links eine Funktion.')),
+          h('span', { cls: 'small muted', text: g.tool })));
       }
 
       /* ---------- Darstellung ---------- */
       function paintTools() {
         SW.dom.fill(toolHost,
-          ui.seg('Modus', [['read', 'Lesen'], ['lern', 'Lernpfad']], mode, setMode),
+          ui.seg('Modus', [['read', 'Lesen'], ['lern', 'Lernpfad'], ['ghidra', 'Ghidra']], mode, setMode),
           h('label', { cls: 'chk' }, (function () {
             var cb = h('input', { type: 'checkbox' });
             cb.checked = wrap;
@@ -188,7 +386,8 @@
         SW.dom.keepFocus(sideHost, function () {
           SW.dom.fill(sideHost,
             h('section', { cls: 'card' }, h('div', { cls: 'card-h' }, h('h2', { text: 'Dateien' })), h('div', { cls: 'card-b tight' }, fileList())),
-            mode === 'lern' ? h('section', { cls: 'card' }, h('div', { cls: 'card-h' }, h('h2', { text: 'Lernpfad' })), h('div', { cls: 'card-b tight' }, lernPanel())) : null);
+            mode === 'lern' ? h('section', { cls: 'card' }, h('div', { cls: 'card-h' }, h('h2', { text: 'Lernpfad' })), h('div', { cls: 'card-b tight' }, lernPanel())) : null,
+            mode === 'ghidra' ? h('section', { cls: 'card' }, h('div', { cls: 'card-h' }, h('h2', { text: 'Funktionen (Ghidra)' })), h('div', { cls: 'card-b tight fv-fns' }, ghFnList())) : null);
         });
       }
 
@@ -256,6 +455,7 @@
       /* ---------- Start ---------- */
       function handleQuery(q) {
         if (q.mode === 'lern' && mode !== 'lern') { mode = 'lern'; }
+        if (q.mode === 'ghidra' && mode !== 'ghidra') { setMode('ghidra'); }
         var file = q.file || (cur && cur.path);
         var line = parseInt(q.line, 10);
         if (file && line > 0) {
@@ -269,7 +469,12 @@
 
       host.appendChild(h('div', { cls: 'code-view' },
         toolHost,
-        h('div', { cls: 'code-grid' }, sideHost, h('div', { cls: 'code-main' }, barHost, h('div', { cls: 'card code-card' }, codeHost)))));
+        h('div', { cls: 'code-grid' }, sideHost, h('div', { cls: 'code-main' }, barHost, splitEl))));
+      splitEl.appendChild(h('div', { cls: 'card code-card' }, codeHost));
+      splitEl.appendChild(ghHost);
+      splitEl.classList.toggle('is-ghidra', mode === 'ghidra');
+      ghHost.hidden = mode !== 'ghidra';
+      if (mode === 'ghidra') paintGh();
       paintTools();
       paintSide();
       paintCode();

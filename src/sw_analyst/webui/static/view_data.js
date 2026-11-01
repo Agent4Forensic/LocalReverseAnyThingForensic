@@ -32,6 +32,16 @@
     return String(text || '').split('\n').filter(function (l) { return l.trim(); }).slice(0, n).join('\n');
   }
 
+  /* Beleg-Vorschau ohne abgeschnittene Hoehe: die ersten Zeilen offen, der Rest in <details>. */
+  function evPreview(e) {
+    var full = String(e.preview || '');
+    var head = firstLines(full, 3);
+    if (!head) return h('span', { cls: 'muted small', text: '(leer)' });
+    var n = full.split('\n').filter(function (l) { return l.trim(); }).length;
+    return h('div', { cls: 'ev-box' }, h('pre', { cls: 'ev-prev', tabindex: '0', text: head }),
+      n > 3 || full.length > head.length + 2 ? h('details', { cls: 'ev-more' }, h('summary', { text: 'Ganze Vorschau (' + n + ' Zeilen)' }), h('pre', { cls: 'ev-prev', tabindex: '0', text: full })) : null);
+  }
+
   SW.registerTab({
     id: 'data', label: 'Erhobene Daten', icon: 'list',
     mount: function (host, ctx) {
@@ -90,7 +100,7 @@
         var bytes = 0;
         var flagged = 0;
         list.forEach(function (e) { tools[e.tool] = (tools[e.tool] || 0) + 1; bytes += e.size || 0; if ((e.injection_flags || []).length) flagged++; });
-        var fc = { confirmed: 0, hypothesis: 0, rejected: 0, open: 0 };
+        var fc = { confirmed: 0, hypothesis: 0, rejected: 0, open: 0, closed: 0 };
         (st.findings || []).forEach(function (f) { fc[f.status] = (fc[f.status] || 0) + 1; });
         var ans = st.answers || [];
         var answered = ans.filter(function (a) { return a.status === 'answered'; }).length;
@@ -99,7 +109,7 @@
         SW.dom.fill(tilesHost, h('div', { cls: 'tiles' },
           tile('link', 'Belege', String(list.length), fmt.bytes(bytes) + ' Werkzeugausgabe' + (flagged ? ' · ' + flagged + ' mit Schutzhinweis' : '')),
           tile('tool', 'Werkzeuge', String(Object.keys(tools).length), Object.keys(tools).sort().map(function (k) { return k + ' ×' + tools[k]; }).join(', ') || 'noch keins'),
-          tile('search', 'Befunde', String((st.findings || []).length), fc.confirmed + ' bestätigt · ' + fc.hypothesis + ' Hypothese · ' + fc.rejected + ' verworfen'),
+          tile('search', 'Befunde', String((st.findings || []).length), fc.confirmed + ' bestätigt · ' + fc.hypothesis + ' Hypothese · ' + fc.rejected + ' verworfen' + (fc.closed ? ' · ' + fc.closed + ' geschlossen' : '')),
           tile('question', 'Zielfragen', ans.length ? answered + '/' + ans.length : '–', ans.length ? 'beantwortet' : 'keine gestellt'),
           tile('file', 'Abgeleitete Dateien', String(derived), 'unter derived/ im Auftragsordner'),
           tile('pulse', 'Aufrufe', String((t.tool_calls || 0) + (t.llm_calls || 0)), (t.tool_calls || 0) + ' Werkzeug · ' + (t.llm_calls || 0) + ' Modell · ' + (t.steps || 0) + ' Schritte')));
@@ -141,7 +151,7 @@
               h('td', null, e.task_id ? h('a', { cls: 'mono small', href: ui.tabHref(st.id, 'tree', { task: e.task_id }), text: e.task_id }) : h('span', { cls: 'muted', text: '–' })),
               h('td', { cls: 'num small nowrap', text: fmt.bytes(e.size || 0) }),
               h('td', { cls: 'mono small nowrap', text: fmt.time(e.created_at) }),
-              h('td', null, h('pre', { cls: 'ev-prev', text: firstLines(e.preview, 3) || '(leer)' }),
+              h('td', { cls: 'ev-cell' }, evPreview(e),
                 flags.length ? h('span', { cls: 'badge tone-warn', title: 'Der Prompt-Schutz hat in dieser Ausgabe verdächtige Muster gefunden.' }, icon('shield', { size: 12 }), 'Schutzhinweis') : null),
               h('td', null, used.length ? h('span', { cls: 'chips' }, used.map(function (fid) {
                 return h('a', { cls: 'chip mono', href: ui.tabHref(st.id, 'live', { finding: fid }), text: fid });
@@ -175,7 +185,7 @@
             return h('li', null, fmt.statusIcon(f.status, 14),
               h('a', { cls: 'mono small', href: ui.tabHref(st.id, 'live', { finding: f.id }), text: f.id }),
               h('span', { cls: 'grow', text: f.statement_de || f.statement_en }),
-              ui.chips(st.id, f.evidence_ids || []), fmt.badge(f.status));
+              ui.chips(st.id, f.evidence_ids || []), fmt.findingBadge(f));
           })) : h('p', { cls: 'muted', text: 'Noch keine Befunde. Befunde entstehen erst, wenn die KI eine Aussage mit einem Beleg stützt.' })));
       }
 

@@ -23,6 +23,8 @@
     var status = 'loading';
     var collapsed = false;
     try { collapsed = window.localStorage.getItem('sw.act.collapsed') === '1'; } catch (e) { collapsed = false; }
+    var finOpen = false;
+    try { finOpen = window.localStorage.getItem('sw.act.done.open') === '1'; } catch (e) { finOpen = false; }
     var body = h('div', { cls: 'act-body' });
     var toggle = h('button', { type: 'button', cls: 'btn sm ghost', 'aria-expanded': 'true', on: { click: function () {
       collapsed = !collapsed;
@@ -60,6 +62,7 @@
       if (status === 'missing') { SW.dom.fill(body, ui.noData('Der Server liefert für diesen Auftrag noch keine Aktivitätsdaten.')); return; }
       if (status === 'error' || !data) { SW.dom.fill(body, ui.errorBox('Aktivität konnte nicht geladen werden.')); return; }
       var a = data;
+      toggle.hidden = a.state === 'finished'; /* danach steuert das <details> darin das Einklappen */
       var working = a.state === 'working';
       var phase = PHASES.filter(function (p) { return p[0] === a.phase; })[0];
       var pstate = {};
@@ -80,7 +83,7 @@
         working && phase ? h('span', { cls: 'act-phase', text: 'Phase: ' + phase[1] }) : null,
         a.model ? h('span', { cls: 'muted small mono act-model', text: (a.model.name || '') + ' · ' + (a.model.tokens_in || 0) + ' Token ein / ' + (a.model.tokens_out || 0) + ' aus' }) : null
       );
-      if (collapsed) {
+      if (collapsed && a.state !== 'finished') {
         SW.dom.fill(body, head, stepper, a.step ? h('p', { cls: 'act-one' }, h('strong', { text: 'Schritt: ' }), a.step.what || '–') : null);
         return;
       }
@@ -88,7 +91,23 @@
       var s = a.step;
       var next = (a.next || []).slice(0, 3);
       var recent = (a.recent || []).slice(0, 10);
-      if (a.state === 'finished') { SW.dom.fill(body, head, stepper, end); return; }
+      if (a.state === 'finished') {
+        /* Nach Jobende nur Kopf und Ergebnis; Phasen und letzte Schritte stehen standardmaessig eingeklappt in <details>. */
+        var recentDone = (a.recent || []).slice(0, 10);
+        var det = h('details', { cls: 'act-fin' }, h('summary', { text: 'Phasen und letzte Schritte' }), stepper,
+          recentDone.length ? h('ul', { cls: 'recent' }, recentDone.map(function (r) {
+            return h('li', null, fmt.statusIcon(r.status, 14), h('span', { cls: 'mono small muted', text: fmt.time(r.ts) }),
+              h('span', { cls: 'tag', text: fmt.STEP_KIND[r.kind] || r.kind }), h('span', { cls: 'grow trunc', title: r.what, text: r.what }),
+              h('span', { cls: 'small muted nowrap', text: fmt.duration(r.duration_ms) }));
+          })) : null);
+        det.open = finOpen;
+        det.addEventListener('toggle', function () {
+          finOpen = det.open;
+          try { window.localStorage.setItem('sw.act.done.open', finOpen ? '1' : '0'); } catch (e) { /* ignorieren */ }
+        });
+        SW.dom.fill(body, head, end, det);
+        return;
+      }
       SW.dom.fill(body,
         head, stepper, end,
         h('div', { cls: 'act-grid' },
@@ -154,14 +173,15 @@
   function endBox(e) {
     var tone = { done: 'ok', partial: 'warn', failed: 'err', cancelled: 'neutral' }[e.status] || 'neutral';
     var why = e.reason ? reasonDe(e.reason)
+      : e.status === 'done' && /follow-up/.test(e.summary_en || '') ? 'Alle Zielfragen beantwortet, Stand nach einem Nachlauf ohne Modell. Übersprungene Aufgaben nennt die Bilanz.'
       : e.status === 'done' ? 'Alle Aufgaben erledigt und alle Zielfragen beantwortet.'
       : e.status === 'partial' ? 'Nicht alle Aufgaben erledigt oder nicht alle Zielfragen beantwortet.'
       : e.status === 'cancelled' ? 'Vom Benutzer abgebrochen.'
       : e.status === 'failed' ? 'Keine Analyseaufgabe wurde erfolgreich abgeschlossen.' : '';
+    var more = [why ? [h('span', { cls: 'muted', text: 'Grund: ' }), why] : null, e.summary_de || e.summary_en ? [h('span', { cls: 'muted', text: 'Bilanz: ' }), e.summary_de || e.summary_en] : null].filter(Boolean);
     return h('div', { cls: 'notice end-box tone-' + tone, role: 'status' }, fmt.statusIcon(e.status, 16), h('div', null,
       h('p', null, h('strong', { text: 'Ergebnis: ' + fmt.statusInfo(e.status).label }), e.finished_at ? h('span', { cls: 'muted small', text: ' · beendet ' + fmt.dateTime(e.finished_at) }) : null),
-      why ? h('p', { cls: 'small' }, h('span', { cls: 'muted', text: 'Grund: ' }), why) : null,
-      e.summary_de || e.summary_en ? h('p', { cls: 'small' }, h('span', { cls: 'muted', text: 'Bilanz: ' }), e.summary_de || e.summary_en) : null));
+      more.length ? h('p', { cls: 'small' }, more.map(function (m, i) { return h('span', { cls: 'end-part' }, i ? ' · ' : null, m); })) : null));
   }
 
   /* =================== Kopf =================== */
