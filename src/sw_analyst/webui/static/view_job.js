@@ -10,12 +10,108 @@
   var store = SW.store;
   var ui = SW.ui;
 
-  var TAB_ORDER = ['activity', 'diagrams', 'data', 'tree', 'queue', 'live', 'code', 'file', 'log', 'guard', 'report'];
+  var TAB_ORDER = ['activity', 'analysis', 'diagrams', 'data', 'tree', 'queue', 'dynamic', 'report', 'log', 'guard'];
   var PHASES = [
     ['triage', 'Triage'], ['planning', 'Planung'], ['analysis', 'Analyse'], ['evaluation', 'Bewertung'],
     ['prioritization', 'Priorisierung'], ['translation', 'Übersetzung'], ['finalizing', 'Abschluss']
   ];
   var STATE_LABEL = { idle: 'Leerlauf', working: 'Arbeitet', finished: 'Abgeschlossen' };
+
+  /* ---------- Gemeinsame Helfer: Art eines Schritts, Zeitleiste, Klartext ---------- */
+  var KIND_META = {
+    prompt: { icon: 'cpu', cls: 'k-model', label: 'Modellzug' },
+    translate: { icon: 'cpu', cls: 'k-model', label: 'Übersetzung (Modell)' },
+    tool: { icon: 'terminal', cls: 'k-tool', label: 'Werkzeug' },
+    verify: { icon: 'shieldcheck', cls: 'k-check', label: 'Prüfer' },
+    guard: { icon: 'shield', cls: 'k-guard', label: 'Schutz' },
+    evaluate: { icon: 'checkcircle', cls: 'k-judge', label: 'Bewerter' },
+    prioritize: { icon: 'arrowup', cls: 'k-judge', label: 'Priorisierer' },
+    system: { icon: 'server', cls: '', label: 'System' }
+  };
+  function kindMeta(kind) { return KIND_META[kind] || { icon: 'circle', cls: '', label: kind || 'Schritt' }; }
+  function kindIcon(kind) {
+    var m = kindMeta(kind);
+    return h('span', { cls: 'kind-ic ' + m.cls, title: m.label }, icon(m.icon, { size: 15 }));
+  }
+  var STEP_WORD = { running: 'läuft', done: 'fertig', ok: 'fertig', failed: 'fehlgeschlagen', error: 'Fehler', skipped: 'übersprungen', blocked: 'blockiert' };
+
+  /* Zeitleiste; neueste oben. items: { ts, kind, what, status, duration_ms, tool, how, why } */
+  function timeline(items, limit) {
+    var list = (items || []).slice().reverse().slice(0, limit || 50);
+    return h('ol', { cls: 'tl', 'aria-label': 'Schritte, neueste zuerst' }, list.map(function (r) {
+      var m = kindMeta(r.kind);
+      var running = r.status === 'running';
+      return h('li', { cls: 'is-' + (r.status || 'done') },
+        kindIcon(r.kind),
+        h('div', { cls: 'tl-b' },
+          h('div', { cls: 'tl-h' }, h('span', { cls: 'tl-what', text: r.what || m.label })),
+          h('div', { cls: 'tl-meta' },
+            h('span', { cls: 'mono', text: fmt.time(r.ts || r.started_at) }),
+            h('span', { text: m.label }),
+            r.tool ? h('span', { cls: 'tag mono', text: r.tool }) : null,
+            running ? h('span', { cls: 'badge tone-info' }, icon('spinner', { size: 11, cls: 'is-spin' }), ' läuft seit ', SW.elapsed(r.ts || r.started_at))
+              : [fmt.statusIcon(r.status, 12), h('span', { text: STEP_WORD[r.status] || fmt.statusInfo(r.status).label }), h('span', { text: fmt.duration(r.duration_ms) })])));
+    }));
+  }
+
+  /* Heuristik: ist ein Modelltext englisch? (Modelle antworten intern englisch, die Oberfläche ist deutsch.) */
+  var EN_RE = /\b(the|and|of|to|is|are|with|that|this|from|for|in|on|which|was|were|has|have)\b/gi;
+  var DE_RE = /\b(der|die|das|und|ist|nicht|mit|von|für|den|dem|ein|eine|wird|wurde|auf|zu)\b/gi;
+  function looksEnglish(text) {
+    var t = String(text || '');
+    var en = (t.match(EN_RE) || []).length;
+    var de = (t.match(DE_RE) || []).length;
+    return en >= 2 && en > de;
+  }
+  function langTag(text, forced) {
+    return (forced || looksEnglish(text)) ? h('span', { cls: 'lang-en', title: 'Dieser Text stammt vom Sprachmodell und ist englisch.', text: 'EN' }) : null;
+  }
+
+  var ORIGIN_WHY = {
+    recipe: 'Pflichtschritt aus dem Rezept. Das Rezept legt fest, was für diesen Dateityp immer geprüft wird.',
+    evaluator: 'Folgeaufgabe des Bewerters. Er hat nach einer Aufgabe eine Lücke gesehen und verlangt dies zusätzlich.',
+    planner: 'Vom Planer ergänzt, weil die Analyse diesen Schritt braucht.',
+    artifact: 'Neue abgeleitete Datei (zum Beispiel entpackt oder ausgelesen), die nun selbst untersucht wird.',
+    question: 'Zielfrage: Sie kommt aus der Fragestellung, die Sie beim Auftrag mitgegeben haben.',
+    triage: 'Eingangsprüfung: Zuerst wird festgestellt, was für eine Datei vorliegt.',
+    prioritizer: 'Vom Priorisierer angelegt, der die Reihenfolge der offenen Aufgaben festlegt.',
+    split: 'Zerlegung: Eine große Aufgabe wurde in kleinere Teile geteilt.',
+    user: 'Von Ihnen von Hand angelegt.'
+  };
+  var STATUS_WORD = {
+    pending: 'Wartet darauf, an die Reihe zu kommen.',
+    running: 'Wird gerade bearbeitet.',
+    done: 'Erledigt.',
+    failed: 'Fehlgeschlagen. Die Aufgabe konnte nicht abgeschlossen werden.',
+    skipped: 'Übersprungen, weil sie nicht mehr nötig war.',
+    blocked: 'Blockiert, sie kann nicht ausgeführt werden.',
+    cancelled: 'Abgebrochen.'
+  };
+
+  /* Klartext-Erklärung zu einer Aufgabe. t: Aufgabe aus dem Store, q: Queue-Eintrag (optional). */
+  function explainTask(t, q) {
+    var goal = t.goal || (q && q.goal) || '';
+    var reason = t.reason || (q && q.reason) || '';
+    var doneWhen = (t.params && t.params.done_when) || t.done_when || (q && q.done_when) || '';
+    var sumDe = t.summary_de || '';
+    var sum = sumDe || t.summary_en || '';
+    function qa(question, answer, sub) {
+      return h('div', { cls: 'why-q' }, h('dt', { cls: 'q', text: question }), h('dd', { cls: 'a' }, answer, sub ? h('div', { cls: 'a-sub' }, sub) : null));
+    }
+    function txt(text, empty, forceEn) {
+      return text ? h('span', null, text, langTag(text, forceEn)) : h('span', { cls: 'muted', text: empty });
+    }
+    return h('div', { cls: 'why', role: 'region', 'aria-label': 'Erklärung der Aufgabe in Klartext' },
+      h('h3', { text: 'Diese Aufgabe in Klartext' }),
+      h('dl', { cls: 'stack' },
+        qa('Warum gibt es diese Aufgabe?', ORIGIN_WHY[t.origin] || ('Herkunft: ' + (t.origin || 'unbekannt') + '.'),
+          reason ? h('span', null, 'Begründung: ', reason, langTag(reason)) : null),
+        qa('Was soll sie klären?', txt(goal, 'Kein Ziel hinterlegt.')),
+        qa('Wann ist sie fertig?', txt(doneWhen, 'Keine eigene Bedingung; sie gilt als fertig, wenn die KI keine weiteren Schritte mehr braucht.')),
+        qa('Wie steht sie?', STATUS_WORD[t.status] || fmt.statusInfo(t.status).label,
+          t.started_at ? 'Gestartet ' + fmt.time(t.started_at) + (t.status === 'running' ? '' : ', Dauer ' + fmt.duration(t.duration_ms)) : null),
+        qa('Ergebnis', sum ? txt(sum, '', !sumDe) : (t.status === 'done' ? 'Ohne schriftliche Zusammenfassung abgeschlossen.' : 'Noch kein Ergebnis.'))));
+  }
 
   /* =================== Aktivitaetsanzeige =================== */
   function activityPanel(st) {
@@ -81,7 +177,7 @@
         a.model ? h('span', { cls: 'muted small mono act-model', text: (a.model.name || '') + ' · ' + (a.model.tokens_in || 0) + ' Token ein / ' + (a.model.tokens_out || 0) + ' aus' }) : null
       );
       if (collapsed) {
-        SW.dom.fill(body, head, stepper, a.step ? h('p', { cls: 'act-one' }, h('strong', { text: 'Schritt: ' }), a.step.what || '–') : null);
+        SW.dom.fill(body, head, stepper, a.step ? h('p', { cls: 'act-one' }, h('strong', { text: kindMeta(a.step.kind).label + ': ' }), a.step.what || '–') : null);
         return;
       }
       var t = a.task;
@@ -89,39 +185,35 @@
       var next = (a.next || []).slice(0, 3);
       var recent = (a.recent || []).slice(0, 10);
       if (a.state === 'finished') { SW.dom.fill(body, head, stepper, end); return; }
+      var stepBox = s ? h('div', { cls: 'now-step' }, kindIcon(s.kind),
+        h('div', { cls: 'now-step-b' },
+          h('div', { cls: 'now-step-t' }, h('strong', { text: kindMeta(s.kind).label }), s.tool ? h('span', { cls: 'tag mono', text: s.tool }) : null,
+            h('span', { cls: 'muted small', text: 'läuft seit ' }), h('span', { cls: 'now-clock' }, elapsedNode(s.started_at, s.elapsed_ms, working))),
+          h('p', { text: s.what || '–' }),
+          s.how ? h('p', { cls: 'small muted', text: 'Wie: ' + s.how }) : null,
+          s.why ? h('p', { cls: 'small muted', text: 'Warum: ' + s.why }) : null,
+          s.input_preview ? h('details', { cls: 'step-prev' }, h('summary', { text: 'Eingabe-Vorschau' }), h('pre', { text: s.input_preview })) : null))
+        : h('p', { cls: 'now-idle', text: t ? 'Gerade kein Schritt aktiv; der nächste wird vorbereitet.' : '' });
       SW.dom.fill(body,
         head, stepper, end,
-        h('div', { cls: 'act-grid' },
-          h('div', { cls: 'act-col' }, h('h3', { text: 'Aktuelle Aufgabe' }),
+        h('div', { cls: 'now' },
+          h('div', { cls: ['now-main', working && t ? 'is-live' : ''] },
+            h('p', { cls: 'now-lbl', text: 'Jetzt' }),
             t ? [
-              h('p', { cls: 'act-title' }, t.title, ' ', h('span', { cls: 'mono muted small', text: t.id })),
-              h('dl', { cls: 'kv' },
-                h('dt', { text: 'Ziel' }), h('dd', { text: t.goal || '–' }),
-                h('dt', { text: 'Herkunft' }), h('dd', { text: fmt.ORIGIN[t.origin] || t.origin || '–' }),
-                h('dt', { text: 'Laufzeit' }), h('dd', null, elapsedNode(t.started_at, t.elapsed_ms, working)))
-            ] : h('p', { cls: 'muted', text: a.state === 'finished' ? 'Keine Aufgabe offen.' : 'Derzeit wird keine Aufgabe bearbeitet.' })),
-          h('div', { cls: 'act-col' }, h('h3', { text: 'Aktueller Schritt' }),
-            s ? [
-              h('p', { cls: 'row act-tags' }, h('span', { cls: 'tag', text: fmt.STEP_KIND[s.kind] || s.kind }), s.tool ? h('span', { cls: 'tag mono', text: s.tool }) : null,
-                h('span', { cls: 'muted small', text: 'läuft seit ' }), h('span', { cls: 'small' }, elapsedNode(s.started_at, s.elapsed_ms, working))),
-              h('dl', { cls: 'kv' },
-                h('dt', { text: 'Was' }), h('dd', { text: s.what || '–' }),
-                h('dt', { text: 'Wie' }), h('dd', { text: s.how || '–' }),
-                h('dt', { text: 'Warum' }), h('dd', { text: s.why || '–' })),
-              s.input_preview ? h('details', { cls: 'step-prev' }, h('summary', { text: 'Eingabe-Vorschau' }), h('pre', { text: s.input_preview })) : null
-            ] : h('p', { cls: 'muted', text: 'Kein Schritt aktiv.' })),
-          h('div', { cls: 'act-col' }, h('h3', { text: 'Nächste Aufgaben' }),
-            next.length ? h('ol', { cls: 'act-next' }, next.map(function (n) {
-              return h('li', null, h('span', { cls: 'mono muted small', text: n.task_id }), ' ', n.title);
+              h('p', { cls: 'now-task', text: t.title }),
+              h('p', { cls: 'now-sub' }, (phase ? 'Phase ' + phase[1] + ' · ' : ''), (fmt.ORIGIN[t.origin] || t.origin || ''), ' · ', h('span', { cls: 'mono', text: t.id }),
+                ' · Aufgabe läuft seit ', elapsedNode(t.started_at, t.elapsed_ms, working)),
+              t.goal ? h('p', { cls: 'small' }, h('span', { cls: 'muted', text: 'Ziel: ' }), t.goal, langTag(t.goal)) : null,
+              stepBox
+            ] : h('p', { cls: 'now-idle', text: a.state === 'idle' ? 'Die KI wartet darauf, dass der Auftrag startet.' : 'Derzeit wird keine Aufgabe bearbeitet.' })),
+          h('div', { cls: 'now-next' }, h('h3', { text: 'Als Nächstes' }),
+            next.length ? h('ol', null, next.map(function (n) {
+              return h('li', null, n.title, ' ', h('span', { cls: 'mono muted small', text: n.task_id }));
             })) : h('p', { cls: 'muted', text: 'Keine weiteren Aufgaben in der Warteschlange.' }),
             a.queue_length > next.length ? h('p', { cls: 'muted small', text: '+ ' + (a.queue_length - next.length) + ' weitere in der Queue' }) : null)
         ),
         h('details', { cls: 'act-recent', open: true }, h('summary', { text: 'Letzte ' + recent.length + ' Schritte' }),
-          recent.length ? h('ul', { cls: 'recent' }, recent.map(function (r) {
-            return h('li', null, fmt.statusIcon(r.status, 14), h('span', { cls: 'mono small muted', text: fmt.time(r.ts) }),
-              h('span', { cls: 'tag', text: fmt.STEP_KIND[r.kind] || r.kind }), h('span', { cls: 'grow trunc', title: r.what, text: r.what }),
-              h('span', { cls: 'small muted nowrap', text: fmt.duration(r.duration_ms) }));
-          })) : h('p', { cls: 'muted', text: 'Noch keine Schritte.' }))
+          recent.length ? timeline(recent, 10) : h('p', { cls: 'muted', text: 'Noch keine Schritte.' }))
       );
     }
 
@@ -215,8 +307,14 @@
       withFiles.addEventListener('change', function () {
         link.setAttribute('href', api.href('/jobs/' + encodeURIComponent(s.id) + '/export', { include_files: withFiles.checked ? 1 : 0 }));
       });
+      var rpBase = '/jobs/' + encodeURIComponent(s.id) + '/replay';
+      var replay = h('a', { cls: 'btn sm', href: api.href(rpBase, { include_sample: withFiles.checked ? 1 : 0 }), download: '',
+        title: 'Ordner (ZIP) mit Skript: run_replay.cmd öffnet ein Terminal und vollzieht jede Umwandlung Schritt für Schritt nach, mit Hash-Prüfung, bis zur Antwort. Die Probe wird dabei nie ausgeführt.' }, icon('arrowdown'), 'Nachvollzug-Skript');
+      withFiles.addEventListener('change', function () {
+        replay.setAttribute('href', api.href(rpBase, { include_sample: withFiles.checked ? 1 : 0 }));
+      });
       return h('span', { cls: 'row', title: 'ZIP mit Daten, Audit-Kette, Bericht und Prüfsummen. Eine Kopie bleibt im Projektordner unter data/exports/. Mit Sample nur für harmlose Proben oder geschützte Ablage.' },
-        link, h('label', { cls: 'chk small' }, withFiles, ' mit Sample'));
+        link, replay, h('label', { cls: 'chk small' }, withFiles, ' mit Sample'));
     }
     function importChecks(imp) {
       var c = imp.checks || {};
@@ -305,6 +403,8 @@
       var chosen = '';
       var detail = null;
       var detailHost = h('div');
+      var tlHost = h('div');
+      var tlSeq = 0;
       var sel = h('select', { id: 'act-sel', 'aria-label': 'Aufgabe wählen' });
       var followBox = h('input', { type: 'checkbox', id: 'act-follow', checked: true });
       followBox.checked = true;
@@ -335,6 +435,19 @@
         detail = ui.taskDetail(st, id);
         detailHost.appendChild(detail.el);
         sel.value = id;
+        loadTl();
+      }
+      function loadTl() {
+        var id = chosen;
+        if (!id) { SW.dom.clear(tlHost); return; }
+        var seq = ++tlSeq;
+        api.get('/jobs/' + st.id + '/tasks/' + id).then(function (d) {
+          if (seq !== tlSeq) return;
+          var steps = (d.steps || []).map(function (x) {
+            return { ts: x.started_at, kind: x.kind, what: x.what, status: x.status, duration_ms: x.duration_ms, tool: x.tool };
+          });
+          SW.dom.fill(tlHost, steps.length ? timeline(steps, 60) : ui.noData('Für diese Aufgabe wurden noch keine Schritte aufgezeichnet.'));
+        }, function () { if (seq === tlSeq) SW.dom.fill(tlHost, ui.errorBox('Zeitleiste konnte nicht geladen werden.')); });
       }
       function refresh() {
         paintOptions();
@@ -348,11 +461,13 @@
         h('div', { cls: 'stack' },
           h('div', { cls: 'row' }, h('label', { for: 'act-sel', text: 'Aufgabe' }), sel,
             h('label', { cls: 'chk' }, followBox, ' Laufende Aufgabe verfolgen')),
-          detailHost),
+          h('h3', { text: 'Zeitleiste (neueste oben)' }), tlHost,
+          h('details', { cls: 'step-prev' }, h('summary', { text: 'Alle Einzelheiten der Schritte (Prompts, Ein- und Ausgaben)' }), detailHost)),
         null));
       refresh();
       var off = ui.live(['tasks', 'loaded'], refresh, 150);
-      return { dispose: function () { off(); if (detail) detail.dispose(); } };
+      var offStep = ui.live(['step'], loadTl, 300);
+      return { dispose: function () { off(); offStep(); tlSeq++; if (detail) detail.dispose(); } };
     }
   });
 
@@ -375,11 +490,21 @@
       var treeHost = h('div', { cls: 'tree-host' });
       var detailHost = h('div', { cls: 'tree-detail' }, ui.empty('Aufgabe auswählen', 'Klicken Sie links auf eine Aufgabe, um Ziel, Prompt und alle Schritte zu sehen.', 'tree'));
 
+      var whyHost = null;
+      function paintWhy() {
+        if (!whyHost || !selected) return;
+        var t = st.tasks.get(selected);
+        if (!t) { SW.dom.clear(whyHost); return; }
+        var q = (st.queue || []).filter(function (r) { return r.task_id === selected; })[0];
+        SW.dom.fill(whyHost, explainTask(t, q));
+      }
       function select(id) {
         selected = id;
         if (detail) detail.dispose();
         detail = ui.taskDetail(st, id);
-        SW.dom.fill(detailHost, detail.el);
+        whyHost = h('div');
+        SW.dom.fill(detailHost, whyHost, detail.el);
+        paintWhy();
         paintTree();
       }
       function node(t, kids, depth) {
@@ -410,7 +535,7 @@
         h('section', { cls: 'card card-b', 'aria-label': 'Aufgabendetail' }, detailHost)));
       paintTree();
       if (selected) select(selected);
-      var off = ui.live(['tasks', 'loaded'], paintTree, 120);
+      var off = ui.live(['tasks', 'loaded', 'queue'], function () { paintTree(); paintWhy(); }, 120);
       return { dispose: function () { off(); if (detail) detail.dispose(); } };
     }
   });

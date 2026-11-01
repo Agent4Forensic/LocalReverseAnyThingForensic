@@ -11,7 +11,7 @@
   var store = SW.store;
   var ui = SW.ui;
 
-  var LEVELS = [[1, 'Leicht'], [2, 'Mittel'], [3, 'Schwer'], [9, 'Ohne Stufe']];
+  var LEVELS = [[1, 'Leicht'], [2, 'Mittel'], [3, 'Schwer'], [4, 'Sehr schwer'], [9, 'Ohne Stufe']];
 
   function lastRun(e) { return (e.runs || [])[0] || null; }
 

@@ -1,0 +1,53 @@
+/* Tab Analyse: Umwandlungs-Flowchart, Text-/Hex-/Ghidra-Ansicht. Keine Inline-Styles, nur Klassen und CSS-Variablen. */
+.an { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.an-flow-wrap { overflow: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-2); padding: 6px; max-height: 70vh; }
+.an-flow { display: block; font-family: var(--font); }
+.an-edge { fill: none; stroke: var(--line-strong); stroke-width: 1.6; }
+.an-edge.is-in { stroke: var(--accent); stroke-width: 2.4; }
+.an-arrow { fill: var(--line-strong); }
+.an-elabel { font-size: 10.5px; fill: var(--ink-2); font-family: var(--mono); }
+.an-elabel.ev { fill: var(--accent-text); font-weight: 600; cursor: pointer; }
+.an-node { cursor: pointer; outline: none; }
+.an-node rect.box { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1.4; }
+.an-node:hover rect.box { stroke: var(--accent); }
+.an-node:focus-visible rect.box { stroke: var(--focus); stroke-width: 3; }
+.an-node.is-sel rect.box { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 2.6; }
+.an-node.is-final rect.box { stroke: var(--ok); }
+.an-node.is-missing rect.box { stroke-dasharray: 4 3; }
+.an-node text { fill: var(--ink); font-size: 11.5px; }
+.an-node .nt { font-weight: 700; font-family: var(--mono); font-size: 12px; }
+.an-node .nm { fill: var(--muted); font-size: 11px; }
+.an-node .np { fill: var(--ink-2); font-family: var(--mono); font-size: 10.5px; }
+.an-node .nf { fill: var(--ok); font-weight: 700; font-size: 10.5px; }
+.an-head { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+.an-pre { margin: 0; padding: 8px 10px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius); font-family: var(--mono); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; overflow: auto; }
+.an-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.an-via { margin: 0; padding-left: 18px; font-size: 13px; }
+.an-via li { margin: 2px 0; }
+
+/* Text: virtuelle Liste mit fester Zeilenhoehe */
+.an-scroll { position: relative; overflow: auto; height: var(--vh, 480px); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); font-family: var(--mono); font-size: 12.5px; }
+.an-sizer { position: relative; height: var(--h, 0); min-width: 100%; width: max-content; }
+.an-win { position: absolute; left: 0; top: 0; min-width: 100%; width: max-content; transform: translateY(var(--y, 0)); }
+.an-ln { display: grid; grid-template-columns: 72px max-content; height: 20px; line-height: 20px; cursor: default; }
+.an-ln:hover { background: var(--surface-2); }
+.an-ln .g { color: var(--muted); text-align: right; padding: 0 10px 0 0; border-right: 1px solid var(--line); user-select: none; position: sticky; left: 0; background: var(--surface); }
+.an-ln .t { padding: 0 10px; white-space: pre; }
+.an-ln.has-ann .g { background: var(--mark); }
+.an-ln.ak-warning .g, .an-ln.ak-ioc .g { background: var(--err-bg); }
+.an-ln.is-active { background: var(--mark-strong); }
+.an-ln.is-sel { outline: 2px solid var(--accent); outline-offset: -2px; }
+.an-loadrow .t { color: var(--muted); font-style: italic; }
+.an-anns { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+
+/* Ghidra */
+.an-gh { display: grid; grid-template-columns: minmax(200px, 270px) minmax(0, 1fr); gap: 14px; align-items: start; }
+.an-fnlist { max-height: 60vh; overflow: auto; }
+.an-asm { max-height: 60vh; overflow: auto; }
+.an-asm tr.is-step td { background: var(--mark-strong); }
+.an-asm tr.is-near td { background: var(--mark); }
+.an-step { display: flex; align-items: center; gap: 10px; padding: 8px 12px; margin-bottom: 8px; }
+.an-pseudo { margin: 0; max-height: 60vh; overflow: auto; font-family: var(--mono); font-size: 12.5px; white-space: pre; background: var(--surface-2); padding: 10px; border-radius: var(--radius); }
+@media (max-width: 900px) { .an-gh { grid-template-columns: minmax(0, 1fr); } }
+.an .seg { align-self: flex-start; }
+.an-flow { height: auto; }
