@@ -225,7 +225,7 @@ button { cursor: pointer; }
 .card-b { padding: 12px 14px; }
 .stack { display: flex; flex-direction: column; gap: 14px; }
 .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.grow { flex: 1; min-width: 0; }
+.grow { flex: 1 1 240px; min-width: 0; }
 .page-h { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 16px; flex-wrap: wrap; }
 .page-h h1 { flex: 1; min-width: 200px; }
 .page-sub { color: var(--muted); margin: 2px 0 0; }

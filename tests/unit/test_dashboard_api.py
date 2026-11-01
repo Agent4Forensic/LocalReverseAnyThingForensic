@@ -325,7 +325,9 @@ def test_batch_starts_ready_examples_in_difficulty_order(tmp_path):
     r = client.post("/api/examples-batch", json={}, headers=ORIGIN).json()
     titles = [store.get_job(s["id"])["title"] for s in r["started"]]
     assert [t.split(":")[0] for t in titles] == ["Beispiel 01-layered-flag", "Beispiel 02-script-three-layers",
-                                                  "Beispiel 03-pe-appended-config", "Beispiel 04-prompt-injection"]
+                                                  "Beispiel 03-pe-appended-config", "Beispiel 04-prompt-injection",
+                                                  "Beispiel 06-polyglot-zip-xor", "Beispiel 07-pe-rsrc-xor-config",
+                                                  "Beispiel 08-script-mini-vm", "Beispiel 09-matroschka-seven"]
     assert [x["id"] for x in r["skipped"]] == ["05-pe-xor-routine"]
     again = client.post("/api/examples-batch", json={}, headers=ORIGIN).json()
     assert again["started"] == [] and len(again["skipped"]) == 5          # all queued already or not ready

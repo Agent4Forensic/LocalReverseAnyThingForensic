@@ -74,3 +74,4 @@
 .cited-yes { color: var(--ok); }
 .evmore { margin: 8px 12px; }
 @media (max-width: 700px) { .evrow-d { white-space: normal; } .evrow-det { padding-left: 14px; } }
+.evgrp[open] > summary > svg:first-child, .evrow[open] > summary > svg:first-child { transform: rotate(90deg); }

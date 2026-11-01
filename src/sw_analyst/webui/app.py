@@ -461,6 +461,8 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
             jobdelete.delete_job(store, gateway, data_dir, ref.rid)
         except ValueError as e:
             raise _err(409, "not_deletable", str(e))
+        except KeyError:
+            raise _err(404, "not_found", "job not found")
         return {"deleted": ref.public}
 
     # ---- file view: size, hex, assembler with explanation, pseudocode -------------------------------------
