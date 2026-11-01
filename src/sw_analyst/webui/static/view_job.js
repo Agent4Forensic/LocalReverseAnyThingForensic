@@ -10,7 +10,7 @@
   var store = SW.store;
   var ui = SW.ui;
 
-  var TAB_ORDER = ['activity', 'tree', 'queue', 'live', 'code', 'file', 'log', 'guard', 'report'];
+  var TAB_ORDER = ['activity', 'data', 'tree', 'queue', 'live', 'code', 'file', 'log', 'guard', 'report'];
   var PHASES = [
     ['triage', 'Triage'], ['planning', 'Planung'], ['analysis', 'Analyse'], ['evaluation', 'Bewertung'],
     ['prioritization', 'Priorisierung'], ['translation', 'Übersetzung'], ['finalizing', 'Abschluss']
@@ -62,25 +62,35 @@
       var a = data;
       var working = a.state === 'working';
       var phase = PHASES.filter(function (p) { return p[0] === a.phase; })[0];
-      var stepper = h('ol', { cls: 'phases', 'aria-label': 'Phase der Analyse' }, PHASES.map(function (p) {
-        var cur = working && p[0] === a.phase;
-        return h('li', { cls: ['phase', cur ? 'is-cur' : ''], 'aria-current': cur ? 'step' : null }, h('span', { text: p[1] }));
+      var pstate = {};
+      (a.phases || []).forEach(function (p) { pstate[p.id] = p; });
+      var stepper = h('ol', { cls: 'phases', 'aria-label': 'Phasen der Analyse' }, PHASES.map(function (p) {
+        var ps = pstate[p[0]] || { state: working && p[0] === a.phase ? 'cur' : 'open', count: 0 };
+        var cur = ps.state === 'cur';
+        var n = ps.total ? ps.count + '/' + ps.total : (ps.count ? String(ps.count) : '');
+        var word = { cur: 'läuft gerade', done: 'erledigt', open: a.state === 'finished' ? 'nicht erreicht' : 'noch offen' }[ps.state];
+        return h('li', { cls: ['phase', 'is-' + ps.state], 'aria-current': cur ? 'step' : null, title: p[1] + ': ' + word + (n ? ' (' + n + ')' : '') },
+          ps.state === 'done' ? icon('check', { size: 12 }) : cur ? icon('spinner', { size: 12, cls: 'is-spin' }) : null,
+          h('span', { text: p[1] }), n ? h('span', { cls: 'phase-n', text: n }) : null,
+          h('span', { cls: 'sr-only', text: ' – ' + word }));
       }));
+      var end = a.end ? endBox(a.end) : null;
       var head = h('div', { cls: 'act-head' },
         h('span', { cls: 'badge tone-' + (working ? 'info' : a.state === 'finished' ? 'ok' : 'neutral') }, icon(working ? 'spinner' : a.state === 'finished' ? 'checkcircle' : 'clock', { size: 13, cls: working ? 'is-spin' : '' }), h('span', { text: STATE_LABEL[a.state] || a.state })),
         working && phase ? h('span', { cls: 'act-phase', text: 'Phase: ' + phase[1] }) : null,
         a.model ? h('span', { cls: 'muted small mono act-model', text: (a.model.name || '') + ' · ' + (a.model.tokens_in || 0) + ' Token ein / ' + (a.model.tokens_out || 0) + ' aus' }) : null
       );
       if (collapsed) {
-        SW.dom.fill(body, head, a.step ? h('p', { cls: 'act-one' }, h('strong', { text: 'Schritt: ' }), a.step.what || '–') : null);
+        SW.dom.fill(body, head, stepper, a.step ? h('p', { cls: 'act-one' }, h('strong', { text: 'Schritt: ' }), a.step.what || '–') : null);
         return;
       }
       var t = a.task;
       var s = a.step;
       var next = (a.next || []).slice(0, 3);
       var recent = (a.recent || []).slice(0, 10);
+      if (a.state === 'finished') { SW.dom.fill(body, head, stepper, end); return; }
       SW.dom.fill(body,
-        head, stepper,
+        head, stepper, end,
         h('div', { cls: 'act-grid' },
           h('div', { cls: 'act-col' }, h('h3', { text: 'Aktuelle Aufgabe' }),
             t ? [
@@ -120,6 +130,38 @@
     var off = ui.live(['step', 'tasks', 'summary', 'queue'], load, 350);
     var poll = window.setInterval(function () { if (!document.hidden && st.summary && st.summary.status === 'running') load(); }, 5000);
     return { el: el, dispose: function () { dead = true; off(); window.clearInterval(poll); } };
+  }
+
+  /* Warum ein Lauf endete: Gruende aus orchestrator/engine.py und worker.py, auf Deutsch. */
+  var END_REASON = [
+    [/^stopping: time budget exhausted/, 'Zeitbudget aufgebraucht'],
+    [/^stopping: step budget exhausted/, 'Schrittbudget aufgebraucht'],
+    [/^stopping: task budget exhausted/, 'Aufgabenbudget aufgebraucht'],
+    [/^stopping: model not reachable/, 'Sprachmodell nicht erreichbar'],
+    [/^stopping: host protection: /, 'Host-Schutz hat gestoppt: '],
+    [/^job crashed: /, 'Interner Fehler: '],
+    [/^job interrupted by restart/, 'Durch Neustart des Servers unterbrochen'],
+    [/^upload interrupted by restart/, 'Upload durch Neustart unterbrochen'],
+    [/^worker caught an error: /, 'Fehler im Worker: ']
+  ];
+  function reasonDe(r) {
+    for (var i = 0; i < END_REASON.length; i++) {
+      var m = r.match(END_REASON[i][0]);
+      if (m) return END_REASON[i][1] + r.slice(m[0].length);
+    }
+    return r;
+  }
+  function endBox(e) {
+    var tone = { done: 'ok', partial: 'warn', failed: 'err', cancelled: 'neutral' }[e.status] || 'neutral';
+    var why = e.reason ? reasonDe(e.reason)
+      : e.status === 'done' ? 'Alle Aufgaben erledigt und alle Zielfragen beantwortet.'
+      : e.status === 'partial' ? 'Nicht alle Aufgaben erledigt oder nicht alle Zielfragen beantwortet.'
+      : e.status === 'cancelled' ? 'Vom Benutzer abgebrochen.'
+      : e.status === 'failed' ? 'Keine Analyseaufgabe wurde erfolgreich abgeschlossen.' : '';
+    return h('div', { cls: 'notice end-box tone-' + tone, role: 'status' }, fmt.statusIcon(e.status, 16), h('div', null,
+      h('p', null, h('strong', { text: 'Ergebnis: ' + fmt.statusInfo(e.status).label }), e.finished_at ? h('span', { cls: 'muted small', text: ' · beendet ' + fmt.dateTime(e.finished_at) }) : null),
+      why ? h('p', { cls: 'small' }, h('span', { cls: 'muted', text: 'Grund: ' }), why) : null,
+      e.summary_de || e.summary_en ? h('p', { cls: 'small' }, h('span', { cls: 'muted', text: 'Bilanz: ' }), e.summary_de || e.summary_en) : null));
   }
 
   /* =================== Kopf =================== */

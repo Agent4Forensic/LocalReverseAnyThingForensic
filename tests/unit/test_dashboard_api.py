@@ -339,3 +339,42 @@ def test_job_detail_names_the_example_and_its_result(tmp_path):
     store.update_job(s["id"], status="done")
     store.update_answer(s["id"], "Q1", status="answered", answer_en="The flag is FLAG{layered_ok}")
     assert client.get(f"/api/jobs/{s['id']}").json()["example"]["flag_found"] is True
+
+
+# ---- process state and collected data (2026-11-01) --------------------------------------------------------
+def test_activity_reports_each_phase_and_why_the_job_ended(tmp_path):
+    a, store, gw = _app(tmp_path)
+    jid = _job(store, gw, b"MZ harmless")
+    store.update_job(jid, status="running", started_at="2026-11-01T00:00:00Z")
+    tri = store.add_task(jid, title="Triage", goal="g", kind="triage", origin="triage", priority=1)
+    store.update_task(tri["id"], status="done")
+    work = store.add_task(jid, title="Strings", goal="g", kind="analyze", origin="recipe", priority=10)
+    store.update_task(work["id"], status="running", started_at="2026-11-01T00:00:01Z")
+    sid = store.begin_step(jid, work["id"], "evaluate", "self check")
+    act = a.get(f"/api/jobs/{jid}/activity").json()
+    ph = {p["id"]: p for p in act["phases"]}
+    assert act["state"] == "working" and act["end"] is None
+    assert ph["triage"]["state"] == "done" and ph["triage"]["total"] == 1
+    assert ph["planning"]["state"] == "done" and ph["analysis"] == {"id": "analysis", "state": "open", "count": 0, "total": 1}
+    assert ph["evaluation"]["state"] == "cur" and ph["finalizing"]["state"] == "open"
+    store.finish_step(sid, status="ok", duration_ms=5)
+    store.update_task(work["id"], status="done")
+    store.log(jid, "stopping: time budget exhausted", level="warn")
+    store.update_job(jid, status="partial", finished_at="2026-11-01T00:10:00Z", summary_de="1 von 1 Aufgaben erledigt")
+    act = a.get(f"/api/jobs/{jid}/activity").json()
+    ph = {p["id"]: p for p in act["phases"]}
+    assert act["state"] == "finished" and ph["analysis"]["state"] == "done" and ph["finalizing"]["state"] == "done"
+    assert ph["prioritization"]["state"] == "open"                         # never happened: shown as not reached
+    assert act["end"]["status"] == "partial" and act["end"]["reason"] == "stopping: time budget exhausted"
+    assert act["end"]["summary_de"] == "1 von 1 Aufgaben erledigt"
+
+
+def test_evidence_list_shows_what_was_collected(tmp_path):
+    a, store, gw = _app(tmp_path)
+    jid = _job(store, gw, b"hello")
+    store.add_evidence(jid, None, "strings", "1.0", {"path": "sample", "min_len": 4}, "hello\nworld\n" * 50,
+                       injection_flags=["ignore-previous"])
+    row = a.get(f"/api/jobs/{jid}/evidence").json()[0]
+    assert row["params"] == {"path": "sample", "min_len": 4} and row["size"] == 600
+    assert row["preview"].startswith("hello\nworld") and len(row["preview"]) == 240
+    assert row["injection_flags"] == ["ignore-previous"] and "text" not in row
