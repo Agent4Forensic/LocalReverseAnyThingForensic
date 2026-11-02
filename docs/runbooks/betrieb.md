@@ -40,6 +40,8 @@ Schalter: `-Model`, `-Port`, `-OllamaPort`, `-NoCleanup`, `-Offline`, `-Update`,
 
 ## Colibri mit DeepSeek V4 Flash (ADR-0012)
 
+Standard ist Ollama. `scripts\start.ps1 -EnableColibri` schaltet Colibri einmalig dauerhaft ein, wenn die Hardware es trägt: vollständiges Modell, mindestens 23 GB RAM eingebaut, 20 GB frei, rund 1450 MB/s auf dem Modell-Datenträger. Sonst nennt der Start die Gründe und bleibt bei Ollama. `scripts\start.ps1 -DisableColibri` schaltet zurück. Die Befehle darunter sind für Messläufe und überspringen diese Prüfung.
+
 ```powershell
 python infra\fetch-colibri-model.py     # einmalig, 167 GB auf die SSD ki_data
 python infra\fetch-colibri-model.py --verify   # alle Hashes prüfen, ohne Netz

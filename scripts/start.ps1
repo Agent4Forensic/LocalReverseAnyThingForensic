@@ -8,7 +8,9 @@ param(
     [string]$Model = '',
     [int]$Port = 8765,
     [int]$OllamaPort = 11435,
-    [ValidateSet('ollama', 'colibri')][string]$Llm = 'ollama',   # colibri: ADR-0012, model on the SSD ki_data
+    [ValidateSet('ollama', 'colibri')][string]$Llm = 'ollama',   # this run only; colibri here skips the hardware check (for measuring)
+    [switch]$EnableColibri,   # once: use colibri from now on, if this machine can carry it (ADR-0012); otherwise Ollama stays
+    [switch]$DisableColibri,  # back to Ollama for good
     [int]$ColibriPort = 11436,
     [ValidateRange(0, 64)][int]$RamGb = 0,   # colibri expert cache budget; 0 = from the free RAM, see srcsw_analystlibri_settings.py
     [string]$ColibriMirror = '',   # colibri: a second, byte-identical copy of the model on another drive; it splits the expert reads
@@ -297,6 +299,24 @@ try {
     $Manifest = Get-Content (Join-Path $Root 'infra\manifest.json') -Raw | ConvertFrom-Json
     $ol = $Manifest.components.ollama
     $OllamaExe = Join-Path $ol.target $ol.exe
+    $colibriFlag = Join-Path $Data 'colibri.enabled'
+    if ($DisableColibri) { Remove-Item -LiteralPath $colibriFlag -Force -ErrorAction SilentlyContinue; Write-Stage 'COLIBRI' 'switched off; Ollama from now on' 'OK' }
+    if (-not $PSBoundParameters.ContainsKey('Llm') -and -not $DisableColibri -and ($EnableColibri -or (Test-Path -LiteralPath $colibriFlag))) {
+        # Standard is Ollama. Colibri runs only if the machine carries it, checked again on every start: an unplugged SSD means Ollama, not a failed start.
+        $why = @('python environment not installed yet')
+        if (Test-Path $Py) {
+            $env:PYTHONPATH = Join-Path $Root 'src'
+            $verdict = (& $Py -m sw_analyst.colibri_settings --check | Out-String) | ConvertFrom-Json
+            $why = if ($null -eq $verdict) { @('the check gave no result') } else { @($verdict.reasons) }
+        }
+        if ($why.Count -eq 0) {
+            if ($EnableColibri) { Set-Content -LiteralPath $colibriFlag -Value (Get-Date).ToString('s') -Encoding ASCII; Write-Stage 'COLIBRI' 'hardware is sufficient: switched on, from now on without this option (-DisableColibri reverts it)' 'OK' }
+            $Llm = 'colibri'
+        } else {
+            foreach ($w in $why) { Write-Stage 'COLIBRI' $w 'WARN' }
+            Write-Stage 'COLIBRI' 'this machine cannot carry colibri right now: staying on Ollama and the model that fits' 'WARN'
+        }
+    }
 
     # ---- 0. CLEAN (own leftovers only; never blocks the start) ----
     if (-not $NoCleanup) { & (Join-Path $PSScriptRoot 'cleanup.ps1') -Phase pre -Port $Port -OllamaPort $OllamaPort }
