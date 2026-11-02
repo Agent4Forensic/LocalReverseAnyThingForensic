@@ -3,6 +3,7 @@ import hashlib
 import importlib.util
 import json
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
@@ -16,11 +17,21 @@ ROOT = Path(__file__).resolve().parents[2]
 USER = [ChatMessage(role="user", content="hi")]
 
 
+def _sse(chunks) -> bytes:
+    """As coli serve streams it: SSE comments between the events, then [DONE]."""
+    body = b": keepalive\n\n"
+    for c in chunks if isinstance(chunks, list) else [chunks]:
+        body += b"data: " + json.dumps(c).encode() + b"\n\n"
+    return body + b"data: [DONE]\n\n"
+
+
 @pytest.fixture
 def server():
-    state = {"reply": {"model": "m", "choices": [{"message": {"content": "{}", "reasoning_content": "why"}, "finish_reason": "length"}],
-                       "usage": {"prompt_tokens": 3, "completion_tokens": 4}},
-             "status": 200, "seen": None, "headers": None, "health": 200, "location": "", "paths": []}
+    state = {"reply": [{"model": "m", "choices": [{"delta": {"reasoning_content": "why"}, "finish_reason": None}]},
+                       {"model": "m", "choices": [{"delta": {"content": "{"}, "finish_reason": None}]},
+                       {"model": "m", "choices": [{"delta": {"content": "}"}, "finish_reason": "length"}]},
+                       {"model": "m", "choices": [], "usage": {"prompt_tokens": 3, "completion_tokens": 4}}],
+             "status": 200, "seen": None, "headers": None, "health": 200, "location": "", "paths": [], "stream": None, "client_left": False, "queued_s": 0}
 
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a):
@@ -34,11 +45,18 @@ def server():
             state["seen"] = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             state["headers"], state["path"] = dict(self.headers), self.path
             state["paths"].append(self.path)
+            time.sleep(state["queued_s"])
             self.send_response(state["status"])
             if state["location"]:
                 self.send_header("Location", state["location"])
             self.end_headers()
-            self.wfile.write(json.dumps(state["reply"]).encode())
+            if state["status"] != 200:
+                self.wfile.write(json.dumps(state["reply"]).encode())
+                return
+            try:
+                self.wfile.write(state["stream"]() if state["stream"] else _sse(state["reply"]))
+            except OSError:
+                state["client_left"] = True
 
     s = HTTPServer(("127.0.0.1", 0), H)
     threading.Thread(target=s.serve_forever, daemon=True).start()
@@ -61,7 +79,7 @@ def test_reply_maps_to_the_llm_response(server):
 def test_temperature_is_always_zero_and_no_seed_is_claimed(server):
     state, c = server
     c.chat(USER, temperature=0.7)
-    assert state["seen"]["temperature"] == 0 and "seed" not in state["seen"]
+    assert state["seen"]["temperature"] == 0 and "seed" not in state["seen"] and state["seen"]["stream"] is True
     assert not hasattr(c, "seed")  # the runner logs getattr(llm, "seed", None): the engine has none, a report must not name one
 
 
@@ -87,7 +105,8 @@ def test_json_mode_adds_a_short_instruction_but_never_the_schema(server):
     assert state["seen"]["messages"] == [{"role": "user", "content": "hi"}]
 
 
-@pytest.mark.parametrize("status,reply", [(500, {"error": "x"}), (200, {"choices": []}), (200, {})])
+@pytest.mark.parametrize("status,reply", [(500, {"error": "x"}), (200, {"choices": []}), (200, {}), (200, {"error": {"message": "boom"}}),
+                                          (200, {"choices": [{"delta": {"content": "half an answer"}, "finish_reason": None}]})])
 def test_bad_replies_raise_llm_error(server, status, reply):
     state, c = server
     state["status"], state["reply"] = status, reply
@@ -101,6 +120,72 @@ def test_a_proxy_setting_cannot_take_the_key_off_the_machine(server, monkeypatch
         monkeypatch.setenv(name, "http://127.0.0.1:9")   # nothing listens there: going through it would fail
     monkeypatch.delenv("NO_PROXY", raising=False)
     assert c.chat(USER).text == "{}"
+
+
+def test_a_stream_without_done_and_finish_is_a_lost_reply_not_a_short_answer(server):
+    state, c = server
+    state["stream"] = lambda: b'data: {"choices":[{"delta":{"content":"half"},"finish_reason":null}]}\n\n'
+    with pytest.raises(LLMError, match="without a finish reason"):
+        c.chat(USER)
+
+
+def test_waiting_in_the_queue_is_not_silence(server):
+    state, c = server
+    c.stall_s, state["queued_s"] = 0.5, 1.5   # nothing is sent before the engine accepts the request
+    assert c.chat(USER).text == "{}"
+
+
+def test_silence_is_a_dead_engine(server):
+    state, c = server
+    c.stall_s = 1
+    state["stream"] = lambda: (time.sleep(3), b"")[1]
+    t0 = time.monotonic()
+    with pytest.raises(LLMError):
+        c.chat(USER)
+    assert time.monotonic() - t0 < 3
+
+
+def test_cancel_ends_a_running_reply_and_closes_the_connection():
+    state = {"left": threading.Event()}
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            self.rfile.read(int(self.headers["Content-Length"]))
+            self.send_response(200)
+            self.end_headers()
+            try:
+                for _ in range(400):     # a reply that would take 20 s; only keepalives, as during a prefill
+                    self.wfile.write(b": keepalive\n\n")
+                    self.wfile.flush()
+                    time.sleep(0.05)
+            except OSError:
+                state["left"].set()      # what makes the real server send CANCEL to the engine
+
+    s = HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=s.serve_forever, daemon=True).start()
+    try:
+        c = ColibriClient("m", f"http://127.0.0.1:{s.server_port}")
+        c.cancel_poll_s = 0.1
+        asked = []
+        c.should_cancel = lambda: (asked.append(1), len(asked) > 2)[1]
+        t0 = time.monotonic()
+        with pytest.raises(LLMError, match="cancelled"):
+            c.chat(USER)
+        assert time.monotonic() - t0 < 10
+        assert state["left"].wait(5)
+    finally:
+        s.shutdown()
+
+
+def test_the_whole_reply_has_a_time_limit_even_with_keepalives(server):
+    state, c = server
+    c.timeout_s = 0
+    state["stream"] = lambda: (time.sleep(0.05), b": keepalive\n\n: keepalive\n\n")[1]
+    with pytest.raises(LLMError, match="longer than"):
+        c.chat(USER)
 
 
 def test_a_redirect_is_never_followed(server):

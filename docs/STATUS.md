@@ -455,13 +455,15 @@ Belegt:
 - [x] `ki_data` liest 450 MB/s ungepuffert bei zufälligen Blöcken von 12,6 MB (15 Sekunden, Download lief parallel).
 - [x] `colibri_settings.py` wählt die Einstellungen aus der Hardware; auf diesem Rechner: volle GPU-Stufe, 14,9 GB VRAM frei. Das RAM-Budget lag bei 11 bis 15 GB freiem RAM bei der Untergrenze von 12 GB.
 - [x] Testlauf `start.ps1 -Llm colibri -ColibriGate` ist gebaut. Ein Trockenlauf mit einer Attrappe der Engine lief durch `Start-Colibri`, Schlüssel, Prüfungen und einen Auftrag über HTTP. Er fand zwei Fehler, beide behoben: Der Wächter stürzte an der `netstat`-Ausgabe ab und hätte falsch bestanden, und `think` und `seed` gingen im Schritt-Protokoll verloren.
+- [x] Der Client streamt: „Abbrechen“ im Dashboard trennt die Verbindung innerhalb von Sekunden, Schweigen gilt als tote Engine, ein abgebrochener Datenstrom als verlorene Antwort. Getestet gegen Fake-Server; das `CANCEL` an die Engine ist nur aus dem Server-Code gelesen.
+- [x] Prioritizer auf Colibri aus. `-ColibriMirror` und `-ColibriPrepare` (doctor, plan, tune, Anwärmen) sind gebaut, liefen aber noch nie.
 
 Hypothese:
 - [ ] Rund 0,16 Token pro Sekunde allein durch die Platte, also rund 52 Minuten für 500 Token. Hergeleitet aus der Doku, nicht gemessen.
 
 Offen:
-- [ ] Das Modell lädt noch (`infra/fetch-colibri-model.py`, rund 9 Stunden bei 5 MB/s). Ohne Modell lief die Engine noch nie mit echten Gewichten; alles Inferenzbezogene ist damit ungeprüft.
-- [ ] Danach: `fetch-colibri-model.py --verify`, `coli doctor`, `coli plan`, `coli tune`, dann `start.ps1 -Llm colibri -ColibriGate -NoDocker`, danach Vergleich mit `qwen3:14b`.
-- [ ] „Abbrechen“ im Dashboard greift erst nach der laufenden Antwort, weil der Client ohne Streaming wartet. `stop.ps1 -Force` beendet sofort.
+- [ ] **Der Download steht.** Claude Code beendete ihn am 2026-11-02 gegen 07:23 wegen Speichermangels; 13 von 54 Dateien sind fertig (16,4 von 166,9 GB), eine Teildatei liegt daneben. Fortsetzen in einem eigenen Terminal: `.venv\Scripts\python.exe infra\fetch-colibri-model.py`. Ohne Modell lief die Engine noch nie mit echten Gewichten; alles Inferenzbezogene ist damit ungeprüft.
+- [ ] Der freie RAM lag ohne laufende sw-analyst-Prozesse bei 8 bis 15 GB von 31 GB; die Engine braucht mindestens 12 GB. Woher der Verbrauch kommt, ist nicht geklärt. Vor dem Test mehr freimachen, am besten neu starten.
+- [ ] Danach: `start.ps1 -Llm colibri -ColibriPrepare -NoDocker`, dann `start.ps1 -Llm colibri -ColibriGate -NoDocker`, danach Vergleich mit `qwen3:14b`.
 - [ ] Bei unter 16 GB RAM-Budget bleibt laut `coli plan` kaum Platz für warme Experten; wie stark das bremst, zeigt erst die Messung.
 - [ ] `ki_data` ist USB. Eine Kopie auf der internen NVMe (`COLI_MODEL_MIRROR`) wäre schneller, kostet dort aber 167 GB. Das entscheidet Jan nach der Messung.

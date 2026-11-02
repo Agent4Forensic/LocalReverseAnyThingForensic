@@ -2,6 +2,7 @@
 
     python infra/fetch-colibri-model.py            # developer machine, needs network: fetch what is missing or wrong
     python infra/fetch-colibri-model.py --verify   # no network: size and hash of every file, exit 1 on any difference
+    python infra/fetch-colibri-model.py --verify --dir D:\\models\\mirror   # the same for another copy of the model
 
 The list of files, sizes and hashes is infra/colibri-model.files.json, not anything on the SSD: a removable drive proves nothing
 about itself. A file gets its final name only after it passes. Only weights and metadata; the Python code in the model
@@ -75,8 +76,9 @@ def fetch(target: Path, repo: str, rev: str, pins: list[dict]) -> int:
 def main() -> int:
     m = json.loads((HERE / "manifest.json").read_text(encoding="utf-8"))["models"]["colibri"]
     pins = json.loads((HERE / "colibri-model.files.json").read_text(encoding="utf-8"))["files"]
-    target = Path(f"{volume_by_label(m['volume_label'])}:/") / m["dir"]
-    if "--verify" not in sys.argv[1:]:
+    args = sys.argv[1:]
+    target = Path(args[args.index("--dir") + 1]) if "--dir" in args else Path(f"{volume_by_label(m['volume_label'])}:/") / m["dir"]
+    if "--verify" not in args:
         return fetch(target, m["repo"], m["revision"], pins)
     t0 = time.monotonic()
     bad = verify(target, pins)

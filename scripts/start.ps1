@@ -11,6 +11,8 @@ param(
     [ValidateSet('ollama', 'colibri')][string]$Llm = 'ollama',   # colibri: ADR-0012, model on the SSD ki_data
     [int]$ColibriPort = 11436,
     [ValidateRange(0, 64)][int]$RamGb = 0,   # colibri expert cache budget; 0 = from the free RAM, see srcsw_analystlibri_settings.py
+    [string]$ColibriMirror = '',   # colibri: a second, byte-identical copy of the model on another drive; it splits the expert reads
+    [switch]$ColibriPrepare,  # colibri: doctor, plan, tune and the cache warm-up instead of the app, then stop
     [switch]$ColibriGate,   # colibri: run the first real test (tests\bench\colibri_gate.py) instead of the app, then stop
     [switch]$SkipModelHash, # colibri: skip the hash check of the model on the removable SSD (about 6 minutes)
     [switch]$SkipUpdateCheck,
@@ -228,6 +230,11 @@ function Start-Colibri($c, $m) {
         Invoke-Native $Py @((Join-Path $Root 'infra\fetch-colibri-model.py'), '--verify')
         Write-Stage 'COLIBRI' 'all model files match the pinned hashes' 'OK'
     }
+    if ($ColibriMirror) {
+        if (-not (Test-Path -LiteralPath $ColibriMirror -PathType Container)) { Exit-Fail 'COLIBRI' "mirror folder $ColibriMirror not found" }
+        if (-not $SkipModelHash) { Invoke-Native $Py @((Join-Path $Root 'infra\fetch-colibri-model.py'), '--verify', '--dir', $ColibriMirror); Write-Stage 'COLIBRI' 'mirror matches the pinned hashes' 'OK' }
+        $env:COLI_MODEL_MIRROR = $ColibriMirror
+    } else { Remove-Item Env:COLI_MODEL_MIRROR -ErrorAction SilentlyContinue }
     # After Docker: the settings follow what is free now. The rules are in colibri_settings.py.
     $env:PYTHONPATH = Join-Path $Root 'src'
     $settingsText = (& $Py -m sw_analyst.colibri_settings --json --ram $RamGb | Out-String)
@@ -240,6 +247,14 @@ function Start-Colibri($c, $m) {
     foreach ($w in @($s.warnings)) { Write-Stage 'COLIBRI' $w 'WARN' }
     # The backend belongs to the model name: greedy text is only repeatable on the same backend, and this name goes into reports.
     $script:ModelTag = "$ModelTag-$($s.backend)"
+    if ($ColibriPrepare) {
+        # Measured on this machine, once per model. coli serve reads the saved tuning profile by itself.
+        $coli = Join-Path $c.target $c.exe
+        foreach ($sub in 'doctor', 'plan', 'tune') {
+            Write-Stage 'COLIBRI' "coli $sub (can take long)"
+            Invoke-Native $Py @($coli, $sub, '--model', $dir, '--ram', "$($s.ram_gb)", '--ctx', "$($s.ctx)")
+        }
+    }
     # Per start, never on disk. Only serve gets COLI_API_KEY and only the app SW_COLIBRI_KEY; both leave this environment again.
     $script:ColibriKey = [guid]::NewGuid().ToString('N')
     $env:COLI_API_KEY = $script:ColibriKey; $env:PYTHONUTF8 = '1'; $env:PYTHONUNBUFFERED = '1'
@@ -405,12 +420,14 @@ try {
     Install-ToolImages   # needs the daemon, so after Wait-Docker; builds only what is missing
     if ($Llm -eq 'colibri') {
         Start-Colibri $cl $cm   # after Docker: the settings follow what Docker leaves free
-        if ($ColibriGate) {
+        if ($ColibriGate -or $ColibriPrepare) {
             $env:SW_COLIBRI_KEY = $script:ColibriKey
             $rc = 0
-            try { Invoke-Native $Py @((Join-Path $Root 'tests\bench\colibri_gate.py'), '--url', "http://127.0.0.1:$ColibriPort", '--model', $script:ModelTag, '--settings', $script:ColibriSettingsFile) } catch { $rc = 1; Write-Stage 'GATE' "$($_.Exception.Message)" 'WARN' }
+            $job = if ($ColibriPrepare) { @((Join-Path $Root 'infra\colibri-warmup.py'), '--url', "http://127.0.0.1:$ColibriPort", '--model', $script:ModelTag) }
+                   else { @((Join-Path $Root 'tests\bench\colibri_gate.py'), '--url', "http://127.0.0.1:$ColibriPort", '--model', $script:ModelTag, '--settings', $script:ColibriSettingsFile) }
+            try { Invoke-Native $Py $job } catch { $rc = 1; Write-Stage 'GATE' "$($_.Exception.Message)" 'WARN' }
             Remove-Item Env:SW_COLIBRI_KEY -ErrorAction SilentlyContinue
-            Write-Stage 'GATE' "finished, exit $rc; results in data\eval\colibri-gate-*" $(if ($rc -eq 0) { 'OK' } else { 'WARN' })
+            Write-Stage 'GATE' "finished, exit $rc$(if ($ColibriGate) { '; results in data\eval\colibri-gate-*' })" $(if ($rc -eq 0) { 'OK' } else { 'WARN' })
             & (Join-Path $PSScriptRoot 'stop.ps1') -Port $Port -OllamaPort $OllamaPort
             exit $rc
         }
