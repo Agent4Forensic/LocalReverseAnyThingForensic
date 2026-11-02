@@ -10,7 +10,8 @@ param(
     [int]$OllamaPort = 11435,
     [ValidateSet('ollama', 'colibri')][string]$Llm = 'ollama',   # colibri: ADR-0012, model on the SSD ki_data
     [int]$ColibriPort = 11436,
-    [int]$RamGb = 0,        # colibri expert cache budget; 0 = from the free RAM, see Get-ColibriRam
+    [ValidateRange(0, 64)][int]$RamGb = 0,   # colibri expert cache budget; 0 = from the free RAM, see srcsw_analystlibri_settings.py
+    [switch]$ColibriGate,   # colibri: run the first real test (tests\bench\colibri_gate.py) instead of the app, then stop
     [switch]$SkipModelHash, # colibri: skip the hash check of the model on the removable SSD (about 6 minutes)
     [switch]$SkipUpdateCheck,
     [switch]$Update,
@@ -216,15 +217,6 @@ function Install-Colibri($c) {
     Move-Item -LiteralPath $tmp -Destination $c.target
     Write-Stage 'INSTALL' "colibri $($c.version) installed in $($c.target)" 'OK'
 }
-# Hard rule: 24 GB for WSL, Docker and models together, and the job pauses below 3 GB free (HostGuard). So the budget follows
-# what is free now, after Docker is up, and leaves 4 GB. --ram is a planner budget, the OS does not enforce it.
-function Get-ColibriRam($m) {
-    if ($RamGb -gt 0) { return $RamGb }
-    $freeGb = (Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1MB
-    $ram = [int][math]::Max(8, [math]::Min([double]$m.ram_cap_gb, [math]::Floor($freeGb - 4)))
-    if ($ram -lt [int]$m.ram_min_gb) { Write-Stage 'COLIBRI' ("only {0:N1} GB RAM free, budget {1} GB is below the {2} GB this model wants: close programs for more speed" -f $freeGb, $ram, $m.ram_min_gb) 'WARN' }
-    return $ram
-}
 function Start-Colibri($c, $m) {
     $letters = @(Get-Volume | Where-Object FileSystemLabel -ceq $m.volume_label | ForEach-Object { $_.DriveLetter })
     if ($letters.Count -ne 1) { Exit-Fail 'COLIBRI' "volume $($m.volume_label) not found exactly once (found $($letters.Count))" }
@@ -236,27 +228,28 @@ function Start-Colibri($c, $m) {
         Invoke-Native $Py @((Join-Path $Root 'infra\fetch-colibri-model.py'), '--verify')
         Write-Stage 'COLIBRI' 'all model files match the pinned hashes' 'OK'
     }
-    foreach ($e in $m.env.PSObject.Properties) { Set-Item -Path "Env:$($e.Name)" -Value $e.Value }
-    $freeVram = 0
-    try { $g = (& nvidia-smi --query-gpu=memory.total,memory.used --format=csv,noheader,nounits) -split ','; $freeVram = [int]$g[0].Trim() - [int]$g[1].Trim() } catch { }
-    if ($freeVram -lt 12000) {
-        # Documented per-card table: below 12 GB the prefill bank does not fit, below 8 GB neither do the dense mirrors.
-        $env:COLI_CUDA_MOE_BATCH = '0'
-        if ($freeVram -lt 8000) { $env:CUDA_DENSE = '0'; $env:COLI_CUDA_ATTN_BATCH = '0' }
-        Write-Stage 'COLIBRI' "only $freeVram MiB VRAM free: smaller GPU settings, slower prefill" 'WARN'
-    }
-    $env:COLI_QUEUE_TIMEOUT = '14400'    # a translation waits behind a long reply; the default 300 s would fail it
+    # After Docker: the settings follow what is free now. The rules are in colibri_settings.py.
+    $env:PYTHONPATH = Join-Path $Root 'src'
+    $settingsText = (& $Py -m sw_analyst.colibri_settings --json --ram $RamGb | Out-String)
+    $s = $settingsText | ConvertFrom-Json
+    if ($null -eq $s) { Exit-Fail 'COLIBRI' 'colibri_settings gave no result; see the output above' }
+    $script:ColibriSettingsFile = Join-Path $RunDir 'colibri-settings.json'
+    [IO.File]::WriteAllText($script:ColibriSettingsFile, $settingsText, $Utf8)
+    foreach ($e in $s.env.PSObject.Properties) { Set-Item -Path "Env:$($e.Name)" -Value $e.Value }
+    foreach ($n in @($s.notes)) { Write-Stage 'COLIBRI' $n }
+    foreach ($w in @($s.warnings)) { Write-Stage 'COLIBRI' $w 'WARN' }
+    # The backend belongs to the model name: greedy text is only repeatable on the same backend, and this name goes into reports.
+    $script:ModelTag = "$ModelTag-$($s.backend)"
     # Per start, never on disk. Only serve gets COLI_API_KEY and only the app SW_COLIBRI_KEY; both leave this environment again.
     $script:ColibriKey = [guid]::NewGuid().ToString('N')
     $env:COLI_API_KEY = $script:ColibriKey; $env:PYTHONUTF8 = '1'; $env:PYTHONUNBUFFERED = '1'
-    $ram = Get-ColibriRam $m
     $log = Join-Path $LogDir ("colibri-{0:yyyyMMdd-HHmmss}.log" -f (Get-Date))
-    $a = @("`"$(Join-Path $c.target $c.exe)`"", 'serve', '--model', "`"$dir`"", '--ram', "$ram", '--ctx', "$($m.ctx)",
-           '--host', '127.0.0.1', '--port', "$ColibriPort", '--model-id', $ModelTag)
+    $a = @("`"$(Join-Path $c.target $c.exe)`"", 'serve', '--model', "`"$dir`"", '--ram', "$($s.ram_gb)", '--ctx', "$($s.ctx)",
+           '--host', '127.0.0.1', '--port', "$ColibriPort", '--model-id', $script:ModelTag)
     $p = Start-Process -FilePath $Py -ArgumentList $a -WorkingDirectory $c.target -WindowStyle Hidden -PassThru -RedirectStandardOutput $log -RedirectStandardError ($log + '.err')
     Remove-Item Env:COLI_API_KEY -ErrorAction SilentlyContinue
     @{ pid = $p.Id; name = 'colibri'; started = (Get-Date).ToString('s') } | ConvertTo-Json -Compress | Set-Content (Join-Path $RunDir 'colibri.pid') -Encoding ASCII
-    Write-Stage 'COLIBRI' "serve pid $($p.Id), $($m.id) from $dir, --ram $ram, --ctx $($m.ctx), $freeVram MiB VRAM free; loading (limit 30 min), log $log"
+    Write-Stage 'COLIBRI' "serve pid $($p.Id), $($m.id) from $dir, backend $($s.backend), --ram $($s.ram_gb), --ctx $($s.ctx); loading (limit 30 min), log $log"
     for ($i = 0; $i -lt 360; $i++) {
         if ($p.HasExited) { Exit-Fail 'COLIBRI' "serve exited early; see $log.err" }
         try { Get-Json "http://127.0.0.1:$ColibriPort/health" 3 | Out-Null; Write-Stage 'COLIBRI' "ready after about $($i * 5) s on http://127.0.0.1:$ColibriPort (loopback only)" 'OK'; return } catch { Start-Sleep -Seconds 5 }
@@ -410,7 +403,18 @@ try {
 
     Wait-Docker
     Install-ToolImages   # needs the daemon, so after Wait-Docker; builds only what is missing
-    if ($Llm -eq 'colibri') { Start-Colibri $cl $cm }   # after Docker: the RAM budget follows what Docker leaves free
+    if ($Llm -eq 'colibri') {
+        Start-Colibri $cl $cm   # after Docker: the settings follow what Docker leaves free
+        if ($ColibriGate) {
+            $env:SW_COLIBRI_KEY = $script:ColibriKey
+            $rc = 0
+            try { Invoke-Native $Py @((Join-Path $Root 'tests\bench\colibri_gate.py'), '--url', "http://127.0.0.1:$ColibriPort", '--model', $script:ModelTag, '--settings', $script:ColibriSettingsFile) } catch { $rc = 1; Write-Stage 'GATE' "$($_.Exception.Message)" 'WARN' }
+            Remove-Item Env:SW_COLIBRI_KEY -ErrorAction SilentlyContinue
+            Write-Stage 'GATE' "finished, exit $rc; results in data\eval\colibri-gate-*" $(if ($rc -eq 0) { 'OK' } else { 'WARN' })
+            & (Join-Path $PSScriptRoot 'stop.ps1') -Port $Port -OllamaPort $OllamaPort
+            exit $rc
+        }
+    }
 
     # ---- 5. APP ----
     $appPidFile = Join-Path $RunDir 'app.pid'
@@ -422,7 +426,7 @@ try {
     } else {
         $env:PYTHONPATH = Join-Path $Root 'src'; $env:SW_LOG_FILE = $LogFile; $env:PYTHONUNBUFFERED = '1'; $env:PYTHONUTF8 = '1'
         $a = @('-m', 'sw_analyst', '--model', $ModelTag, '--ollama-url', $OllamaUrl, '--data-dir', "`"$Data`"", '--port', "$Port")
-        if ($Llm -eq 'colibri') { $a += @('--llm', 'colibri', '--colibri-url', "http://127.0.0.1:$ColibriPort", '--num-ctx', "$($cm.ctx)") }
+        if ($Llm -eq 'colibri') { $a += @('--llm', 'colibri', '--colibri-url', "http://127.0.0.1:$ColibriPort", '--num-ctx', '16384') }
         $out = Join-Path $LogDir ("app-{0:yyyy-MM-dd}.out" -f (Get-Date))
         if ($Llm -eq 'colibri') { $env:SW_COLIBRI_KEY = $script:ColibriKey }
         $appProc = Start-Process -FilePath $Py -ArgumentList $a -WorkingDirectory $Root -WindowStyle Hidden -PassThru -RedirectStandardOutput $out -RedirectStandardError ($out + '.err')

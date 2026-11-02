@@ -49,6 +49,10 @@ class JobEngine:
         self.host_guard = host_guard
 
     # ---- public --------------------------------------------------------------------------------
+    def _minutes(self, spec: dict) -> int:
+        """The time budget for this engine: a slow engine gets the same work done, not a cut-off job (ADR-0012)."""
+        return spec["budget_max_minutes"] * getattr(self.llm, "budget_factor", 1)
+
     def run_job(self, job_id: str) -> str:
         t_job = time.monotonic()
         job = self.store.update_job(job_id, status="running", started_at=utcnow())
@@ -198,7 +202,7 @@ class JobEngine:
             return "task budget exhausted"
         if self.store.count_steps(job_id) >= spec["budget_max_steps"]:
             return "step budget exhausted"
-        if (time.monotonic() - t_job) / 60 >= spec["budget_max_minutes"]:
+        if (time.monotonic() - t_job) / 60 >= self._minutes(spec):
             return "time budget exhausted"
         return None
 
@@ -214,7 +218,7 @@ class JobEngine:
     def _budget_used(self, job_id: str, t_job: float) -> float:
         spec = self.store.get_job(job_id)["spec"]
         return max(self.store.count_steps(job_id) / spec["budget_max_steps"],
-                   (time.monotonic() - t_job) / 60 / spec["budget_max_minutes"])
+                   (time.monotonic() - t_job) / 60 / self._minutes(spec))
 
     def _keep_reserve(self, job_id: str, t_job: float) -> None:
         """Target questions must get an answer or a reason, so optional work gives way before the budget ends."""
@@ -417,7 +421,7 @@ class JobEngine:
             return
         job = self.store.get_job(job_id)
         spec = job["spec"]
-        budget = f"{spec['budget_max_tasks']} tasks, {spec['budget_max_steps']} steps, {spec['budget_max_minutes']} min"
+        budget = f"{spec['budget_max_tasks']} tasks, {spec['budget_max_steps']} steps, {self._minutes(spec)} min"
         res = self.agents.prioritize(job, pending, self.runner.known_findings_text(job_id), budget)
         for c in res["changes"]:
             self.store.update_task(c["task_id"], priority=c["priority"])  # task reason keeps its origin

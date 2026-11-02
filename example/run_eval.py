@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -25,6 +26,7 @@ from sw_analyst.common.store import Store  # noqa: E402
 from sw_analyst.common.util import sha256_hex  # noqa: E402
 from sw_analyst.gateway.container_tools import attach_container_tools  # noqa: E402
 from sw_analyst.gateway.dev_gateway import DevGateway  # noqa: E402
+from sw_analyst.llm.colibri import ColibriClient  # noqa: E402
 from sw_analyst.llm.ollama import OllamaClient  # noqa: E402
 from sw_analyst.orchestrator.engine import JobEngine  # noqa: E402
 from sw_analyst.report.builder import build_report  # noqa: E402
@@ -42,7 +44,7 @@ def load_challenges() -> dict[str, dict]:
     return found
 
 
-def run_one(c: dict, out: Path, model: str, url: str, num_ctx: int, minutes: int) -> dict:
+def run_one(c: dict, out: Path, model: str, url: str, num_ctx: int, minutes: int, llm_kind: str = "ollama", key: str = "") -> dict:
     d = out / c["id"]
     d.mkdir(parents=True, exist_ok=True)
     data = BUILDERS[c["sample"]["builder"]]()
@@ -56,7 +58,8 @@ def run_one(c: dict, out: Path, model: str, url: str, num_ctx: int, minutes: int
     attach_container_tools(gw)          # same tools as the server: Ghidra & co. when Docker and the images exist
     gw.store_sample(job["id"], data)
     t0 = time.monotonic()
-    status = JobEngine(store, OllamaClient(model, url, num_ctx=num_ctx), gw).run_job(job["id"])
+    llm = ColibriClient(model, url, key, num_ctx=num_ctx) if llm_kind == "colibri" else OllamaClient(model, url, num_ctx=num_ctx)
+    status = JobEngine(store, llm, gw).run_job(job["id"])
     report = build_report(store, job["id"], "en", model)
     (d / "report.md").write_text(report, encoding="utf-8")
     # A flag quoted somewhere in the report is not a result: the target question must have been answered with it.
@@ -70,13 +73,16 @@ def run_one(c: dict, out: Path, model: str, url: str, num_ctx: int, minutes: int
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--challenge", default="all")
+    ap.add_argument("--llm", choices=("ollama", "colibri"), default="ollama", help="colibri: the key comes from SW_COLIBRI_KEY")
     ap.add_argument("--model", default="qwen3:8b")
-    ap.add_argument("--url", default="http://127.0.0.1:11435")
+    ap.add_argument("--url", default="", help="default: the port of the chosen engine")
     ap.add_argument("--num-ctx", type=int, default=16384)
     ap.add_argument("--minutes", type=int, default=0,
                     help="time budget per challenge (default: budget_minutes from challenge.json, else 10)")
     ap.add_argument("--out", default="")
     a = ap.parse_args()
+    a.url = a.url or ("http://127.0.0.1:11436" if a.llm == "colibri" else "http://127.0.0.1:11435")
+    key = os.environ.pop("SW_COLIBRI_KEY", "")
     all_c = load_challenges()
     ids = list(all_c) if a.challenge == "all" else [x for x in a.challenge.split(",") if x]
     unknown = [i for i in ids if i not in all_c]
@@ -89,7 +95,7 @@ def main() -> int:
         print(f"== {i}: {all_c[i]['title']} ...", flush=True)
         try:
             minutes = a.minutes or all_c[i].get("budget_minutes") or 10   # same default as the dashboard
-            r = run_one(all_c[i], out, a.model, a.url, a.num_ctx, minutes)
+            r = run_one(all_c[i], out, a.model, a.url, a.num_ctx, minutes, a.llm, key)
         except Exception as e:  # one broken challenge must not hide the others
             r = {"id": i, "flag": all_c[i]["flag"], "passed": False, "job_status": f"error: {e}", "minutes": 0,
                  "audit_valid": None, "report": ""}

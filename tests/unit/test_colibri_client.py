@@ -74,13 +74,13 @@ def test_thinking_is_off_unless_allowed(server):
     assert state["seen"]["enable_thinking"] is True
 
 
-def test_schema_goes_into_the_system_prompt_because_the_engine_does_not_enforce_it(server):
+def test_json_mode_adds_a_short_instruction_but_never_the_schema(server):
     state, c = server
-    schema = {"type": "object", "required": ["action"]}
+    schema = {"type": "object", "required": ["action"], "description": "must not reach the prompt"}
     c.chat([ChatMessage(role="system", content="S"), *USER], json_mode=schema)
     sysmsg = state["seen"]["messages"][0]
-    assert sysmsg["role"] == "system" and sysmsg["content"].startswith("S\n\n") and '"required":["action"]' in sysmsg["content"]
-    assert len(state["seen"]["messages"]) == 2 and "response_format" not in state["seen"]
+    assert sysmsg["role"] == "system" and sysmsg["content"].startswith("S\n\n") and "exactly one JSON object" in sysmsg["content"]
+    assert "must not reach the prompt" not in json.dumps(state["seen"]) and "response_format" not in state["seen"]
     c.chat(USER, json_mode=True)
     assert state["seen"]["messages"][0]["role"] == "system" and "exactly one JSON object" in state["seen"]["messages"][0]["content"]
     c.chat(USER)
@@ -208,7 +208,7 @@ def test_manifest_pins_engine_and_models():
 
 def test_start_runs_colibri_on_loopback_and_only_serve():
     txt = (ROOT / "scripts" / "start.ps1").read_text(encoding="ascii")
-    assert "'--host', '127.0.0.1'" in txt and "COLI_API_KEY" in txt
+    assert "'--host', '127.0.0.1'" in txt and "COLI_API_KEY" in txt and "colibri_settings --json" in txt
     for forbidden in ("0.0.0.0", "START-HERE", "'setup'", "'web'", "'mcp'"):
         assert forbidden not in txt
 

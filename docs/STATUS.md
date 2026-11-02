@@ -453,11 +453,15 @@ Belegt:
 - [x] `start.ps1 -Llm colibri`, `stop.ps1`, `cleanup.ps1`, Preflight und `ColibriClient` sind gebaut und getestet (Fake-Server und statische Prüfungen). Standard bleibt Ollama.
 - [x] Das Windows-CUDA-Paket enthält die DeepSeek-DLLs. Die Anmerkung, CUDA gehe dafür nur unter Linux, trifft auf v2.1.0 nicht zu.
 - [x] `ki_data` liest 450 MB/s ungepuffert bei zufälligen Blöcken von 12,6 MB (15 Sekunden, Download lief parallel).
+- [x] `colibri_settings.py` wählt die Einstellungen aus der Hardware; auf diesem Rechner: volle GPU-Stufe, 14,9 GB VRAM frei. Das RAM-Budget lag bei 11 bis 15 GB freiem RAM bei der Untergrenze von 12 GB.
+- [x] Testlauf `start.ps1 -Llm colibri -ColibriGate` ist gebaut. Ein Trockenlauf mit einer Attrappe der Engine lief durch `Start-Colibri`, Schlüssel, Prüfungen und einen Auftrag über HTTP. Er fand zwei Fehler, beide behoben: Der Wächter stürzte an der `netstat`-Ausgabe ab und hätte falsch bestanden, und `think` und `seed` gingen im Schritt-Protokoll verloren.
 
 Hypothese:
 - [ ] Rund 0,16 Token pro Sekunde allein durch die Platte, also rund 52 Minuten für 500 Token. Hergeleitet aus der Doku, nicht gemessen.
 
 Offen:
 - [ ] Das Modell lädt noch (`infra/fetch-colibri-model.py`, rund 9 Stunden bei 5 MB/s). Ohne Modell lief die Engine noch nie mit echten Gewichten; alles Inferenzbezogene ist damit ungeprüft.
-- [ ] Danach: `coli doctor`, `coli plan`, `coli tune`, erster Auftrag, Quote gültiger JSON-Antworten, Wiederholbarkeit, Vergleich mit `qwen3:14b`.
+- [ ] Danach: `fetch-colibri-model.py --verify`, `coli doctor`, `coli plan`, `coli tune`, dann `start.ps1 -Llm colibri -ColibriGate -NoDocker`, danach Vergleich mit `qwen3:14b`.
+- [ ] „Abbrechen“ im Dashboard greift erst nach der laufenden Antwort, weil der Client ohne Streaming wartet. `stop.ps1 -Force` beendet sofort.
+- [ ] Bei unter 16 GB RAM-Budget bleibt laut `coli plan` kaum Platz für warme Experten; wie stark das bremst, zeigt erst die Messung.
 - [ ] `ki_data` ist USB. Eine Kopie auf der internen NVMe (`COLI_MODEL_MIRROR`) wäre schneller, kostet dort aber 167 GB. Das entscheidet Jan nach der Messung.

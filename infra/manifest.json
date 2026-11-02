@@ -89,20 +89,7 @@
       "license": "MIT",
       "volume_label": "ki_data",
       "dir": "sw-analyst\\colibri\\deepseek-v4-flash-0731",
-      "ctx": 20000,
-      "ram_min_gb": 16,
-      "ram_cap_gb": 20,
-      "note": "ADR-0012. The volume is found by its label, never by its drive letter. env holds the documented settings for a 16 GB card; start.ps1 lowers them when less VRAM is free.",
-      "env": {
-        "COLI_CUDA": "1",
-        "COLI_GPU": "0",
-        "CUDA_DENSE": "1",
-        "COLI_CUDA_PIPE": "2",
-        "COLI_CUDA_ATTN_BATCH": "1",
-        "COLI_CUDA_MOE_BATCH": "1",
-        "V4_MOE_REFILL_GROUP": "12",
-        "V4_LOADER_LANES": "3"
-      }
+      "note": "ADR-0012. The volume is found by its label, never by its drive letter. Settings come from src/sw_analyst/llm/colibri_settings.py."
     }
   }
 }
