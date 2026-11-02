@@ -182,8 +182,8 @@ def test_cancel_ends_a_running_reply_and_closes_the_connection():
 
 def test_the_whole_reply_has_a_time_limit_even_with_keepalives(server):
     state, c = server
-    c.timeout_s = 0
-    state["stream"] = lambda: (time.sleep(0.05), b": keepalive\n\n: keepalive\n\n")[1]
+    c.timeout_s = 0.5
+    state["stream"] = lambda: (time.sleep(1), b": keepalive\n\n: keepalive\n\n")[1]
     with pytest.raises(LLMError, match="longer than"):
         c.chat(USER)
 
