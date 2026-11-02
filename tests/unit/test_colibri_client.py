@@ -11,6 +11,7 @@ import pytest
 
 import sw_analyst.preflight as pf
 from sw_analyst.llm.base import ChatMessage, LLMError
+from sw_analyst.llm import colibri
 from sw_analyst.llm.colibri import ColibriClient
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -127,6 +128,50 @@ def test_a_stream_without_done_and_finish_is_a_lost_reply_not_a_short_answer(ser
     state["stream"] = lambda: b'data: {"choices":[{"delta":{"content":"half"},"finish_reason":null}]}\n\n'
     with pytest.raises(LLMError, match="without a finish reason"):
         c.chat(USER)
+
+
+def test_a_reply_cannot_fill_the_memory(server, monkeypatch):
+    state, c = server
+    monkeypatch.setattr(colibri, "MAX_REPLY_CHARS", 10)
+    state["reply"] = [{"choices": [{"delta": {"content": "x" * 50}, "finish_reason": None}]}]
+    with pytest.raises(LLMError, match="longer than"):
+        c.chat(USER)
+
+
+def test_an_overlong_line_ends_the_reply(server, monkeypatch):
+    state, c = server
+    monkeypatch.setattr(colibri, "MAX_LINE", 20)
+    state["reply"] = [{"choices": [{"delta": {"content": "x" * 50}, "finish_reason": "stop"}]}]
+    with pytest.raises(LLMError):
+        c.chat(USER)
+
+
+def test_a_dashboard_translation_is_not_cancelled_with_the_job(tmp_path):
+    from sw_analyst.common.models import JobSpec
+    from sw_analyst.common.store import Store
+    from sw_analyst.common.util import sha256_hex
+    from sw_analyst.gateway.dev_gateway import DevGateway
+    from sw_analyst.orchestrator.engine import JobEngine
+
+    store = Store(tmp_path / "t.db", tmp_path / "logs")
+    gw = DevGateway(tmp_path)
+    job = store.create_job(JobSpec(title="t", description="d"), "s.txt", sha256_hex(b"x"))
+    gw.store_sample(job["id"], b"x")
+    c = ColibriClient("m")
+    engine = JobEngine(store, c, gw, use_prioritizer=False)
+    seen = {}
+
+    def inside(*a):
+        store.update_job(job["id"], cancel_requested=1)
+        seen["job_thread"] = c.should_cancel()
+        other = threading.Thread(target=lambda: seen.update(web_thread=c.should_cancel()))
+        other.start()
+        other.join()
+        raise RuntimeError("stop here")
+
+    engine._translate_inputs = inside
+    engine.run_job(job["id"])
+    assert seen == {"job_thread": True, "web_thread": False} and c.should_cancel is None
 
 
 def test_waiting_in_the_queue_is_not_silence(server):

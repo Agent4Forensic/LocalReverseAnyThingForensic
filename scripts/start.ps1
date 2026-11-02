@@ -232,7 +232,8 @@ function Start-Colibri($c, $m) {
     }
     if ($ColibriMirror) {
         if (-not (Test-Path -LiteralPath $ColibriMirror -PathType Container)) { Exit-Fail 'COLIBRI' "mirror folder $ColibriMirror not found" }
-        if (-not $SkipModelHash) { Invoke-Native $Py @((Join-Path $Root 'infra\fetch-colibri-model.py'), '--verify', '--dir', $ColibriMirror); Write-Stage 'COLIBRI' 'mirror matches the pinned hashes' 'OK' }
+        if ($SkipModelHash) { Write-Stage 'COLIBRI' 'mirror hashes NOT checked (-SkipModelHash); its size was not checked either' 'WARN' }
+        else { Invoke-Native $Py @((Join-Path $Root 'infra\fetch-colibri-model.py'), '--verify', '--dir', $ColibriMirror); Write-Stage 'COLIBRI' 'mirror matches the pinned hashes' 'OK' }
         $env:COLI_MODEL_MIRROR = $ColibriMirror
     } else { Remove-Item Env:COLI_MODEL_MIRROR -ErrorAction SilentlyContinue }
     # After Docker: the settings follow what is free now. The rules are in colibri_settings.py.

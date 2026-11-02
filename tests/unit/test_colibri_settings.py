@@ -266,6 +266,17 @@ def test_warmup_counts_what_the_engine_took_and_keeps_going_after_a_failure():
     assert warm.warm(ScriptedLLM(flaky)) == len(warm.SNIPPETS) - 1
 
 
+def test_verify_of_a_mirror_takes_both_spellings_of_the_folder_option(tmp_path, monkeypatch, capsys):
+    spec = importlib.util.spec_from_file_location("fetch_colibri_model", ROOT / "infra" / "fetch-colibri-model.py")
+    fetch = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fetch)
+    monkeypatch.setattr(fetch, "volume_by_label", lambda label: pytest.fail("must not look at the volume"))
+    for argv in (["--verify", "--dir", str(tmp_path)], ["--verify", f"--dir={tmp_path}"]):
+        monkeypatch.setattr("sys.argv", ["fetch", *argv])
+        assert fetch.main() == 1      # the empty folder is what was checked
+    assert "files missing or changed" in capsys.readouterr().out
+
+
 def test_a_slow_engine_gets_a_longer_time_budget(tmp_path):
     engine = JobEngine(Store(tmp_path / "t.db", tmp_path / "logs"), ColibriClient("m"), DevGateway(tmp_path))
     assert engine._minutes({"budget_max_minutes": 10}) == 300

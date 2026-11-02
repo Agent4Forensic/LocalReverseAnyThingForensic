@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 import time
 import traceback
 
@@ -58,7 +59,9 @@ class JobEngine:
         job = self.store.update_job(job_id, status="running", started_at=utcnow())
         self.store.log(job_id, "job started", sample_sha256=job["sample_sha256"])
         if hasattr(self.llm, "should_cancel"):   # a reply can take hours: the client looks at this while it waits
-            self.llm.should_cancel = lambda: bool(self.store.get_job(job_id)["cancel_requested"])
+            worker = threading.get_ident()       # a translation for the dashboard shares the client and is not this job's work
+            self.llm.should_cancel = lambda: (threading.get_ident() == worker
+                                              and bool((self.store.get_job(job_id) or {}).get("cancel_requested")))
         try:
             self._translate_inputs(job_id)
             self._triage(job_id)

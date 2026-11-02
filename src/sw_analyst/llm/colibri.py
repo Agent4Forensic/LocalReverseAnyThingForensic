@@ -21,6 +21,10 @@ from sw_analyst.llm.base import ChatMessage, LLMError, LLMResponse
 from sw_analyst.llm.ollama import _LOCAL_HOSTS
 
 
+MAX_LINE = 1 << 20          # one event; a longer line fails to parse and ends the reply
+MAX_REPLY_CHARS = 4 << 20   # far above any reply the runner accepts (64 KiB); a server gone wrong must not fill the RAM
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs):
         return None   # a 3xx then surfaces as HTTPError
@@ -103,13 +107,15 @@ class ColibriClient:
         usage: dict = {}
         model, finish = self.model, ""
         polled = t0
-        for raw in stream:
+        size = 0
+        for raw in iter(lambda: stream.readline(MAX_LINE), b""):
             now = time.monotonic()
             if now - t0 > self.timeout_s:
                 raise LLMError(f"colibri reply took longer than {self.timeout_s} s")
-            if self.should_cancel and now - polled >= self.cancel_poll_s:
+            cancel = self.should_cancel       # read once: the job's end clears it from another call path
+            if cancel and now - polled >= self.cancel_poll_s:
                 polled = now
-                if self.should_cancel():
+                if cancel():
                     raise LLMError("cancelled while the model was answering")
             line = raw.decode("utf-8", "replace").strip()
             if not line.startswith("data:"):
@@ -127,6 +133,9 @@ class ColibriClient:
                 text.append(delta.get("content") or "")
                 thinking.append(delta.get("reasoning_content") or "")
                 finish = choice.get("finish_reason") or finish
+                size += len(text[-1]) + len(thinking[-1])
+            if size > MAX_REPLY_CHARS:
+                raise LLMError(f"colibri reply longer than {MAX_REPLY_CHARS} characters")
         if not finish:   # a stream that just ended is a lost reply, never a short answer
             raise LLMError(f"colibri stream ended without a finish reason after {sum(map(len, text))} characters")
         return LLMResponse(text="".join(text), thinking="".join(thinking), model=model,
