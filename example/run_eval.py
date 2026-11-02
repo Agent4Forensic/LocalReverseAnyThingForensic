@@ -75,12 +75,13 @@ def main() -> int:
     ap.add_argument("--challenge", default="all")
     ap.add_argument("--llm", choices=("ollama", "colibri"), default="ollama", help="colibri: the key comes from SW_COLIBRI_KEY")
     ap.add_argument("--model", default="qwen3:8b")
-    ap.add_argument("--url", default="http://127.0.0.1:11435")
+    ap.add_argument("--url", default="", help="default: the port of the chosen engine")
     ap.add_argument("--num-ctx", type=int, default=16384)
     ap.add_argument("--minutes", type=int, default=0,
                     help="time budget per challenge (default: budget_minutes from challenge.json, else 10)")
     ap.add_argument("--out", default="")
     a = ap.parse_args()
+    a.url = a.url or ("http://127.0.0.1:11436" if a.llm == "colibri" else "http://127.0.0.1:11435")
     key = os.environ.pop("SW_COLIBRI_KEY", "")
     all_c = load_challenges()
     ids = list(all_c) if a.challenge == "all" else [x for x in a.challenge.split(",") if x]

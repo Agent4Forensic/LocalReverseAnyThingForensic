@@ -35,6 +35,20 @@ def test_a_big_machine_still_keeps_the_hard_limit_and_a_small_one_keeps_windows_
     assert choose(_hw(ram_total_gb=24.0, ram_free_gb=23.0))["ram_gb"] == 17
 
 
+def test_the_limits_beat_the_floor_and_a_manual_budget():
+    s = choose(_hw(ram_total_gb=16.0, ram_free_gb=15.0))
+    assert s["ram_gb"] == 9 and any("may refuse to start" in w for w in s["warnings"])
+    s = choose(_hw(), ram_override=100)
+    assert s["ram_gb"] == 20 and any("100 asked for" in w for w in s["warnings"])
+    assert choose(_hw(), ram_override=-5)["ram_gb"] == 16   # not a budget: treated as unset
+
+
+@pytest.mark.parametrize("total", [0.0, 7.0, 5.0])
+def test_no_budget_is_guessed_without_a_ram_reading_or_with_no_room(total):
+    with pytest.raises(ValueError):
+        choose(_hw(ram_total_gb=total))
+
+
 def test_low_ram_warns_and_a_manual_budget_wins():
     s = choose(_hw(ram_free_gb=14.0))
     assert any("below the 16 GB" in w for w in s["warnings"]) and any("HostGuard" in w for w in s["warnings"])
@@ -124,6 +138,23 @@ def test_gate_sampler_survives_a_failing_sample_and_counts_it(monkeypatch):
     s.halt.set()
     s.join(10)
     assert not s.is_alive() and s.result()["network_passed"] is False
+
+
+def test_gate_sampler_without_a_ram_reading_has_no_evidence(monkeypatch):
+    gate = _gate()
+    monkeypatch.setattr(gate, "_ram_gb", lambda: None)
+    s = gate.Sampler()
+    with pytest.raises(ValueError):
+        s.sample()
+    assert s.result()["memory_passed"] is False
+
+
+def test_gate_sampler_tolerates_rare_failures_but_not_a_blind_run():
+    s = _gate().Sampler()
+    s.samples, s.min_free_ram, s.engine_peak_gb, s.failures = 20, 10.0, 14.0, 2
+    assert s.result()["memory_passed"] and s.result()["network_passed"]
+    s.failures = 3
+    assert not s.result()["memory_passed"] and not s.result()["network_passed"]
 
 
 def test_gate_sampler_judges_memory_and_network():

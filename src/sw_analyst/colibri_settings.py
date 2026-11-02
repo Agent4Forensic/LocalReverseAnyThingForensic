@@ -13,6 +13,7 @@ import ctypes
 import json
 import os
 import random
+import sys
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -61,11 +62,19 @@ def _gpu_env(hw: Hardware) -> tuple[str, dict, str]:
 def choose(hw: Hardware, ram_override: int = 0) -> dict:
     notes: list[str] = []
     warnings: list[str] = []
-    cap = int(min(HARD_LIMIT_GB - DOCKER_SHARE_GB, hw.ram_total_gb - WINDOWS_MIN_GB))
-    ram = ram_override or max(FLOOR_GB, min(cap, int(hw.ram_free_gb - HEADROOM_GB)))
+    if hw.ram_total_gb <= 0:
+        raise ValueError("the RAM of this machine could not be read; no budget is guessed")
+    cap = int(min(HARD_LIMIT_GB - DOCKER_SHARE_GB, hw.ram_total_gb - WINDOWS_MIN_GB))   # the limits beat every other wish
+    if cap <= 0:
+        raise ValueError(f"{hw.ram_total_gb:.1f} GB RAM leave nothing beside the {WINDOWS_MIN_GB} GB Windows keeps")
+    ram = min(cap, ram_override if ram_override > 0 else max(FLOOR_GB, int(hw.ram_free_gb - HEADROOM_GB)))
     notes.append(f"--ram {ram}: {hw.ram_free_gb:.1f} GB free of {hw.ram_total_gb:.1f} GB, cap {cap} GB"
-                 + (" (set by hand)" if ram_override else ""))
-    if ram < WANTED_GB:
+                 + (" (set by hand)" if ram_override > 0 else ""))
+    if ram_override > cap:
+        warnings.append(f"--ram {ram_override} asked for, {cap} GB is the limit here (24 GB rule, Windows keeps {WINDOWS_MIN_GB} GB)")
+    if ram < FLOOR_GB:
+        warnings.append(f"--ram {ram} is below the {FLOOR_GB} GB the engine was measured to need: it may refuse to start")
+    elif ram < WANTED_GB:
         warnings.append(f"--ram {ram} is below the {WANTED_GB} GB this model wants: every GB freed by closing programs adds speed")
     if not ram_override and hw.ram_free_gb < ram + 3:
         warnings.append(f"only {hw.ram_free_gb:.1f} GB RAM free: HostGuard pauses a job below 3 GB free")
@@ -100,21 +109,28 @@ def _measure_read(folder: Path, seconds: float = 5.0) -> float:
     k.SetFilePointerEx.argtypes = [ctypes.c_void_p, ctypes.c_longlong, ctypes.c_void_p, ctypes.c_ulong]
     k.ReadFile.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong), ctypes.c_void_p]
     k.CloseHandle.argtypes = [ctypes.c_void_p]
+    k.VirtualFree.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_ulong]
     size = 12_582_912           # a multiple of the sector size, as FILE_FLAG_NO_BUFFERING requires
+    buf = None
     h = k.CreateFileW(str(shards[-1]), 0x80000000, 1, None, 3, 0x20000000, None)
     if h in (None, ctypes.c_void_p(-1).value):
         return 0.0
     try:
         buf, got, t0 = k.VirtualAlloc(None, size, 0x3000, 0x04), 0, time.monotonic()
+        if not buf:
+            return 0.0
         steps = (shards[-1].stat().st_size - size) // 131072
         while time.monotonic() - t0 < seconds:
-            k.SetFilePointerEx(h, random.randrange(steps) * 131072, None, 0)
+            if not k.SetFilePointerEx(h, random.randrange(steps) * 131072, None, 0):
+                return 0.0   # no measurement beats one of sequential reads
             n = ctypes.c_ulong()
             if not k.ReadFile(h, buf, size, ctypes.byref(n), None):
                 return 0.0
             got += n.value
         return got / 1e6 / (time.monotonic() - t0)
     finally:
+        if buf:
+            k.VirtualFree(buf, 0, 0x8000)
         k.CloseHandle(h)
 
 
@@ -123,6 +139,7 @@ def detect(model: dict) -> Hardware:
     ram = _ram_gb()
     if ram:
         hw.ram_total_gb, hw.ram_free_gb = ram
+    # shortcut: the first card only, COLI_GPU=0 means the same one on a single-GPU machine; upgrade for several cards
     r = _run(["nvidia-smi", "--query-gpu=name,compute_cap,memory.total,memory.free", "--format=csv,noheader,nounits"])
     if r and r.returncode == 0 and r.stdout.strip():
         f = [x.strip() for x in r.stdout.splitlines()[0].split(",")]
@@ -145,7 +162,11 @@ def main() -> int:
     ap.add_argument("--ram", type=int, default=0, help="expert cache budget in GB, 0 = from the free RAM")
     a = ap.parse_args()
     manifest = Path(__file__).resolve().parents[2] / "infra" / "manifest.json"
-    s = choose(detect(json.loads(manifest.read_text(encoding="utf-8"))["models"]["colibri"]), a.ram)
+    try:
+        s = choose(detect(json.loads(manifest.read_text(encoding="utf-8"))["models"]["colibri"]), a.ram)
+    except ValueError as e:
+        print(f"colibri_settings: {e}", file=sys.stderr)
+        return 1
     if a.json:
         print(json.dumps(s))
         return 0

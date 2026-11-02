@@ -99,8 +99,9 @@ class Sampler(threading.Thread):
 
     def sample(self) -> None:
         ram = _ram_gb()
-        if ram:
-            self.min_free_ram = min(self.min_free_ram, ram[1])
+        if not ram:
+            raise ValueError("free RAM could not be read")
+        self.min_free_ram = min(self.min_free_ram, ram[1])
         procs = _own_processes()
         if not procs:
             raise ValueError("engine process not found")
@@ -120,11 +121,12 @@ class Sampler(threading.Thread):
                 self.failures += 1
 
     def result(self) -> dict:
-        seen = self.samples > 0
+        seen = self.samples > 0 and self.failures <= self.samples // 10   # a rare failed sample is tolerated, a blind run is not
         ok_mem = seen and self.min_free_ram >= MIN_FREE_RAM_GB and self.engine_peak_gb <= HARD_LIMIT_GB
         return {"memory_passed": ok_mem, "network_passed": seen and not self.external, "samples": self.samples, "failed_samples": self.failures,
                 "min_free_ram_gb": round(self.min_free_ram, 1), "engine_peak_gb": round(self.engine_peak_gb, 1),
-                "vram_peak_mib": self.vram_peak_mib, "external_connections": sorted(self.external)}
+                "vram_peak_mib": self.vram_peak_mib, "external_connections": sorted(self.external),
+                "network_note": "netstat TCP samples every 30 s: finds connections, cannot prove there were none (no UDP, short ones are missed)"}
 
 
 def run_job(challenge: str, model: str, url: str, out: Path) -> dict:

@@ -10,7 +10,7 @@ param(
     [int]$OllamaPort = 11435,
     [ValidateSet('ollama', 'colibri')][string]$Llm = 'ollama',   # colibri: ADR-0012, model on the SSD ki_data
     [int]$ColibriPort = 11436,
-    [int]$RamGb = 0,        # colibri expert cache budget; 0 = from the free RAM, see srcsw_analystlibri_settings.py
+    [ValidateRange(0, 64)][int]$RamGb = 0,   # colibri expert cache budget; 0 = from the free RAM, see srcsw_analystlibri_settings.py
     [switch]$ColibriGate,   # colibri: run the first real test (tests\bench\colibri_gate.py) instead of the app, then stop
     [switch]$SkipModelHash, # colibri: skip the hash check of the model on the removable SSD (about 6 minutes)
     [switch]$SkipUpdateCheck,
