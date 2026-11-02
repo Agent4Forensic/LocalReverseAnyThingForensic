@@ -44,12 +44,20 @@ Schalter: `-Model`, `-Port`, `-OllamaPort`, `-NoCleanup`, `-Offline`, `-Update`,
 python infra\fetch-colibri-model.py     # einmalig, 167 GB auf die SSD ki_data
 python infra\fetch-colibri-model.py --verify   # alle Hashes prüfen, ohne Netz
 python -m sw_analyst.colibri_settings    # zeigt, was die Hardware hergibt (PYTHONPATH=src)
-scripts\start.ps1 -Llm colibri -ColibriGate -NoDocker   # erster echter Test, stoppt danach selbst
+scripts\start.ps1 -Llm colibri -ColibriPrepare -NoDocker   # einmalig: doctor, plan, tune, Cache anwärmen; stoppt danach selbst
+scripts\start.ps1 -Llm colibri -ColibriGate -NoDocker      # erster echter Test, stoppt danach selbst
 scripts\start.ps1 -Llm colibri           # Dashboard mit Colibri; Standard bleibt Ollama
 scripts\start.ps1 -Llm colibri -RamGb 18 # RAM-Budget von Hand
 ```
 
-Die SSD muss den Namen `ki_data` tragen, der Laufwerksbuchstabe ist egal. Fehlen Datenträger oder Dateien, oder weicht ein Hash vom Repository ab, startet nichts. Die Hash-Prüfung dauert bei jedem Start rund 6 Minuten; `-SkipModelHash` überspringt sie mit Warnung. Die Einstellungen wählt `colibri_settings.py` aus RAM, VRAM und Datenträger. Mehr freier RAM bedeutet mehr Tempo, also vorher andere Programme schließen; `-NoDocker` spart zusätzlich Speicher, wenn keine Container-Werkzeuge gebraucht werden. Die Ergebnisse des Tests stehen unter `data\eval\colibri-gate-*\gate.json`. „Abbrechen“ im Dashboard greift erst nach der laufenden Antwort, also unter Umständen nach Stunden; `scripts\stop.ps1 -Force` beendet sofort. Das Tempo hängt an der SSD: Colibri ist hier eine Stapelverarbeitung und lädt beim Start bis zu 30 Minuten. Das Log steht unter `data\logs\colibri-*.log`.
+Die SSD muss den Namen `ki_data` tragen, der Laufwerksbuchstabe ist egal. Fehlen Datenträger oder Dateien, oder weicht ein Hash vom Repository ab, startet nichts. Die Hash-Prüfung dauert bei jedem Start rund 6 Minuten; `-SkipModelHash` überspringt sie mit Warnung. Die Einstellungen wählt `colibri_settings.py` aus RAM, VRAM und Datenträger. Mehr freier RAM bedeutet mehr Tempo, also vorher andere Programme schließen; `-NoDocker` spart zusätzlich Speicher, wenn keine Container-Werkzeuge gebraucht werden. Die Ergebnisse des Tests stehen unter `data\eval\colibri-gate-*\gate.json`. „Abbrechen“ im Dashboard wirkt innerhalb von Sekunden und gibt die GPU frei.
+
+Eine Kopie auf einem internen Laufwerk teilt die Lesezugriffe und belegt dort 167 GB:
+
+```powershell
+robocopy E:\sw-analyst\colibri\deepseek-v4-flash-0731 D:\Tools\sw-analyst\colibri-mirror /E /XF *.part .coli_*
+scripts\start.ps1 -Llm colibri -ColibriMirror D:\Tools\sw-analyst\colibri-mirror
+``` Das Tempo hängt an der SSD: Colibri ist hier eine Stapelverarbeitung und lädt beim Start bis zu 30 Minuten. Das Log steht unter `data\logs\colibri-*.log`.
 
 Vor dem Abziehen der SSD `scripts\stop.ps1` ausführen.
 

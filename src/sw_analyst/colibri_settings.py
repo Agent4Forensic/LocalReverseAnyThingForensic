@@ -91,7 +91,7 @@ def choose(hw: Hardware, ram_override: int = 0) -> dict:
         notes.append(f"model disk: {hw.disk_bus or 'unknown bus'}, {hw.disk_read_mb_s:.0f} MB/s; about {estimate} tok/s if disk "
                      "reads alone limit it (derived from the docs, not measured)")
     if hw.disk_bus.upper() == "USB":
-        warnings.append("the model is on USB: a copy on an internal NVMe as COLI_MODEL_MIRROR would split the reads")
+        warnings.append("the model is on USB: a copy on an internal NVMe (start.ps1 -ColibriMirror) would split the reads")
     return {"backend": backend, "ram_gb": ram, "ctx": CTX, "env": env, "notes": notes, "warnings": warnings,
             "estimate_tok_s": estimate, "hardware": asdict(hw)}
 

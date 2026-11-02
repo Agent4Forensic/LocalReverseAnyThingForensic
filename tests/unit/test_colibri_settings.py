@@ -2,6 +2,7 @@
 import importlib.util
 import json
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from sw_analyst.common.models import JobSpec
 from sw_analyst.common.store import Store
 from sw_analyst.common.util import sha256_hex
 from sw_analyst.gateway.dev_gateway import DevGateway
+from sw_analyst.llm.base import LLMError
 from sw_analyst.llm.colibri import ColibriClient
 from sw_analyst.colibri_settings import Hardware, choose
 from sw_analyst.llm.fake import ScriptedLLM
@@ -185,10 +187,10 @@ def test_a_job_runs_through_the_client_and_the_steps_tell_the_truth(tmp_path):
             reply = (json.dumps({"changes": [], "new_tasks": []}) if "orders the work queue" in text
                      else json.dumps({"answers": [], "missing": [], "new_tasks": []}) if "critical reviewer" in text else finish)
             payload = {"model": body["model"], "usage": {"prompt_tokens": 1, "completion_tokens": 1},
-                       "choices": [{"message": {"content": reply}, "finish_reason": "stop"}]}
+                       "choices": [{"delta": {"content": reply}, "finish_reason": "stop"}]}
             self.send_response(200)
             self.end_headers()
-            self.wfile.write(json.dumps(payload).encode())
+            self.wfile.write(b"data: " + json.dumps(payload).encode() + b"\n\ndata: [DONE]\n\n")
 
     srv = HTTPServer(("127.0.0.1", 0), H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
@@ -206,6 +208,73 @@ def test_a_job_runs_through_the_client_and_the_steps_tell_the_truth(tmp_path):
     assert all(b["temperature"] == 0 and b["enable_thinking"] is False and "seed" not in b and "response_format" not in b for b in seen)
     steps = [s for t in store.list_tasks(job["id"]) for s in store.list_steps(t["id"]) if "json_mode" in (s["how"] or "")]
     assert steps and all("think=off" in s["how"] and "seed=none" in s["how"] for s in steps)
+
+
+def test_cancelling_a_job_interrupts_the_reply_and_the_job_still_ends_with_a_report(tmp_path):
+    first_request = threading.Event()
+    calls_after_cancel = []
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            self.rfile.read(int(self.headers["Content-Length"]))
+            self.send_response(200)
+            self.end_headers()
+            first_request.set()
+            try:
+                for _ in range(600):
+                    self.wfile.write(b": keepalive\n\n")
+                    self.wfile.flush()
+                    time.sleep(0.05)
+            except OSError:
+                calls_after_cancel.append(time.monotonic())
+
+    srv = HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        store = Store(tmp_path / "t.db", tmp_path / "logs")
+        gw = DevGateway(tmp_path)
+        data = b"plain harmless text\n"
+        job = store.create_job(JobSpec(title="t", description="d"), "s.txt", sha256_hex(data))
+        gw.store_sample(job["id"], data)
+        llm = ColibriClient("m", f"http://127.0.0.1:{srv.server_port}", "k")
+        llm.cancel_poll_s = 0.1
+        engine = JobEngine(store, llm, gw, use_prioritizer=False)
+        threading.Thread(target=lambda: (first_request.wait(20), store.update_job(job["id"], cancel_requested=1)), daemon=True).start()
+        t0 = time.monotonic()
+        status = engine.run_job(job["id"])
+    finally:
+        srv.shutdown()
+    assert first_request.is_set() and calls_after_cancel, "the model was asked and the connection was closed"
+    assert status == "cancelled" and time.monotonic() - t0 < 25
+    assert llm.should_cancel is None    # later translations and the report of this job must not count as cancelled
+
+
+def test_warmup_counts_what_the_engine_took_and_keeps_going_after_a_failure():
+    spec = importlib.util.spec_from_file_location("colibri_warmup", ROOT / "infra" / "colibri-warmup.py")
+    warm = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(warm)
+    assert warm.warm(ScriptedLLM(lambda m: "x")) == len(warm.SNIPPETS)
+    replies = iter([LLMError("gone")])
+
+    def flaky(messages):
+        for r in replies:
+            raise r
+        return "x"
+    assert warm.warm(ScriptedLLM(flaky)) == len(warm.SNIPPETS) - 1
+
+
+def test_verify_of_a_mirror_takes_both_spellings_of_the_folder_option(tmp_path, monkeypatch, capsys):
+    spec = importlib.util.spec_from_file_location("fetch_colibri_model", ROOT / "infra" / "fetch-colibri-model.py")
+    fetch = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fetch)
+    monkeypatch.setattr(fetch, "volume_by_label", lambda label: pytest.fail("must not look at the volume"))
+    for argv in (["--verify", "--dir", str(tmp_path)], ["--verify", f"--dir={tmp_path}"]):
+        monkeypatch.setattr("sys.argv", ["fetch", *argv])
+        assert fetch.main() == 1      # the empty folder is what was checked
+    assert "files missing or changed" in capsys.readouterr().out
 
 
 def test_a_slow_engine_gets_a_longer_time_budget(tmp_path):

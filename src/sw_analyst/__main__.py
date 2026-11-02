@@ -81,7 +81,8 @@ def main() -> None:
                          allow_think=args.colibri_think) if args.llm == "colibri"
            else OllamaClient(args.model, args.ollama_url, num_ctx=args.num_ctx))
     translator = Translator(llm, cache=store)
-    worker = Worker(store, JobEngine(store, llm, gateway, translator, host_guard=HostGuard(data, ollama_url=args.ollama_url)))
+    worker = Worker(store, JobEngine(store, llm, gateway, translator, use_prioritizer=args.llm != "colibri",
+                                    host_guard=HostGuard(data, ollama_url=args.ollama_url)))
     worker.start()
     log("WORKER", f"worker started ({args.llm}, model {args.model}, num_ctx {args.num_ctx})")
     app = create_app(store, worker, gateway, llm, translator, report_model=args.model, port=args.port,

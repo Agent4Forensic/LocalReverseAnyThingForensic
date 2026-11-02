@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 import time
 import traceback
 
@@ -57,6 +58,10 @@ class JobEngine:
         t_job = time.monotonic()
         job = self.store.update_job(job_id, status="running", started_at=utcnow())
         self.store.log(job_id, "job started", sample_sha256=job["sample_sha256"])
+        if hasattr(self.llm, "should_cancel"):   # a reply can take hours: the client looks at this while it waits
+            worker = threading.get_ident()       # a translation for the dashboard shares the client and is not this job's work
+            self.llm.should_cancel = lambda: (threading.get_ident() == worker
+                                              and bool((self.store.get_job(job_id) or {}).get("cancel_requested")))
         try:
             self._translate_inputs(job_id)
             self._triage(job_id)
@@ -65,6 +70,9 @@ class JobEngine:
         except Exception as e:  # noqa: BLE001 - a job must end in a stored state, never crash the worker
             self.store.log(job_id, f"job crashed: {e}", level="error", trace=traceback.format_exc()[-1500:])
             status = "failed"
+        finally:
+            if hasattr(self.llm, "should_cancel"):
+                self.llm.should_cancel = None    # the report and later translations of a cancelled job must still run
         return self._finalize(job_id, status, t_job)
 
     # ---- translation of inputs ----------------------------------------------------------------------

@@ -59,7 +59,7 @@ def run_one(c: dict, out: Path, model: str, url: str, num_ctx: int, minutes: int
     gw.store_sample(job["id"], data)
     t0 = time.monotonic()
     llm = ColibriClient(model, url, key, num_ctx=num_ctx) if llm_kind == "colibri" else OllamaClient(model, url, num_ctx=num_ctx)
-    status = JobEngine(store, llm, gw).run_job(job["id"])
+    status = JobEngine(store, llm, gw, use_prioritizer=llm_kind != "colibri").run_job(job["id"])
     report = build_report(store, job["id"], "en", model)
     (d / "report.md").write_text(report, encoding="utf-8")
     # A flag quoted somewhere in the report is not a result: the target question must have been answered with it.
