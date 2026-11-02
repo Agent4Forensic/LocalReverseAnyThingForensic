@@ -158,9 +158,9 @@ class TaskRunner:
                 messages.append(ChatMessage(role="user", content="LAST TURN. Reply with \"finish\" now: report what the "
                                             "evidence shows so far and name what stays open."))
             self._compact(messages)
-            sid = self.store.begin_step(job_id, task_id, StepKind.PROMPT.value, f"model turn {turn}",
-                                        how=f"model={self.llm.model}, json_mode, think=on, "
-                                            f"seed={getattr(self.llm, 'seed', None)}, max_tokens={reply_tokens}",
+            setup = (f"model={self.llm.model}, json_mode, think={'on' if getattr(self.llm, 'allow_think', True) else 'off'}, "
+                     f"seed={getattr(self.llm, 'seed', 'none')}, max_tokens={reply_tokens}")
+            sid = self.store.begin_step(job_id, task_id, StepKind.PROMPT.value, f"model turn {turn}", how=setup,
                                         why="decide next action (tool call or finish)",
                                         input_preview=messages[-1].content)
             t0 = time.monotonic()
@@ -180,12 +180,12 @@ class TaskRunner:
                                            ev.get("snippet", ""))
             if verdict.blocked:
                 self.store.finish_step(sid, status="blocked", duration_ms=ms, output_preview=raw,
-                                       how=f"model={self.llm.model}; tokens in/out={resp.prompt_tokens}/{resp.completion_tokens}",
+                                       how=f"{setup}; tokens in/out={resp.prompt_tokens}/{resp.completion_tokens}",
                                        why=f"blocked by prompt guard: {verdict.reason}")
                 return TaskOutcome("blocked", error=verdict.reason)
             why = (res.action or {}).get("why", "") if res.ok else "invalid action"
             self.store.finish_step(sid, status="ok" if res.ok else "error", duration_ms=ms, output_preview=raw,
-                                   how=f"model={self.llm.model}; tokens in/out={resp.prompt_tokens}/{resp.completion_tokens}",
+                                   how=f"{setup}; tokens in/out={resp.prompt_tokens}/{resp.completion_tokens}",
                                    why=why or "model chose action")
             if not res.ok:
                 invalid += 1

@@ -1,0 +1,184 @@
+"""Hardware to settings for colibri, the first-test gate, and a whole job through ColibriClient over HTTP (ADR-0012)."""
+import importlib.util
+import json
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
+
+import pytest
+
+from sw_analyst.common.models import JobSpec
+from sw_analyst.common.store import Store
+from sw_analyst.common.util import sha256_hex
+from sw_analyst.gateway.dev_gateway import DevGateway
+from sw_analyst.llm.colibri import ColibriClient
+from sw_analyst.colibri_settings import Hardware, choose
+from sw_analyst.llm.fake import ScriptedLLM
+from sw_analyst.orchestrator.engine import JobEngine
+
+ROOT = Path(__file__).resolve().parents[2]
+THIS_PC = dict(ram_total_gb=31.1, gpu_name="RTX 5060 Ti", compute_cap=12.0, vram_total_mib=16311, disk_bus="USB", disk_read_mb_s=450.0)
+
+
+def _hw(**kw):
+    return Hardware(**{**THIS_PC, "ram_free_gb": 20.0, "vram_free_mib": 15000, **kw})
+
+
+# ---- RAM ------------------------------------------------------------------------------------------------
+@pytest.mark.parametrize("free,want", [(30.0, 20), (24.0, 20), (20.0, 16), (17.0, 13), (14.7, 12), (8.0, 12)])
+def test_ram_budget_follows_what_is_free_and_stays_inside_the_limits(free, want):
+    assert choose(_hw(ram_free_gb=free))["ram_gb"] == want
+
+
+def test_a_big_machine_still_keeps_the_hard_limit_and_a_small_one_keeps_windows_alive():
+    assert choose(_hw(ram_total_gb=128.0, ram_free_gb=120.0))["ram_gb"] == 20
+    assert choose(_hw(ram_total_gb=24.0, ram_free_gb=23.0))["ram_gb"] == 17
+
+
+def test_low_ram_warns_and_a_manual_budget_wins():
+    s = choose(_hw(ram_free_gb=14.0))
+    assert any("below the 16 GB" in w for w in s["warnings"]) and any("HostGuard" in w for w in s["warnings"])
+    assert choose(_hw(ram_free_gb=14.0), ram_override=18)["ram_gb"] == 18
+
+
+# ---- GPU: the table in colibri docs/deepseek-v4.md -------------------------------------------------------
+@pytest.mark.parametrize("free,dense,attn,moe", [(15000, "1", "1", "1"), (11000, "1", "1", "1"), (10999, "1", "1", "0"),
+                                                 (7000, "1", "1", "0"), (6999, "0", "0", "1"), (4500, "0", "0", "1")])
+def test_vram_table(free, dense, attn, moe):
+    s = choose(_hw(vram_free_mib=free))
+    assert s["backend"] == "cuda"
+    assert (s["env"]["CUDA_DENSE"], s["env"]["COLI_CUDA_ATTN_BATCH"], s["env"]["COLI_CUDA_MOE_BATCH"]) == (dense, attn, moe)
+    assert s["env"]["V4_LOADER_LANES"] == "3"
+
+
+@pytest.mark.parametrize("hw", [dict(vram_free_mib=4499), dict(compute_cap=7.5), dict(gpu_name="", compute_cap=0.0, vram_total_mib=0, vram_free_mib=0)])
+def test_without_a_usable_gpu_the_cpu_path_is_taken(hw):
+    s = choose(_hw(**hw))
+    assert s["backend"] == "cpu" and s["env"]["DSV4_CUDA"] == "0" and "COLI_CUDA" not in s["env"]
+
+
+def test_vram_used_by_others_and_usb_are_named():
+    s = choose(_hw(vram_free_mib=9000))
+    assert any("in use by other programs" in w for w in s["warnings"]) and any("USB" in w for w in s["warnings"])
+    assert not any("USB" in w for w in choose(_hw(disk_bus="NVMe"))["warnings"])
+
+
+def test_estimate_comes_from_the_measured_disk():
+    assert choose(_hw())["estimate_tok_s"] == 0.16
+    assert choose(_hw(disk_read_mb_s=0.0))["estimate_tok_s"] == 0.0
+
+
+def test_the_settings_are_json_for_start_ps1():
+    assert json.loads(json.dumps(choose(_hw())))["ctx"] == 16384
+
+
+# ---- gate -----------------------------------------------------------------------------------------------
+def _gate():
+    spec = importlib.util.spec_from_file_location("colibri_gate", ROOT / "tests" / "bench" / "colibri_gate.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_gate_repeat_passes_only_on_identical_non_empty_text():
+    gate = _gate()
+    assert gate.check_repeat(ScriptedLLM(lambda m: "same"), 10)["passed"] is True
+    replies = iter(["one", "two"])
+    assert gate.check_repeat(ScriptedLLM(lambda m: next(replies)), 10)["passed"] is False
+    assert gate.check_repeat(ScriptedLLM(lambda m: ""), 10)["passed"] is False
+
+
+def test_gate_json_uses_the_runner_check_and_counts_the_retry(tmp_path):
+    gate = _gate()
+    tools = DevGateway(tmp_path).list_tools()
+    good = json.dumps({"action": "tool", "tool": tools[0].name, "args": {}, "why": "w"})
+    good = good if gate.validate_action(good, tools).ok else json.dumps({"action": "finish", "summary": "s", "findings": []})
+    assert gate.validate_action(good, tools).ok
+    r = gate.check_json(ScriptedLLM(lambda m: good), tools, gate.GOALS[:2], 10)
+    assert r["passed"] and r["first_try_rate"] == 1.0
+    replies = iter(["not json", good])
+    r = gate.check_json(ScriptedLLM(lambda m: next(replies)), tools, gate.GOALS[:1], 10)
+    assert r["passed"] and r["first_try_rate"] == 0.0 and r["after_retry_rate"] == 1.0
+    r = gate.check_json(ScriptedLLM(lambda m: "not json"), tools, gate.GOALS[:1], 10)
+    assert not r["passed"] and r["rows"][0]["error"]
+
+
+def test_gate_verdict_needs_every_step():
+    gate = _gate()
+    ok = {"memory_passed": True, "network_passed": True}
+    assert gate.verdict({"steps": {"repeat": {"passed": True}, "resources": ok}}) is True
+    assert gate.verdict({"steps": {"repeat": {"passed": False}, "resources": ok}}) is False
+    assert gate.verdict({"steps": {"repeat": {"passed": True}, "resources": {**ok, "network_passed": False}}}) is False
+
+
+def test_gate_sampler_without_evidence_cannot_pass():
+    r = _gate().Sampler().result()
+    assert r["memory_passed"] is False and r["network_passed"] is False
+
+
+def test_gate_sampler_survives_a_failing_sample_and_counts_it(monkeypatch):
+    gate = _gate()
+    monkeypatch.setattr(gate, "_own_processes", lambda: (_ for _ in ()).throw(AttributeError("netstat output undecodable")))
+    s = gate.Sampler(every_s=3600)
+    s.start()
+    s.halt.set()
+    s.join(10)
+    assert not s.is_alive() and s.result()["network_passed"] is False
+
+
+def test_gate_sampler_judges_memory_and_network():
+    s = _gate().Sampler()
+    s.samples, s.min_free_ram, s.engine_peak_gb = 1, 10.0, 14.0
+    assert s.result()["memory_passed"] and s.result()["network_passed"]
+    s.min_free_ram = 2.0
+    assert not s.result()["memory_passed"]
+    s.min_free_ram, s.engine_peak_gb = 10.0, 25.0
+    assert not s.result()["memory_passed"]
+    s.external.add("1.2.3.4:443")
+    assert not s.result()["network_passed"]
+
+
+# ---- a whole job over HTTP ------------------------------------------------------------------------------
+def test_a_job_runs_through_the_client_and_the_steps_tell_the_truth(tmp_path):
+    finish = json.dumps({"action": "finish", "summary": "nothing to report", "findings": []})
+    seen = []
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            seen.append(body)
+            text = " ".join(m["content"] for m in body["messages"])
+            reply = (json.dumps({"changes": [], "new_tasks": []}) if "orders the work queue" in text
+                     else json.dumps({"answers": [], "missing": [], "new_tasks": []}) if "critical reviewer" in text else finish)
+            payload = {"model": body["model"], "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+                       "choices": [{"message": {"content": reply}, "finish_reason": "stop"}]}
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(json.dumps(payload).encode())
+
+    srv = HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        store = Store(tmp_path / "t.db", tmp_path / "logs")
+        gw = DevGateway(tmp_path)
+        data = b"plain harmless text\n"
+        job = store.create_job(JobSpec(title="t", description="d"), "s.txt", sha256_hex(data))
+        gw.store_sample(job["id"], data)
+        llm = ColibriClient("m@abc-colibri-2.1.0-cuda", f"http://127.0.0.1:{srv.server_port}", "k")
+        status = JobEngine(store, llm, gw).run_job(job["id"])
+    finally:
+        srv.shutdown()
+    assert seen and status in ("done", "partial", "completed", "finished")
+    assert all(b["temperature"] == 0 and b["enable_thinking"] is False and "seed" not in b and "response_format" not in b for b in seen)
+    steps = [s for t in store.list_tasks(job["id"]) for s in store.list_steps(t["id"]) if "json_mode" in (s["how"] or "")]
+    assert steps and all("think=off" in s["how"] and "seed=none" in s["how"] for s in steps)
+
+
+def test_a_slow_engine_gets_a_longer_time_budget(tmp_path):
+    engine = JobEngine(Store(tmp_path / "t.db", tmp_path / "logs"), ColibriClient("m"), DevGateway(tmp_path))
+    assert engine._minutes({"budget_max_minutes": 10}) == 300
+    fast = JobEngine(Store(tmp_path / "u.db", tmp_path / "logs2"), ScriptedLLM(lambda m: ""), DevGateway(tmp_path))
+    assert fast._minutes({"budget_max_minutes": 10}) == 10

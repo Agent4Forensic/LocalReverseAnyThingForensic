@@ -780,7 +780,7 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
         names = {t.name for t in gateway.list_tools()}
         missing = []
         if not getattr(llm, "reachable", lambda: True)():
-            missing.append({"key": "llm", "text": "Sprachmodell nicht erreichbar (Ollama starten, scripts\\start.ps1)"})
+            missing.append({"key": "llm", "text": "Sprachmodell nicht erreichbar (scripts\\start.ps1 starten)"})
         if "ghidra" in e.get("requires", []) and "list_functions" not in names:
             missing.append({"key": "ghidra", "text": KNOWN_REQUIREMENTS["ghidra"]})
         active = [r for r in e.get("runs", []) if r["status"] in ("uploading", "queued", "running")]

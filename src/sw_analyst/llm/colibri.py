@@ -3,7 +3,8 @@
 Differences from Ollama that matter here:
 - The engine ignores `seed` and DeepSeek V4 serves greedy only, so there is no seed attribute: reports must not name one.
   Same input, model, engine and backend give the same text; temperature is always 0 so other engines behave the same.
-- A JSON schema is not enforced while sampling, it only goes into the prompt. validate_action stays the trust boundary.
+- A JSON schema is not enforced while sampling. validate_action stays the trust boundary.
+- budget_factor stretches the time budget of a job: this model takes far longer per reply than the ones the budgets were set for.
 """
 from __future__ import annotations
 
@@ -26,18 +27,18 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
 
 
-def _with_json_instruction(messages: list[dict], json_mode: bool | dict) -> list[dict]:
+def _with_json_instruction(messages: list[dict]) -> list[dict]:
+    """The prompts describe the allowed replies as text. The JSON schema is not added: on Ollama it steers sampling and costs no
+    tokens, here it would only lengthen every prompt, and a prefill costs minutes on a disk-streamed model."""
     text = "Reply with exactly one JSON object and nothing else, no code fence and no text around it."
-    if isinstance(json_mode, dict):
-        text += " It must match this JSON schema: " + json.dumps(json_mode, separators=(",", ":"))
     if messages and messages[0]["role"] == "system":
         return [{**messages[0], "content": messages[0]["content"] + "\n\n" + text}, *messages[1:]]
     return [{"role": "system", "content": text}, *messages]
 
 
 class ColibriClient:
-    def __init__(self, model: str, base_url: str = "http://127.0.0.1:11436", api_key: str = "", num_ctx: int = 20000,
-                 timeout_s: int = 14400, allow_think: bool = False):
+    def __init__(self, model: str, base_url: str = "http://127.0.0.1:11436", api_key: str = "", num_ctx: int = 16384,
+                 timeout_s: int = 36000, allow_think: bool = False):
         host = urllib.parse.urlparse(base_url).hostname
         if host not in _LOCAL_HOSTS:
             raise ValueError(f"refusing non-local LLM endpoint: {base_url}")  # offline platform: loopback only
@@ -45,7 +46,8 @@ class ColibriClient:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.num_ctx = num_ctx
-        self.timeout_s = timeout_s      # at 1 tok/s one long reply takes most of an hour
+        self.timeout_s = timeout_s      # 3000 reply tokens at 0.1 tok/s
+        self.budget_factor = 30
         self.allow_think = allow_think  # off by default: thinking tokens cost minutes each on a disk-streamed model
 
     def reachable(self) -> bool:
@@ -61,7 +63,7 @@ class ColibriClient:
         wire = [m.model_dump() for m in messages]
         body = {"model": self.model, "stream": False, "temperature": 0, "max_tokens": max_tokens,
                 "enable_thinking": bool(think and self.allow_think),
-                "messages": _with_json_instruction(wire, json_mode) if json_mode else wire}
+                "messages": _with_json_instruction(wire) if json_mode else wire}
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"

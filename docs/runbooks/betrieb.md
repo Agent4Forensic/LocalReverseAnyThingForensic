@@ -43,11 +43,13 @@ Schalter: `-Model`, `-Port`, `-OllamaPort`, `-NoCleanup`, `-Offline`, `-Update`,
 ```powershell
 python infra\fetch-colibri-model.py     # einmalig, 167 GB auf die SSD ki_data
 python infra\fetch-colibri-model.py --verify   # alle Hashes prüfen, ohne Netz
-scripts\start.ps1 -Llm colibri           # Standard bleibt Ollama
+python -m sw_analyst.colibri_settings    # zeigt, was die Hardware hergibt (PYTHONPATH=src)
+scripts\start.ps1 -Llm colibri -ColibriGate -NoDocker   # erster echter Test, stoppt danach selbst
+scripts\start.ps1 -Llm colibri           # Dashboard mit Colibri; Standard bleibt Ollama
 scripts\start.ps1 -Llm colibri -RamGb 18 # RAM-Budget von Hand
 ```
 
-Die SSD muss den Namen `ki_data` tragen, der Laufwerksbuchstabe ist egal. Fehlen Datenträger oder Dateien, oder weicht ein Hash vom Repository ab, startet nichts. Die Hash-Prüfung dauert bei jedem Start rund 6 Minuten; `-SkipModelHash` überspringt sie mit Warnung. Ohne `-RamGb` nimmt `start.ps1` den freien RAM minus 4 GB, höchstens 20 GB; mehr freier RAM bedeutet mehr Tempo, also vorher andere Programme schließen. Das Tempo hängt an der SSD: Colibri ist hier eine Stapelverarbeitung und lädt beim Start bis zu 30 Minuten. Das Log steht unter `data\logs\colibri-*.log`.
+Die SSD muss den Namen `ki_data` tragen, der Laufwerksbuchstabe ist egal. Fehlen Datenträger oder Dateien, oder weicht ein Hash vom Repository ab, startet nichts. Die Hash-Prüfung dauert bei jedem Start rund 6 Minuten; `-SkipModelHash` überspringt sie mit Warnung. Die Einstellungen wählt `colibri_settings.py` aus RAM, VRAM und Datenträger. Mehr freier RAM bedeutet mehr Tempo, also vorher andere Programme schließen; `-NoDocker` spart zusätzlich Speicher, wenn keine Container-Werkzeuge gebraucht werden. Die Ergebnisse des Tests stehen unter `data\eval\colibri-gate-*\gate.json`. „Abbrechen“ im Dashboard greift erst nach der laufenden Antwort, also unter Umständen nach Stunden; `scripts\stop.ps1 -Force` beendet sofort. Das Tempo hängt an der SSD: Colibri ist hier eine Stapelverarbeitung und lädt beim Start bis zu 30 Minuten. Das Log steht unter `data\logs\colibri-*.log`.
 
 Vor dem Abziehen der SSD `scripts\stop.ps1` ausführen.
 
