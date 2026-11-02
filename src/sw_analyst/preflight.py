@@ -372,6 +372,36 @@ def check_models(ollama_port: int, model: str | None, embedding: str | None) -> 
     return out
 
 
+def _volume_root(label: str) -> Path | None:
+    """Root of the one mounted volume with this label. A USB drive letter can change, the label does not."""
+    r = _run(["powershell", "-NoProfile", "-Command", f"@(Get-Volume | Where-Object FileSystemLabel -ceq '{label}').DriveLetter"], 30)
+    letters = r.stdout.split() if r and r.returncode == 0 else []
+    return Path(f"{letters[0]}:/") if len(letters) == 1 else None
+
+
+def check_colibri(manifest: dict, pins: list[dict]) -> list[dict]:
+    """Engine present, model volume mounted, every model file has its pinned size (ADR-0012). The list comes from the repository,
+    never from the removable drive. This catches a truncated shard; start.ps1 checks the hashes, which takes minutes."""
+    c = manifest.get("components", {}).get("colibri", {})
+    m = manifest.get("models", {}).get("colibri")
+    if not m:
+        return [result("colibri:model", FEHLER, "kein Eintrag models.colibri im Manifest")]
+    exe = Path(c.get("target", "")) / c.get("exe", "coli")
+    out = [result("colibri:binary", OK if exe.exists() else FEHLER, f"{c.get('version')} in {exe.parent}",
+                  "scripts\\start.ps1 -Llm colibri installiert die gepinnte Version")]
+    root = _volume_root(m["volume_label"])
+    if root is None:
+        return out + [result("colibri:volume", FEHLER, f"Datenträger {m['volume_label']} nicht eindeutig gefunden", "SSD anschließen")]
+    folder = root / m["dir"]
+    if not pins:
+        return out + [result("colibri:model", FEHLER, "keine gepinnten Dateien (infra/colibri-model.files.json)")]
+    bad = [f["file"] for f in pins if not (folder / f["file"]).is_file() or (folder / f["file"]).stat().st_size != f["size"]]
+    if bad:
+        return out + [result("colibri:model", FEHLER, f"{len(bad)} von {len(pins)} Dateien fehlen oder haben die falsche Größe, z. B. {bad[0]}",
+                             "python infra/fetch-colibri-model.py, siehe docs/runbooks/betrieb.md")]
+    return out + [result("colibri:model", OK, f"{m['id']}: {len(pins)} Dateien auf {root} (Revision {m['revision'][:7]}, Größen geprüft)")]
+
+
 def check_gateway(scratch_parent: str | Path | None = None) -> dict:
     try:
         from sw_analyst.gateway.dev_gateway import DevGateway
@@ -397,7 +427,7 @@ def check_audit_chain(data_dir: str | Path) -> dict:
 
 
 def run_checks(root: str | Path, data_dir: str | Path, app_port: int = 8765, ollama_port: int = 11435,
-               model: str | None = None) -> list[dict]:
+               model: str | None = None, llm: str = "ollama", colibri_port: int = 11436) -> list[dict]:
     root, data_dir = Path(root), Path(data_dir)
     manifest = load_manifest(root / "infra" / "manifest.json")
     res = check_platform()
@@ -406,19 +436,23 @@ def run_checks(root: str | Path, data_dir: str | Path, app_port: int = 8765, oll
     res += check_tool_images(manifest)
     res.append(check_gpu())
     res += check_ram()
-    res += check_ports({"app": app_port, "ollama": ollama_port}, data_dir / "run",
+    res += check_ports({"app": app_port, "colibri": colibri_port} if llm == "colibri" else {"app": app_port, "ollama": ollama_port},
+                       data_dir / "run",
                        [str(Path(manifest.get("components", {}).get("ollama", {}).get("target", "D:/Tools/sw-analyst/ollama")).parent)])
-    res.append(check_ollama_binary(manifest))
-    res += check_models(ollama_port, model, manifest.get("models", {}).get("embedding"))
+    if llm == "colibri":
+        res += check_colibri(manifest, load_manifest(root / "infra" / "colibri-model.files.json")["files"])
+    else:
+        res.append(check_ollama_binary(manifest))
+        res += check_models(ollama_port, model, manifest.get("models", {}).get("embedding"))
     res.append(check_gateway(data_dir / "tmp"))
     res.append(check_audit_chain(data_dir))
     return res
 
 
 def main_check(root: str | Path, data_dir: str | Path, app_port: int, ollama_port: int, model: str | None,
-               as_json: bool = False) -> int:
+               as_json: bool = False, llm: str = "ollama", colibri_port: int = 11436) -> int:
     t0 = time.time()
-    res = run_checks(root, data_dir, app_port, ollama_port, model)
+    res = run_checks(root, data_dir, app_port, ollama_port, model, llm, colibri_port)
     print(json.dumps({"status": aggregate(res), "results": res}) if as_json else render_table(res))
     if not as_json:
         log("CHECK", f"{len(res)} Pruefungen in {time.time() - t0:.1f}s: {aggregate(res)}")

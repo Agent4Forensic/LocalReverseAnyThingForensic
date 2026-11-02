@@ -444,20 +444,20 @@ Offen:
 - [ ] Commit `a6eebb0` (ADR-0005, Detonation, Gateway-Änderungen, 36 Dateien) liegt auf `origin/feat/dynamic-analysis`, nicht auf `main`. Autor laut Git ist Jan; wer ihn erzeugt und gepusht hat, ist nicht geklärt. Das Git-Konto ist in allen Sitzungen dasselbe, der Autor belegt also nichts. Kein Review.
 - [ ] Der Launcher-Fix ist nicht in einem vollen Lauf von `start.ps1` geprüft, sondern über die Funktion `Invoke-Check` und die Testsuite.
 
-## KI-Modul Colibri: Modellwahl und Ablage (2026-11-01)
+## KI-Modul Colibri mit DeepSeek V4 Flash (2026-11-02)
 
-Entscheidung von Jan: Colibri wird ein zentraler Bestandteil der KI. Das Modell wird ab 2026-11-02 auf die SSD mit dem Volume-Namen `ki_data` geladen. Nichts ist bisher geladen oder installiert.
+Entscheidung von Jan: Colibri wird gebaut, und auf die SSD `ki_data` kommt nur DeepSeek V4 Flash. Das ersetzt die Qwen-Empfehlung vom Vortag. Details stehen in ADR-0012.
 
-Gewählt (ADR-0012 steht noch aus): `Qwen3.6-35B-A3B`, Datei `Qwen3.6-35B-A3B-UD-Q4_K_M.gguf`.
-- Quelle: `unsloth/Qwen3.6-35B-A3B-GGUF`, Revision `a483e9e6cbd595906af30beda3187c2663a1118c`, Lizenz laut Modellkarte apache-2.0.
-- Größe 22134528992 Byte, SHA-256 `ac0e2c1189e055faa36eff361580e79c5bd6f8e76bffb4ce547f167d53e31a61`.
-- Laden per Revisions-URL mit Fortsetzen und Hash-Prüfung, ohne `huggingface_hub`, `coli setup` oder `START-HERE`. Das GGUF ist reine Datenablage und führt keinen Code aus; das Laden hängt daher nicht an der Prüfung der Engine.
+Belegt:
+- [x] Colibri 2.1.0 ist über `Install-Colibri` mit Hash-Prüfung unter `D:\Tools\sw-analyst\colibri-2.1.0` installiert; `coli --version` antwortet. Die GPU meldet Compute Capability 12.0.
+- [x] `start.ps1 -Llm colibri`, `stop.ps1`, `cleanup.ps1`, Preflight und `ColibriClient` sind gebaut und getestet (Fake-Server und statische Prüfungen). Standard bleibt Ollama.
+- [x] Das Windows-CUDA-Paket enthält die DeepSeek-DLLs. Die Anmerkung, CUDA gehe dafür nur unter Linux, trifft auf v2.1.0 nicht zu.
+- [x] `ki_data` liest 450 MB/s ungepuffert bei zufälligen Blöcken von 12,6 MB (15 Sekunden, Download lief parallel).
 
-Belegt aus der Colibri-Doku v2.1.0, nicht auf diesem Rechner gemessen: 3,491/104.8 tok/s (Prompt/Decode) mit CUDA auf einer RTX PRO 4000 mit 24 GB; 73 bis 78 tok/s auf einer RTX 3070 mit 8 GB, wo Ollama dieselbe Datei mit 38 tok/s dekodiert. Die Doku nennt dort denselben Text wie auf der CPU bei Greedy-Decoding.
-
-Ablage: `E:` ist heute SanDisk Extreme (USB, exFAT, 466 GB frei). Der Launcher soll das Volume über den Namen `ki_data` finden, nicht über den Laufwerksbuchstaben, und ohne Volume oder bei falschem Hash abbrechen.
+Hypothese:
+- [ ] Rund 0,16 Token pro Sekunde allein durch die Platte, also rund 52 Minuten für 500 Token. Hergeleitet aus der Doku, nicht gemessen.
 
 Offen:
-- [ ] Engine ist noch nicht freigegeben: statische Prüfung, ADR-0012 und Gate aus dem Plan (JSON-Quote, Reproduzierbarkeit bei `temperature=0`, Speicher, Netz, Vergleich mit `qwen3:14b`). Colibri erzwingt das JSON-Schema nicht, und `seed` hat keine Wirkung.
-- [ ] Hypothese: exFAT ohne Rechte und ohne Journal sowie USB-Tempo stören den Betrieb nicht, weil der Hash beim Laden geprüft wird und das Modell überwiegend aus RAM und VRAM läuft. Nicht gemessen.
-- [ ] Zu prüfen im Spike: ob `gguf.json` aus `coli import` einen Laufwerksbuchstaben fest einträgt.
+- [ ] Das Modell lädt noch (`infra/fetch-colibri-model.py`, rund 9 Stunden bei 5 MB/s). Ohne Modell lief die Engine noch nie mit echten Gewichten; alles Inferenzbezogene ist damit ungeprüft.
+- [ ] Danach: `coli doctor`, `coli plan`, `coli tune`, erster Auftrag, Quote gültiger JSON-Antworten, Wiederholbarkeit, Vergleich mit `qwen3:14b`.
+- [ ] `ki_data` ist USB. Eine Kopie auf der internen NVMe (`COLI_MODEL_MIRROR`) wäre schneller, kostet dort aber 167 GB. Das entscheidet Jan nach der Messung.

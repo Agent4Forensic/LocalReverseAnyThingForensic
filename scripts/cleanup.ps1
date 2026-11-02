@@ -70,7 +70,7 @@ function Remove-Aged([string]$Dir, [string]$Filter, [int]$Days, [string]$Why) {
 }
 
 # ---- processes ----
-function Get-Procs { @(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='ollama.exe'" -ErrorAction SilentlyContinue) }
+function Get-Procs { @(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='ollama.exe' OR Name='deepseek_v4.exe'" -ErrorAction SilentlyContinue) }
 # The venv python.exe is a launcher that starts the base python as a child: match on the command line (module + own data dir) too.
 function Test-OwnPython($p) {
     if ($p.Name -ne 'python.exe' -or $p.CommandLine -notmatch '-m\s+"?sw_analyst\b') { return $false }
@@ -78,6 +78,10 @@ function Test-OwnPython($p) {
     return [bool]($inVenv -or $p.CommandLine.IndexOf($Data, [StringComparison]::OrdinalIgnoreCase) -ge 0)
 }
 function Test-OwnOllama($p) { $p.Name -eq 'ollama.exe' -and $p.ExecutablePath -and $p.ExecutablePath.StartsWith($ToolsRoot + '\', [StringComparison]::OrdinalIgnoreCase) }
+function Test-OwnColibri($p) {
+    if ($p.Name -eq 'python.exe') { return [bool]($p.CommandLine -match ([regex]::Escape($ToolsRoot) + '\\colibri-[\d.]+\\coli"?\s')) }
+    return [bool]($p.ExecutablePath -and $p.ExecutablePath.StartsWith((Join-Path $ToolsRoot 'colibri-'), [StringComparison]::OrdinalIgnoreCase))
+}
 function Stop-Own($p, [string]$Why) {
     if ($p.ProcessId -eq $PID) { return }
     if ($DryRun) { Write-Stage "would stop $($p.Name) pid $($p.ProcessId) ($Why)"; $script:Items++; return }
@@ -113,11 +117,11 @@ Write-Stage ("{0} cleanup{1}" -f $Phase, $(if ($DryRun) { ' (dry run, nothing is
 
 # 1. PID files: drop stale ones (process gone, or the PID now belongs to something else)
 Step 'pid files' {
-    foreach ($n in 'app', 'ollama') {
+    foreach ($n in 'app', 'ollama', 'colibri') {
         $d = Read-PidFile $n
         if (-not $d) { if (Test-Path (Join-Path $RunDir "$n.pid")) { Remove-Own (Join-Path $RunDir "$n.pid") 'unreadable pid file' }; continue }
         $proc = Get-Procs | Where-Object { $_.ProcessId -eq [int]$d.pid }
-        $own = $proc -and ((Test-OwnPython $proc) -or (Test-OwnOllama $proc))
+        $own = $proc -and ((Test-OwnPython $proc) -or (Test-OwnOllama $proc) -or (Test-OwnColibri $proc))
         if (-not $own -and $Phase -eq 'pre') { Remove-Own (Join-Path $RunDir "$n.pid") "stale $n.pid" }
     }
 }
@@ -132,18 +136,19 @@ Step 'processes' {
         foreach ($p in ($all | Where-Object { Test-OwnPython $_ })) {
             if ($p.ProcessId -ne $appPid -and $p.ParentProcessId -ne $appPid) { Stop-Own $p 'orphan app, not in app.pid' }
         }
+        if (-not (Read-PidFile 'colibri')) { foreach ($p in ($all | Where-Object { Test-OwnColibri $_ })) { Stop-Own $p 'orphan colibri, not in colibri.pid' } }
         foreach ($p in ($all | Where-Object { (Test-OwnOllama $_) -and $_.CommandLine -match 'runner' })) {
             $parent = Get-Process -Id $p.ParentProcessId -ErrorAction SilentlyContinue
             if (-not $parent) { Stop-Own $p 'orphan model runner (parent gone)' }
         }
     } else {
         # post: everything own that still runs (stop.ps1 has already stopped the PID-file processes)
-        foreach ($p in ($all | Where-Object { (Test-OwnPython $_) -or (Test-OwnOllama $_) })) { Stop-Own $p 'left over after stop' }
+        foreach ($p in ($all | Where-Object { (Test-OwnPython $_) -or (Test-OwnOllama $_) -or (Test-OwnColibri $_) })) { Stop-Own $p 'left over after stop' }
         foreach ($pn in @{ n = 'app'; p = $Port }, @{ n = 'ollama'; p = $OllamaPort }) {
             $o = Get-PortOwner $pn.p
             if ($o -ne 0) { Write-Stage "port $($pn.p) is still held by pid $o (not ours or not stoppable); left alone" 'WARN' }
         }
-        Remove-Own (Join-Path $RunDir 'app.pid') 'stopped' ; Remove-Own (Join-Path $RunDir 'ollama.pid') 'stopped'
+        Remove-Own (Join-Path $RunDir 'app.pid') 'stopped' ; Remove-Own (Join-Path $RunDir 'ollama.pid') 'stopped' ; Remove-Own (Join-Path $RunDir 'colibri.pid') 'stopped'
     }
 }
 

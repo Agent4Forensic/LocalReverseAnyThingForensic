@@ -8,6 +8,10 @@ param(
     [string]$Model = '',
     [int]$Port = 8765,
     [int]$OllamaPort = 11435,
+    [ValidateSet('ollama', 'colibri')][string]$Llm = 'ollama',   # colibri: ADR-0012, model on the SSD ki_data
+    [int]$ColibriPort = 11436,
+    [int]$RamGb = 0,        # colibri expert cache budget; 0 = from the free RAM, see Get-ColibriRam
+    [switch]$SkipModelHash, # colibri: skip the hash check of the model on the removable SSD (about 6 minutes)
     [switch]$SkipUpdateCheck,
     [switch]$Update,
     [switch]$Offline,
@@ -109,6 +113,7 @@ function Invoke-Check([string]$ModelTag) {
     $env:PYTHONPATH = Join-Path $Root 'src'
     $a = @('-m', 'sw_analyst', '--check', '--json', '--port', "$Port", '--ollama-url', $OllamaUrl, '--data-dir', $Data)
     if ($ModelTag) { $a += @('--model', $ModelTag) }
+    if ($Llm -eq 'colibri') { $a += @('--llm', 'colibri', '--colibri-url', "http://127.0.0.1:$ColibriPort") }
     $txt = (& $Py @a | Out-String)
     # A crash prints nothing to stdout; ConvertFrom-Json then returns null without throwing, and null must not read as 'no errors'.
     $results = $null
@@ -190,6 +195,74 @@ function Install-ToolImages {
         } catch { Write-Stage 'INSTALL' "image $($p.Value) not built: $($_.Exception.Message); container tools for it stay unavailable" 'WARN' }
     }
 }
+function Install-Colibri($c) {
+    if ($Offline) { throw 'offline: colibri is missing and cannot be downloaded' }
+    if (-not (Test-UnderTools $c.target)) { throw "target $($c.target) is outside $ToolsRoot" }
+    $dl = Join-Path $ToolsRoot 'dl'
+    New-Item -ItemType Directory -Force -Path $dl | Out-Null
+    $tmp = $c.target + '.partial'
+    if (Test-Path $tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force }
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    # The CUDA archive goes over the main one: it adds the CUDA engines and DLLs, the DeepSeek engine comes from the main one.
+    foreach ($z in @(@{ u = $c.url; s = $c.sha256 }, @{ u = $c.url_cuda; s = $c.sha256_cuda })) {
+        if ($z.u -notmatch '^https://github\.com/' -or $z.s -notmatch '^[0-9a-fA-F]{64}$') { throw 'manifest entry for colibri is not pinned' }
+        $zip = Join-Path $dl ($z.u -split '/')[-1]
+        Write-Stage 'INSTALL' "downloading $($z.u)"
+        Invoke-WebRequest -UseBasicParsing -Uri $z.u -OutFile $zip
+        Assert-Hash $zip $z.s
+        Expand-Archive -LiteralPath $zip -DestinationPath $tmp -Force
+    }
+    if (-not (Test-Path (Join-Path $tmp $c.exe))) { Remove-Item -LiteralPath $tmp -Recurse -Force; throw "$($c.exe) not found in the archive" }
+    Move-Item -LiteralPath $tmp -Destination $c.target
+    Write-Stage 'INSTALL' "colibri $($c.version) installed in $($c.target)" 'OK'
+}
+# Hard rule: 24 GB for WSL, Docker and models together, and the job pauses below 3 GB free (HostGuard). So the budget follows
+# what is free now, after Docker is up, and leaves 4 GB. --ram is a planner budget, the OS does not enforce it.
+function Get-ColibriRam($m) {
+    if ($RamGb -gt 0) { return $RamGb }
+    $freeGb = (Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1MB
+    $ram = [int][math]::Max(8, [math]::Min([double]$m.ram_cap_gb, [math]::Floor($freeGb - 4)))
+    if ($ram -lt [int]$m.ram_min_gb) { Write-Stage 'COLIBRI' ("only {0:N1} GB RAM free, budget {1} GB is below the {2} GB this model wants: close programs for more speed" -f $freeGb, $ram, $m.ram_min_gb) 'WARN' }
+    return $ram
+}
+function Start-Colibri($c, $m) {
+    $letters = @(Get-Volume | Where-Object FileSystemLabel -ceq $m.volume_label | ForEach-Object { $_.DriveLetter })
+    if ($letters.Count -ne 1) { Exit-Fail 'COLIBRI' "volume $($m.volume_label) not found exactly once (found $($letters.Count))" }
+    $dir = "$($letters[0]):\$($m.dir)"
+    # The SSD is removable and has no file rights: its content is checked against the hashes in this repository before use.
+    if ($SkipModelHash) { Write-Stage 'COLIBRI' 'model hashes NOT checked (-SkipModelHash); only the sizes were' 'WARN' }
+    else {
+        Write-Stage 'COLIBRI' 'checking the model against the pinned hashes (167 GB, about 6 minutes)'
+        Invoke-Native $Py @((Join-Path $Root 'infra\fetch-colibri-model.py'), '--verify')
+        Write-Stage 'COLIBRI' 'all model files match the pinned hashes' 'OK'
+    }
+    foreach ($e in $m.env.PSObject.Properties) { Set-Item -Path "Env:$($e.Name)" -Value $e.Value }
+    $freeVram = 0
+    try { $g = (& nvidia-smi --query-gpu=memory.total,memory.used --format=csv,noheader,nounits) -split ','; $freeVram = [int]$g[0].Trim() - [int]$g[1].Trim() } catch { }
+    if ($freeVram -lt 12000) {
+        # Documented per-card table: below 12 GB the prefill bank does not fit, below 8 GB neither do the dense mirrors.
+        $env:COLI_CUDA_MOE_BATCH = '0'
+        if ($freeVram -lt 8000) { $env:CUDA_DENSE = '0'; $env:COLI_CUDA_ATTN_BATCH = '0' }
+        Write-Stage 'COLIBRI' "only $freeVram MiB VRAM free: smaller GPU settings, slower prefill" 'WARN'
+    }
+    $env:COLI_QUEUE_TIMEOUT = '14400'    # a translation waits behind a long reply; the default 300 s would fail it
+    # Per start, never on disk. Only serve gets COLI_API_KEY and only the app SW_COLIBRI_KEY; both leave this environment again.
+    $script:ColibriKey = [guid]::NewGuid().ToString('N')
+    $env:COLI_API_KEY = $script:ColibriKey; $env:PYTHONUTF8 = '1'; $env:PYTHONUNBUFFERED = '1'
+    $ram = Get-ColibriRam $m
+    $log = Join-Path $LogDir ("colibri-{0:yyyyMMdd-HHmmss}.log" -f (Get-Date))
+    $a = @("`"$(Join-Path $c.target $c.exe)`"", 'serve', '--model', "`"$dir`"", '--ram', "$ram", '--ctx', "$($m.ctx)",
+           '--host', '127.0.0.1', '--port', "$ColibriPort", '--model-id', $ModelTag)
+    $p = Start-Process -FilePath $Py -ArgumentList $a -WorkingDirectory $c.target -WindowStyle Hidden -PassThru -RedirectStandardOutput $log -RedirectStandardError ($log + '.err')
+    Remove-Item Env:COLI_API_KEY -ErrorAction SilentlyContinue
+    @{ pid = $p.Id; name = 'colibri'; started = (Get-Date).ToString('s') } | ConvertTo-Json -Compress | Set-Content (Join-Path $RunDir 'colibri.pid') -Encoding ASCII
+    Write-Stage 'COLIBRI' "serve pid $($p.Id), $($m.id) from $dir, --ram $ram, --ctx $($m.ctx), $freeVram MiB VRAM free; loading (limit 30 min), log $log"
+    for ($i = 0; $i -lt 360; $i++) {
+        if ($p.HasExited) { Exit-Fail 'COLIBRI' "serve exited early; see $log.err" }
+        try { Get-Json "http://127.0.0.1:$ColibriPort/health" 3 | Out-Null; Write-Stage 'COLIBRI' "ready after about $($i * 5) s on http://127.0.0.1:$ColibriPort (loopback only)" 'OK'; return } catch { Start-Sleep -Seconds 5 }
+    }
+    Exit-Fail 'COLIBRI' "no answer from /health after 30 min; see $log.err"
+}
 function Install-Ollama($c) {
     if ($Offline) { throw 'offline: Ollama is missing and cannot be downloaded' }
     if ($c.url -notmatch '^https://github\.com/' -or $c.sha256 -notmatch '^[0-9a-fA-F]{64}$') { throw 'manifest entry for ollama is not pinned (https://github.com URL + sha256 required)' }
@@ -223,7 +296,12 @@ try {
     Write-Stage 'CHECK' ("PowerShell {0}, {1}, repo {2}" -f $PSVersionTable.PSVersion, [Environment]::OSVersion.VersionString, $Root)
     if ($Offline) { Write-Stage 'CHECK' 'offline mode: no network access, local checks and vendor\ only' 'WARN' }
     if (-not (Get-Command nvidia-smi -ErrorAction SilentlyContinue)) { Write-Stage 'CHECK' "nvidia-smi not found; $($InstallHints.nvidia)" 'WARN' }
-    $ModelTag = Resolve-Model
+    if ($Llm -eq 'colibri') {
+        $cl = $Manifest.components.colibri
+        $cm = $Manifest.models.colibri
+        # Names model, revision and engine: this string ends up in steps and reports.
+        $ModelTag = '{0}@{1}-colibri-{2}' -f $cm.id, $cm.revision.Substring(0, 7), $cl.version
+    } else { $ModelTag = Resolve-Model }
     $results = Invoke-Check $ModelTag
     if ($null -eq $results) { Write-Stage 'CHECK' '.venv missing; python checks follow after INSTALL' 'WARN' }
     else { Show-Results $results }
@@ -232,7 +310,10 @@ try {
     $needLock = (-not $results) -or [bool]($results | Where-Object { $_.name -eq 'lock:missing' -and $_.status -eq 'FEHLER' })
     if ($needLock) { Install-Venv } else { Write-Stage 'INSTALL' 'python packages complete' 'OK' }
     $older = Get-OllamaVersions
-    if (Test-Path $OllamaExe) { Write-Stage 'INSTALL' "ollama $($ol.version) present" 'OK' }
+    if ($Llm -eq 'colibri') {
+        if (Test-Path (Join-Path $cl.target $cl.exe)) { Write-Stage 'INSTALL' "colibri $($cl.version) present" 'OK' } else { Install-Colibri $cl }
+    }
+    elseif (Test-Path $OllamaExe) { Write-Stage 'INSTALL' "ollama $($ol.version) present" 'OK' }
     elseif ($older.Count -gt 0) { Write-Stage 'INSTALL' "ollama $($ol.version) missing, older $($older[0].Name) present; see UPDATE" 'WARN' }
     else { Install-Ollama $ol }
 
@@ -244,7 +325,7 @@ try {
             $chk = Invoke-Check $ModelTag
             $drift = [bool]($chk | Where-Object { $_.name -eq 'lock:drift' -and $_.status -ne 'OK' })
         }
-        $olOld = (-not (Test-Path $OllamaExe)) -and ($older.Count -gt 0)
+        $olOld = ($Llm -eq 'ollama') -and (-not (Test-Path $OllamaExe)) -and ($older.Count -gt 0)
         if ($drift) {
             if ($Update) { Install-Lock } else { Write-Stage 'UPDATE' 'installed packages differ from requirements.lock; apply with -Update' 'WARN' }
         }
@@ -264,14 +345,15 @@ try {
     $fatal = @($results | Where-Object { $_.status -eq 'FEHLER' -and -not ($_.name -eq 'ollama:binary' -and $OllamaDir) })
     Write-Stage 'CHECK' ("re-check: {0} checks, {1} errors, {2} warnings" -f @($results).Count, $fatal.Count, @($results | Where-Object { $_.status -eq 'WARN' }).Count)
     if ($fatal.Count -gt 0) { Show-Results $fatal; Exit-Fail 'CHECK' 'errors remain; nothing was started' }
-    if (-not $OllamaDir) { Exit-Fail 'OLLAMA' 'no ollama installation available' }
-    $OllamaExe = Join-Path $OllamaDir 'ollama.exe'
+    if ($Llm -eq 'ollama' -and -not $OllamaDir) { Exit-Fail 'OLLAMA' 'no ollama installation available' }
+    if ($OllamaDir) { $OllamaExe = Join-Path $OllamaDir 'ollama.exe' }
 
     # ---- 3b. DOCKER (start early, it boots while ollama loads the model) ----
     $script:Booted = $true
     Start-DockerDesktop
 
     # ---- 4. OLLAMA + MODEL ----
+    if ($Llm -eq 'ollama') {
     # Own process with a time limit and file output (no pipe): the daemon it starts must not be able to block this script.
     $olOut = Join-Path $RunDir 'ollama-start.out'
     Remove-Item -LiteralPath $olOut, ($olOut + '.err') -Force -ErrorAction SilentlyContinue
@@ -324,8 +406,11 @@ try {
         Write-Stage 'MODEL' ("warm-up done in {0:N1}s" -f $sw.Elapsed.TotalSeconds) 'OK'
     } catch { Write-Stage 'MODEL' "warm-up failed: $($_.Exception.Message)" 'WARN' }
 
+    }
+
     Wait-Docker
     Install-ToolImages   # needs the daemon, so after Wait-Docker; builds only what is missing
+    if ($Llm -eq 'colibri') { Start-Colibri $cl $cm }   # after Docker: the RAM budget follows what Docker leaves free
 
     # ---- 5. APP ----
     $appPidFile = Join-Path $RunDir 'app.pid'
@@ -337,8 +422,11 @@ try {
     } else {
         $env:PYTHONPATH = Join-Path $Root 'src'; $env:SW_LOG_FILE = $LogFile; $env:PYTHONUNBUFFERED = '1'; $env:PYTHONUTF8 = '1'
         $a = @('-m', 'sw_analyst', '--model', $ModelTag, '--ollama-url', $OllamaUrl, '--data-dir', "`"$Data`"", '--port', "$Port")
+        if ($Llm -eq 'colibri') { $a += @('--llm', 'colibri', '--colibri-url', "http://127.0.0.1:$ColibriPort", '--num-ctx', "$($cm.ctx)") }
         $out = Join-Path $LogDir ("app-{0:yyyy-MM-dd}.out" -f (Get-Date))
+        if ($Llm -eq 'colibri') { $env:SW_COLIBRI_KEY = $script:ColibriKey }
         $appProc = Start-Process -FilePath $Py -ArgumentList $a -WorkingDirectory $Root -WindowStyle Hidden -PassThru -RedirectStandardOutput $out -RedirectStandardError ($out + '.err')
+        Remove-Item Env:SW_COLIBRI_KEY -ErrorAction SilentlyContinue
         @{ pid = $appProc.Id; name = 'python'; started = (Get-Date).ToString('s') } | ConvertTo-Json -Compress | Set-Content $appPidFile -Encoding ASCII
         Write-Stage 'APP' "started pid $($appProc.Id), waiting for $Base/api/system"
     }
@@ -355,7 +443,7 @@ try {
     # It does nothing after a normal stop (no PID files left). Best effort: Windows gives the host only a few seconds.
     $null = Register-EngineEvent -SourceIdentifier PowerShell.Exiting -MessageData @{ Stop = (Join-Path $PSScriptRoot 'stop.ps1'); Run = $RunDir; Port = $Port; OllamaPort = $OllamaPort } -Action {
         $d = $Event.MessageData
-        if ((Test-Path (Join-Path $d.Run 'app.pid')) -or (Test-Path (Join-Path $d.Run 'ollama.pid'))) {
+        if ((Test-Path (Join-Path $d.Run 'app.pid')) -or (Test-Path (Join-Path $d.Run 'ollama.pid')) -or (Test-Path (Join-Path $d.Run 'colibri.pid'))) {
             Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$($d.Stop)`"", '-Force', '-Port', "$($d.Port)", '-OllamaPort', "$($d.OllamaPort)")
         }
     }

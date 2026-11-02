@@ -5,6 +5,7 @@
 param(
     [int]$Port = 8765,
     [int]$OllamaPort = 11435,
+    [int]$ColibriPort = 11436,
     [switch]$Force,
     [switch]$NoCleanup,     # skip the cleanup after stopping
     [switch]$KeepDocker,    # do not stop Docker Desktop even if start.ps1 started it
@@ -49,6 +50,11 @@ function Test-OwnApp([int]$ProcId) {
 function Test-OwnOllama([int]$ProcId) {
     $p = Get-Process -Id $ProcId -ErrorAction SilentlyContinue
     return [bool]($p -and $p.Name -eq 'ollama' -and $p.Path -and $p.Path.StartsWith($ToolsRoot + '\', [StringComparison]::OrdinalIgnoreCase))
+}
+# colibri = python running coli from the sw-analyst tools folder; its engine is a child and goes with the tree.
+function Test-OwnColibri([int]$ProcId) {
+    $p = Get-Process -Id $ProcId -ErrorAction SilentlyContinue
+    return [bool]($p -and $p.Name -like 'python*' -and (Get-CmdLine $ProcId) -match ([regex]::Escape($ToolsRoot) + '\\colibri-[\d.]+\\coli"?\s'))
 }
 function Stop-Tree([int]$ProcId) { & cmd.exe /c "taskkill /PID $ProcId /T /F >nul 2>&1" }
 function Get-PortOwner([int]$P) {
@@ -157,6 +163,7 @@ try {
         $m = (& $Py -c $code $Data | Out-String).Trim()
         if ($m) { Write-Stage 'JOB' "job $m marked cancelled" 'WARN' }
     }
+    Stop-Own 'colibri' $ColibriPort { param($i) Test-OwnColibri $i }
     Unload-Models
     Stop-Own 'ollama' $OllamaPort { param($i) Test-OwnOllama $i }
     Show-Gpu

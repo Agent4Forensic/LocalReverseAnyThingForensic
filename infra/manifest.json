@@ -10,6 +10,20 @@
       "target": "D:\\Tools\\sw-analyst\\ollama-0.40.13",
       "exe": "ollama.exe"
     },
+    "colibri": {
+      "version": "2.1.0",
+      "source": "JustVugg/colibri",
+      "commit": "8579957378ca922ad4340a6392513485cbc50c2c",
+      "license": "Apache-2.0",
+      "url": "https://github.com/JustVugg/colibri/releases/download/v2.1.0/colibri-v2.1.0-windows-x86_64.zip",
+      "sha256": "195ee0be129d563789f1ade2383e023bde5519230d6fb508516e63767ee85465",
+      "url_cuda": "https://github.com/JustVugg/colibri/releases/download/v2.1.0/colibri-v2.1.0-windows-x86_64-cuda.zip",
+      "sha256_cuda": "69fb93c20f671533eea8d2c18c5c1f6bd1db12dd79c9e570068b9950db58f3fe",
+      "archive": "zip",
+      "target": "D:\\Tools\\sw-analyst\\colibri-2.1.0",
+      "exe": "coli",
+      "status": "optional engine, start.ps1 -Llm colibri (ADR-0012); only `coli serve` is used, never setup, web or mcp"
+    },
     "ghidra": {
       "version": "12.1.4",
       "source": "NationalSecurityAgency/ghidra",
@@ -67,6 +81,28 @@
       "B": "qwen3:8b",
       "C": "qwen3:4b"
     },
-    "embedding": "qwen3-embedding:0.6b"
+    "embedding": "qwen3-embedding:0.6b",
+    "colibri": {
+      "id": "deepseek-v4-flash-0731",
+      "repo": "deepseek-ai/DeepSeek-V4-Flash-0731",
+      "revision": "7872f01b1d1fe23eabc4c98b48bffcef5a386062",
+      "license": "MIT",
+      "volume_label": "ki_data",
+      "dir": "sw-analyst\\colibri\\deepseek-v4-flash-0731",
+      "ctx": 20000,
+      "ram_min_gb": 16,
+      "ram_cap_gb": 20,
+      "note": "ADR-0012. The volume is found by its label, never by its drive letter. env holds the documented settings for a 16 GB card; start.ps1 lowers them when less VRAM is free.",
+      "env": {
+        "COLI_CUDA": "1",
+        "COLI_GPU": "0",
+        "CUDA_DENSE": "1",
+        "COLI_CUDA_PIPE": "2",
+        "COLI_CUDA_ATTN_BATCH": "1",
+        "COLI_CUDA_MOE_BATCH": "1",
+        "V4_MOE_REFILL_GROUP": "12",
+        "V4_LOADER_LANES": "3"
+      }
+    }
   }
 }

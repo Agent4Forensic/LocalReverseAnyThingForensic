@@ -109,6 +109,8 @@ Stand: 2026-10-31. Abgleich von `infra/manifest.json`, `requirements.lock` und d
 | JDK für Ghidra | Temurin 21 im Image | `eclipse-temurin:21-jdk-noble@sha256:bd6ac06e2a2df928af21c75c4a8a0f2829a93377a65761d6a577bb32281e2ac3` | Digest im Dockerfile | nicht erfasst | Bestätigt: JDK 21 liegt im Image, das Host-JDK 17 bleibt davon unberührt. |
 | Python / Node | 3.11.9 / 24.19.0 (installiert) | nicht erfasst | nicht erfasst | nicht erfasst | Offen: keine Pins oder Hashes erfasst. |
 | Python-Abhängigkeiten | annotated-doc 0.0.5, annotated-types 0.8.0, anyio 4.15.1, click 8.5.0, fastapi 0.128.0, h11 0.16.0, idna 3.20, pydantic 2.14.2, pydantic-core 2.50.2, python-multipart 0.0.33, pyyaml 6.0.3, starlette 0.50.0, typing-extensions 4.16.0, typing-inspection 0.4.4, uvicorn 0.40.0 | PyPI-Index (nicht in `requirements.lock` erfasst) | in `requirements.lock` je Paket (nicht kopiert) | nicht erfasst | Bestätigt: Versionen und Hashes in Lock-Datei vorhanden. Offen: Index-URL fehlt, `requirements.in` nicht gegen Lock abgeglichen. |
+| Colibri (Engine, optional, ADR-0012) | v2.1.0, Apache-2.0 | https://github.com/JustVugg/colibri/releases/download/v2.1.0/colibri-v2.1.0-windows-x86_64.zip und `...-windows-x86_64-cuda.zip` | 195ee0be129d563789f1ade2383e023bde5519230d6fb508516e63767ee85465 und 69fb93c20f671533eea8d2c18c5c1f6bd1db12dd79c9e570068b9950db58f3fe | 8579957378ca922ad4340a6392513485cbc50c2c (Tag-Ref) | Statisch stichprobenartig geprüft, siehe Audit unten; nicht signiert |
+| DeepSeek-V4-Flash-0731 (Modell) | MIT, 166,9 GB | https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash-0731 | je Datei in `infra/colibri-model.files.json` | 7872f01b1d1fe23eabc4c98b48bffcef5a386062 | Größe und SHA-256 jeder Datei beim Laden und vor jedem Start geprüft; Python-Code des Repositorys nicht geladen |
 | pyghidra-mcp | v0.2.7 | GitHub clearbluejar/pyghidra-mcp | nicht erfasst | nicht erfasst | Offen: Commit-Pin und Hash fehlen. Empfohlener Primärweg, vor Nutzung testen. |
 | bethington/ghidra-mcp | v7.0.0 | GitHub bethington/ghidra-mcp, Release v7.0.0 | Präfix `d133c4c8` (GhidraMCP-7.0.0.zip) und `a7505006` (Bridge-Wheel), volle Hashes nicht erfasst | 19e64c75f1be1fcbe413e845f65e549f2361b928 | Bestätigt: Tag und Commit in Doku. Offen: volle Hashes beim Einbau aus dem Release eintragen. Tag unsigniert. |
 | morluto/rea (npm `rea-agents`) | 6.8.0 | npm `rea-agents@6.8.0` (URL nicht erfasst) | nicht erfasst (npm-Integrity ist sha512 und steht im Audit-Abschnitt) | 160d821ac9a0 (Tag `rea-agents-6.8.0`) | Zurückgestellt (Entscheidung von Jan, ADR-0006): `infra/manifest.json` bleibt `pending`, kein Einbau. Für ein späteres Audit gilt 160d821ac9a0. |
@@ -142,3 +144,12 @@ Stand: 2026-10-31. Abgleich von `infra/manifest.json`, `requirements.lock` und d
 - Modelle und Docker-Testimage haben keine Digests.
 - apktool, radare2, binwalk, LIEF, pefile und androguard sind nur recherchiert, nicht eingebunden. Ihnen fehlen URLs und Hashes.
 - `requirements.in` wurde nicht gegen `requirements.lock` abgeglichen.
+
+## Audit JustVugg/colibri v2.1.0 (2026-11-02, statisch, nur Stichprobe)
+
+Geprüft wurde der Inhalt der beiden Windows-Archive, ohne Ausführung. Bestätigt:
+- **Hashes:** Beide Archive stimmen mit `SHA256SUMS.txt` und den GitHub-Digests überein.
+- **Binaries:** Die Byte-Suche in `deepseek_v4.exe`, `coli_cuda_dsv4.dll`, `coli_cuda_dsv4_dg.dll`, `coli_cuda.dll` und `cudart64_12.dll` fand keine der DLLs `ws2_32`, `wsock32`, `wininet`, `winhttp`, `urlmon`, `dnsapi`. Dynamisches Nachladen schließt das nicht aus. Die Dateien sind nicht signiert.
+- **Python:** Ausgehende Adressen stehen in `setup_flow.py` (`api.github.com`), `setup_download.py` (`huggingface.co`) und `ui/web.py` (`html.duckduckgo.com`). `openai_server.py` importiert keines dieser Module; in `coli` lädt nur der Setup-Zweig sie. Telemetrie wurde nicht gefunden. `numpy` und `huggingface_hub` sind optionale Importe, die der Server auf diesem Weg nicht braucht.
+
+Offen: kein vollständiges Audit (rund 3 MB C, 557 KB `openai_server.py`). Eine Prüfung der Verbindungen im laufenden Betrieb steht aus, und `netstat` ist auf diesem Rechner nicht zuverlässig (siehe `docs/STATUS.md`).
