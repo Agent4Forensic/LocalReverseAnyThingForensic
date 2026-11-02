@@ -16,8 +16,14 @@ import urllib.request
 from sw_analyst.llm.base import ChatMessage, LLMError, LLMResponse
 from sw_analyst.llm.ollama import _LOCAL_HOSTS
 
-# No proxy, whatever the environment says: the bearer key must not leave the machine.
-_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None   # a 3xx then surfaces as HTTPError
+
+
+# No proxy and no redirects, whatever the environment or a reply says: the bearer key must not leave the machine.
+_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
 
 
 def _with_json_instruction(messages: list[dict], json_mode: bool | dict) -> list[dict]:

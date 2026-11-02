@@ -77,7 +77,7 @@ def main() -> None:
                  f"{len(container_tools)} of them in offline containers")
     log("GUARD", "DevGateway parses samples on this host: harmless test samples only, real samples need the VM gateway",
         "WARN")
-    llm = (ColibriClient(args.model, args.colibri_url, os.environ.get("SW_COLIBRI_KEY", ""), num_ctx=args.num_ctx,
+    llm = (ColibriClient(args.model, args.colibri_url, os.environ.pop("SW_COLIBRI_KEY", ""), num_ctx=args.num_ctx,
                          allow_think=args.colibri_think) if args.llm == "colibri"
            else OllamaClient(args.model, args.ollama_url, num_ctx=args.num_ctx))
     translator = Translator(llm, cache=store)

@@ -41,12 +41,13 @@ Schalter: `-Model`, `-Port`, `-OllamaPort`, `-NoCleanup`, `-Offline`, `-Update`,
 ## Colibri mit DeepSeek V4 Flash (ADR-0012)
 
 ```powershell
-python infra\fetch-colibri-model.py     # einmalig, 167 GB auf die SSD ki_data; ein zweiter Lauf prüft alle Hashes neu
+python infra\fetch-colibri-model.py     # einmalig, 167 GB auf die SSD ki_data
+python infra\fetch-colibri-model.py --verify   # alle Hashes prüfen, ohne Netz
 scripts\start.ps1 -Llm colibri           # Standard bleibt Ollama
 scripts\start.ps1 -Llm colibri -RamGb 18 # RAM-Budget von Hand
 ```
 
-Die SSD muss den Namen `ki_data` tragen, der Laufwerksbuchstabe ist egal. Fehlen Datenträger oder Dateien, startet nichts. Ohne `-RamGb` nimmt `start.ps1` den freien RAM minus 4 GB, höchstens 20 GB; mehr freier RAM bedeutet mehr Tempo, also vorher andere Programme schließen. Das Tempo hängt an der SSD: Colibri ist hier eine Stapelverarbeitung und lädt beim Start bis zu 30 Minuten. Das Log steht unter `data\logs\colibri-*.log`.
+Die SSD muss den Namen `ki_data` tragen, der Laufwerksbuchstabe ist egal. Fehlen Datenträger oder Dateien, oder weicht ein Hash vom Repository ab, startet nichts. Die Hash-Prüfung dauert bei jedem Start rund 6 Minuten; `-SkipModelHash` überspringt sie mit Warnung. Ohne `-RamGb` nimmt `start.ps1` den freien RAM minus 4 GB, höchstens 20 GB; mehr freier RAM bedeutet mehr Tempo, also vorher andere Programme schließen. Das Tempo hängt an der SSD: Colibri ist hier eine Stapelverarbeitung und lädt beim Start bis zu 30 Minuten. Das Log steht unter `data\logs\colibri-*.log`.
 
 Vor dem Abziehen der SSD `scripts\stop.ps1` ausführen.
 

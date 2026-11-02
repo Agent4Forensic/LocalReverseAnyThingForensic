@@ -379,9 +379,9 @@ def _volume_root(label: str) -> Path | None:
     return Path(f"{letters[0]}:/") if len(letters) == 1 else None
 
 
-def check_colibri(manifest: dict) -> list[dict]:
-    """Engine present, model volume mounted, every model file has the size its provenance names (ADR-0012).
-    A truncated shard can pass a download client; full hashes were checked when the model was fetched."""
+def check_colibri(manifest: dict, pins: list[dict]) -> list[dict]:
+    """Engine present, model volume mounted, every model file has its pinned size (ADR-0012). The list comes from the repository,
+    never from the removable drive. This catches a truncated shard; start.ps1 checks the hashes, which takes minutes."""
     c = manifest.get("components", {}).get("colibri", {})
     m = manifest.get("models", {}).get("colibri")
     if not m:
@@ -393,20 +393,13 @@ def check_colibri(manifest: dict) -> list[dict]:
     if root is None:
         return out + [result("colibri:volume", FEHLER, f"Datenträger {m['volume_label']} nicht eindeutig gefunden", "SSD anschließen")]
     folder = root / m["dir"]
-    try:
-        prov = json.loads((folder / "provenance.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return out + [result("colibri:model", FEHLER, f"{folder}: keine provenance.json, Modell nicht vollständig geladen",
-                             "Download abschließen, siehe docs/runbooks/betrieb.md")]
-    if prov.get("revision") != m["revision"]:
-        return out + [result("colibri:model", FEHLER, f"Revision {prov.get('revision')} statt {m['revision']}")]
-    files = prov.get("files") or []
-    if not files:
-        return out + [result("colibri:model", FEHLER, f"{folder}: provenance.json nennt keine Dateien")]
-    bad = [f["file"] for f in files if not (folder / f["file"]).is_file() or (folder / f["file"]).stat().st_size != f["size"]]
+    if not pins:
+        return out + [result("colibri:model", FEHLER, "keine gepinnten Dateien (infra/colibri-model.files.json)")]
+    bad = [f["file"] for f in pins if not (folder / f["file"]).is_file() or (folder / f["file"]).stat().st_size != f["size"]]
     if bad:
-        return out + [result("colibri:model", FEHLER, f"{len(bad)} von {len(files)} Dateien fehlen oder haben die falsche Größe, z. B. {bad[0]}")]
-    return out + [result("colibri:model", OK, f"{m['id']}: {len(files)} Dateien auf {root} (Revision {m['revision'][:7]})")]
+        return out + [result("colibri:model", FEHLER, f"{len(bad)} von {len(pins)} Dateien fehlen oder haben die falsche Größe, z. B. {bad[0]}",
+                             "python infra/fetch-colibri-model.py, siehe docs/runbooks/betrieb.md")]
+    return out + [result("colibri:model", OK, f"{m['id']}: {len(pins)} Dateien auf {root} (Revision {m['revision'][:7]}, Größen geprüft)")]
 
 
 def check_gateway(scratch_parent: str | Path | None = None) -> dict:
@@ -447,7 +440,7 @@ def run_checks(root: str | Path, data_dir: str | Path, app_port: int = 8765, oll
                        data_dir / "run",
                        [str(Path(manifest.get("components", {}).get("ollama", {}).get("target", "D:/Tools/sw-analyst/ollama")).parent)])
     if llm == "colibri":
-        res += check_colibri(manifest)
+        res += check_colibri(manifest, load_manifest(root / "infra" / "colibri-model.files.json")["files"])
     else:
         res.append(check_ollama_binary(manifest))
         res += check_models(ollama_port, model, manifest.get("models", {}).get("embedding"))

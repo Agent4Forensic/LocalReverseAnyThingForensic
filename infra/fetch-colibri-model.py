@@ -1,10 +1,11 @@
-"""Fetch the colibri model pinned in infra/manifest.json onto its volume, file by file (ADR-0012, developer machine, needs network).
+"""Fetch or verify the colibri model on its volume, against the hashes pinned in this repository (ADR-0012).
 
-    python infra/fetch-colibri-model.py
+    python infra/fetch-colibri-model.py            # developer machine, needs network: fetch what is missing or wrong
+    python infra/fetch-colibri-model.py --verify   # no network: size and hash of every file, exit 1 on any difference
 
-Resumes, then checks size and SHA-256 of every file; a file gets its final name only after it passes. A second run re-checks
-what is there and fetches only what is missing, so it also serves as a full verification. Only weights and metadata: the
-Python code in the model repository is left out on purpose, nothing here runs it.
+The list of files, sizes and hashes is infra/colibri-model.files.json, not anything on the SSD: a removable drive proves nothing
+about itself. A file gets its final name only after it passes. Only weights and metadata; the Python code in the model
+repository is left out on purpose, nothing here runs it.
 """
 import hashlib
 import json
@@ -12,10 +13,9 @@ import os
 import subprocess
 import sys
 import time
-import urllib.request
 from pathlib import Path
 
-KEEP = {"LICENSE", "README.md", "config.json", "generation_config.json", "model.safetensors.index.json", "tokenizer.json"}
+HERE = Path(__file__).resolve().parent
 
 
 def volume_by_label(label: str) -> str:
@@ -34,48 +34,56 @@ def digest(p: Path, h) -> str:
 
 
 def passes(p: Path, entry: dict) -> bool:
-    if p.stat().st_size != entry["size"]:
+    if not p.is_file() or p.stat().st_size != entry["size"]:
         return False
-    lfs = (entry.get("lfs") or {}).get("sha256")
-    if lfs:
-        return digest(p, hashlib.sha256()) == lfs
-    return digest(p, hashlib.sha1(f"blob {entry['size']}\0".encode())) == entry["blobId"]  # small files: git blob id
+    if entry["sha256"]:
+        return digest(p, hashlib.sha256()) == entry["sha256"]
+    return digest(p, hashlib.sha1(f"blob {entry['size']}\0".encode())) == entry["git_blob"]  # small files: git blob id
 
 
-def main() -> int:
-    m = json.loads((Path(__file__).resolve().parent / "manifest.json").read_text(encoding="utf-8"))["models"]["colibri"]
-    repo, rev = m["repo"], m["revision"]
-    target = Path(f"{volume_by_label(m['volume_label'])}:/") / m["dir"]
+def verify(target: Path, pins: list[dict]) -> list[str]:
+    """Names of the files that are missing or differ."""
+    return [e["file"] for e in pins if not passes(target / e["file"], e)]
+
+
+def fetch(target: Path, repo: str, rev: str, pins: list[dict]) -> int:
+    total, done, t0 = sum(e["size"] for e in pins), 0, time.monotonic()
+    print(f"START {time.strftime('%H:%M:%S')} {len(pins)} files, {total / 1e9:.1f} GB -> {target}", flush=True)
     target.mkdir(parents=True, exist_ok=True)
-    req = urllib.request.Request(f"https://huggingface.co/api/models/{repo}/revision/{rev}?blobs=true", headers={"User-Agent": "curl/8"})
-    meta = json.load(urllib.request.urlopen(req, timeout=60))
-    files = [s for s in meta["siblings"] if s["rfilename"].endswith(".safetensors") or s["rfilename"] in KEEP]
-    total = sum(s["size"] for s in files)
-    print(f"START {time.strftime('%H:%M:%S')} {len(files)} files, {total / 1e9:.1f} GB -> {target}", flush=True)
-    done, t0, record = 0, time.monotonic(), []
-    for s in sorted(files, key=lambda x: x["size"]):
-        name, size = s["rfilename"], s["size"]
-        final, part = target / name, target / (name + ".part")
-        if not (final.exists() and passes(final, s)):
-            url = f"https://huggingface.co/{repo}/resolve/{rev}/{name}"
+    for e in sorted(pins, key=lambda x: x["size"]):
+        final, part = target / e["file"], target / (e["file"] + ".part")
+        if not passes(final, e):
+            url = f"https://huggingface.co/{repo}/resolve/{rev}/{e['file']}"
             for attempt in range(1, 6):
                 rc = subprocess.run(["curl.exe", "-sS", "-L", "--fail", "-C", "-", "--retry", "20", "--retry-delay", "15",
                                      "--retry-all-errors", "--speed-limit", "1024", "--speed-time", "180", "-o", str(part), url]).returncode
-                if rc == 0 and passes(part, s):
+                if rc == 0 and passes(part, e):
                     os.replace(part, final)
                     break
-                print(f"RETRY {name}: curl {rc}, attempt {attempt}", flush=True)
+                print(f"RETRY {e['file']}: curl {rc}, attempt {attempt}", flush=True)
                 if rc == 0:
                     part.unlink(missing_ok=True)   # wrong size or hash: a resume would keep the bad bytes
             else:
-                print(f"FAIL {name}", flush=True)
+                print(f"FAIL {e['file']}", flush=True)
                 return 1
-            print(f"{time.strftime('%H:%M:%S')} {(done + size) / 1e9:6.1f}/{total / 1e9:.1f} GB  {done / 1e6 / max(time.monotonic() - t0, 1):5.0f} MB/s  {name}", flush=True)
-        done += size
-        record.append({"file": name, "size": size, "sha256": (s.get("lfs") or {}).get("sha256") or "", "git_blob": s["blobId"]})
-    (target / "provenance.json").write_text(json.dumps({"repo": repo, "revision": rev, "license": m["license"], "files": record,
-                                                        "verified_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}, indent=1) + "\n", encoding="utf-8")
-    print(f"OK {target} {len(files)} files verified", flush=True)
+            print(f"{time.strftime('%H:%M:%S')} {(done + e['size']) / 1e9:6.1f}/{total / 1e9:.1f} GB  {e['file']}", flush=True)
+        done += e["size"]
+    print(f"OK {target} {len(pins)} files verified in {time.monotonic() - t0:.0f} s", flush=True)
+    return 0
+
+
+def main() -> int:
+    m = json.loads((HERE / "manifest.json").read_text(encoding="utf-8"))["models"]["colibri"]
+    pins = json.loads((HERE / "colibri-model.files.json").read_text(encoding="utf-8"))["files"]
+    target = Path(f"{volume_by_label(m['volume_label'])}:/") / m["dir"]
+    if "--verify" not in sys.argv[1:]:
+        return fetch(target, m["repo"], m["revision"], pins)
+    t0 = time.monotonic()
+    bad = verify(target, pins)
+    if bad:
+        print(f"FAIL {len(bad)} of {len(pins)} files missing or changed, first: {bad[0]}", flush=True)
+        return 1
+    print(f"OK {len(pins)} files match the pinned hashes in {time.monotonic() - t0:.0f} s", flush=True)
     return 0
 
 

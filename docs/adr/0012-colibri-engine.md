@@ -12,9 +12,10 @@ Jan will sehr große Modelle auf dem vorhandenen Rechner betreiben (Ryzen 7 7800
 
 ## Entscheidung
 - **Engine:** Colibri 2.1.0 aus den gepinnten Release-Archiven mit SHA-256 (`infra/manifest.json`), installiert unter `D:\Tools\sw-analyst\colibri-2.1.0`. Genutzt wird nur `coli serve` auf `127.0.0.1`. `START-HERE`, `coli setup`, `coli web` und `coli mcp` bleiben ungenutzt, weil dort Downloads, Websuche und Fremdkonfiguration liegen.
-- **Modell:** `deepseek-ai/DeepSeek-V4-Flash-0731`, Revision `7872f01b1d1fe23eabc4c98b48bffcef5a386062`, Lizenz MIT. Geladen werden nur Gewichte und Metadaten mit Prüfung von Größe und SHA-256 jeder Datei (`infra/fetch-colibri-model.py`). Der Python-Code im Modell-Repository (`encoding/`, `inference/`) wird nicht geladen.
-- **Ablage:** Der Datenträger wird über den Namen `ki_data` gefunden, nicht über den Laufwerksbuchstaben. Fehlen Datenträger oder Dateien, oder stimmen Größe oder Revision nicht, bricht der Start ab; es gibt keinen Rückfall auf einen anderen Pfad.
-- **Zugriff:** Pro Start ein zufälliger Schlüssel, nur in der Prozessumgebung. Der Client spricht nur Loopback an und ignoriert Proxy-Einstellungen.
+- **Modell:** `deepseek-ai/DeepSeek-V4-Flash-0731`, Revision `7872f01b1d1fe23eabc4c98b48bffcef5a386062`, Lizenz MIT. Geladen werden nur Gewichte und Metadaten (`infra/fetch-colibri-model.py`). Der Python-Code im Modell-Repository (`encoding/`, `inference/`) wird nicht geladen.
+- **Ablage und Integrität:** Der Datenträger wird über den Namen `ki_data` gefunden, nicht über den Laufwerksbuchstaben. Weil er austauschbar ist und exFAT keine Rechte kennt, belegt sein Inhalt nichts über sich selbst: Größen und Hashes aller Dateien stehen im Repository (`infra/colibri-model.files.json`). Der Preflight prüft bei jedem Lauf die Größen, `start.ps1` vor dem Laden alle Hashes (rund 6 Minuten, `-SkipModelHash` überspringt das mit Warnung). Bei Abweichung startet nichts; es gibt keinen Rückfall auf einen anderen Pfad.
+- **Zugriff:** Pro Start ein zufälliger Schlüssel, nie auf der Platte. Nur `coli serve` und die App bekommen ihn, die App entfernt ihn aus ihrer Umgebung, bevor sie Kindprozesse startet. Der Client spricht nur Loopback an und folgt weder Proxy-Einstellungen noch Weiterleitungen.
+- **Installation:** Die Engine wird wie Ollama einmalig beim ersten Start mit `-Llm colibri` von der gepinnten URL geladen. `-Offline` verhindert das. Im laufenden Betrieb baut die Plattform keine Verbindung nach außen auf (Verbot 6).
 - **RAM:** `--ram` ist ein Planungswert und wird vom Betriebssystem nicht erzwungen. `start.ps1` setzt ihn nach dem Start von Docker auf den freien RAM minus 4 GB, höchstens 20 GB, weil das Limit von 24 GB für WSL, Docker und Modelle gemeinsam gilt und die HostGuard einen Auftrag unter 3 GB freiem RAM pausiert. `-RamGb` setzt den Wert von Hand.
 - **GPU:** Die dokumentierten Einstellungen für 16-GB-Karten stehen im Manifest. Bei weniger als 12 GB freiem VRAM entfällt die Prefill-Bank, bei weniger als 8 GB auch die dichten Spiegel. Beides folgt der Kartentabelle in der Colibri-Doku.
 
@@ -31,5 +32,6 @@ Hypothese, nicht gemessen:
 
 Offen:
 - Der erste echte Lauf steht aus, bis das Modell geladen ist: Tempo, Speicher, Quote gültiger JSON-Antworten, Wiederholbarkeit, Vergleich mit `qwen3:14b`.
-- Die Engine läuft wie Ollama auf dem Host und verarbeitet über den Prompt Inhalte aus Proben. Die Binaries (rund 3 MB C-Code) und der Python-Server (557 KB) sind nur stichprobenartig geprüft, nicht vollständig auditiert, und nicht signiert. Das gilt nur für harmlose Testproben; echte Proben bleiben der VM vorbehalten.
+- **Freigabe durch Jan offen:** Verbot 8 verlangt eine statische Prüfung vor der Installation. Sie ist erfolgt, aber nur als Stichprobe: Die Binaries (rund 3 MB C-Code) und der Python-Server (557 KB) lassen sich so nicht vollständig auditieren, und sie sind nicht signiert. Die Engine läuft wie Ollama auf dem Host und verarbeitet über den Prompt Inhalte aus Proben. Daher gilt sie nur für harmlose Testproben; echte Proben bleiben der VM vorbehalten.
+- Die Engine liest auf dem Datenträger auch die Dateien `.coli_usage` und `.coli_ssd`, die sie selbst schreibt und die nicht gepinnt werden können. Ein manipulierter Inhalt dieser Dateien ist nicht geprüft.
 - Ob nach dem Abziehen der SSD laufende Aufträge sauber enden, ist nicht geprüft.

@@ -79,7 +79,7 @@ function Test-OwnPython($p) {
 }
 function Test-OwnOllama($p) { $p.Name -eq 'ollama.exe' -and $p.ExecutablePath -and $p.ExecutablePath.StartsWith($ToolsRoot + '\', [StringComparison]::OrdinalIgnoreCase) }
 function Test-OwnColibri($p) {
-    if ($p.Name -eq 'python.exe') { return [bool]($p.CommandLine -match '\\colibri-[\d.]+\\coli') }
+    if ($p.Name -eq 'python.exe') { return [bool]($p.CommandLine -match ([regex]::Escape($ToolsRoot) + '\\colibri-[\d.]+\\coli"?\s')) }
     return [bool]($p.ExecutablePath -and $p.ExecutablePath.StartsWith((Join-Path $ToolsRoot 'colibri-'), [StringComparison]::OrdinalIgnoreCase))
 }
 function Stop-Own($p, [string]$Why) {

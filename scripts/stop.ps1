@@ -54,7 +54,7 @@ function Test-OwnOllama([int]$ProcId) {
 # colibri = python running coli from the sw-analyst tools folder; its engine is a child and goes with the tree.
 function Test-OwnColibri([int]$ProcId) {
     $p = Get-Process -Id $ProcId -ErrorAction SilentlyContinue
-    return [bool]($p -and $p.Name -like 'python*' -and (Get-CmdLine $ProcId) -match '\\colibri-[\d.]+\\coli')
+    return [bool]($p -and $p.Name -like 'python*' -and (Get-CmdLine $ProcId) -match ([regex]::Escape($ToolsRoot) + '\\colibri-[\d.]+\\coli"?\s'))
 }
 function Stop-Tree([int]$ProcId) { & cmd.exe /c "taskkill /PID $ProcId /T /F >nul 2>&1" }
 function Get-PortOwner([int]$P) {

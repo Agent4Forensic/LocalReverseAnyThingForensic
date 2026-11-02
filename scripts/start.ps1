@@ -11,6 +11,7 @@ param(
     [ValidateSet('ollama', 'colibri')][string]$Llm = 'ollama',   # colibri: ADR-0012, model on the SSD ki_data
     [int]$ColibriPort = 11436,
     [int]$RamGb = 0,        # colibri expert cache budget; 0 = from the free RAM, see Get-ColibriRam
+    [switch]$SkipModelHash, # colibri: skip the hash check of the model on the removable SSD (about 6 minutes)
     [switch]$SkipUpdateCheck,
     [switch]$Update,
     [switch]$Offline,
@@ -228,6 +229,13 @@ function Start-Colibri($c, $m) {
     $letters = @(Get-Volume | Where-Object FileSystemLabel -ceq $m.volume_label | ForEach-Object { $_.DriveLetter })
     if ($letters.Count -ne 1) { Exit-Fail 'COLIBRI' "volume $($m.volume_label) not found exactly once (found $($letters.Count))" }
     $dir = "$($letters[0]):\$($m.dir)"
+    # The SSD is removable and has no file rights: its content is checked against the hashes in this repository before use.
+    if ($SkipModelHash) { Write-Stage 'COLIBRI' 'model hashes NOT checked (-SkipModelHash); only the sizes were' 'WARN' }
+    else {
+        Write-Stage 'COLIBRI' 'checking the model against the pinned hashes (167 GB, about 6 minutes)'
+        Invoke-Native $Py @((Join-Path $Root 'infra\fetch-colibri-model.py'), '--verify')
+        Write-Stage 'COLIBRI' 'all model files match the pinned hashes' 'OK'
+    }
     foreach ($e in $m.env.PSObject.Properties) { Set-Item -Path "Env:$($e.Name)" -Value $e.Value }
     $freeVram = 0
     try { $g = (& nvidia-smi --query-gpu=memory.total,memory.used --format=csv,noheader,nounits) -split ','; $freeVram = [int]$g[0].Trim() - [int]$g[1].Trim() } catch { }
@@ -238,13 +246,15 @@ function Start-Colibri($c, $m) {
         Write-Stage 'COLIBRI' "only $freeVram MiB VRAM free: smaller GPU settings, slower prefill" 'WARN'
     }
     $env:COLI_QUEUE_TIMEOUT = '14400'    # a translation waits behind a long reply; the default 300 s would fail it
-    $key = [guid]::NewGuid().ToString('N')  # per start, process environment only, never written to disk
-    $env:COLI_API_KEY = $key; $env:SW_COLIBRI_KEY = $key; $env:PYTHONUTF8 = '1'; $env:PYTHONUNBUFFERED = '1'
+    # Per start, never on disk. Only serve gets COLI_API_KEY and only the app SW_COLIBRI_KEY; both leave this environment again.
+    $script:ColibriKey = [guid]::NewGuid().ToString('N')
+    $env:COLI_API_KEY = $script:ColibriKey; $env:PYTHONUTF8 = '1'; $env:PYTHONUNBUFFERED = '1'
     $ram = Get-ColibriRam $m
     $log = Join-Path $LogDir ("colibri-{0:yyyyMMdd-HHmmss}.log" -f (Get-Date))
     $a = @("`"$(Join-Path $c.target $c.exe)`"", 'serve', '--model', "`"$dir`"", '--ram', "$ram", '--ctx', "$($m.ctx)",
            '--host', '127.0.0.1', '--port', "$ColibriPort", '--model-id', $ModelTag)
     $p = Start-Process -FilePath $Py -ArgumentList $a -WorkingDirectory $c.target -WindowStyle Hidden -PassThru -RedirectStandardOutput $log -RedirectStandardError ($log + '.err')
+    Remove-Item Env:COLI_API_KEY -ErrorAction SilentlyContinue
     @{ pid = $p.Id; name = 'colibri'; started = (Get-Date).ToString('s') } | ConvertTo-Json -Compress | Set-Content (Join-Path $RunDir 'colibri.pid') -Encoding ASCII
     Write-Stage 'COLIBRI' "serve pid $($p.Id), $($m.id) from $dir, --ram $ram, --ctx $($m.ctx), $freeVram MiB VRAM free; loading (limit 30 min), log $log"
     for ($i = 0; $i -lt 360; $i++) {
@@ -414,7 +424,9 @@ try {
         $a = @('-m', 'sw_analyst', '--model', $ModelTag, '--ollama-url', $OllamaUrl, '--data-dir', "`"$Data`"", '--port', "$Port")
         if ($Llm -eq 'colibri') { $a += @('--llm', 'colibri', '--colibri-url', "http://127.0.0.1:$ColibriPort", '--num-ctx', "$($cm.ctx)") }
         $out = Join-Path $LogDir ("app-{0:yyyy-MM-dd}.out" -f (Get-Date))
+        if ($Llm -eq 'colibri') { $env:SW_COLIBRI_KEY = $script:ColibriKey }
         $appProc = Start-Process -FilePath $Py -ArgumentList $a -WorkingDirectory $Root -WindowStyle Hidden -PassThru -RedirectStandardOutput $out -RedirectStandardError ($out + '.err')
+        Remove-Item Env:SW_COLIBRI_KEY -ErrorAction SilentlyContinue
         @{ pid = $appProc.Id; name = 'python'; started = (Get-Date).ToString('s') } | ConvertTo-Json -Compress | Set-Content $appPidFile -Encoding ASCII
         Write-Stage 'APP' "started pid $($appProc.Id), waiting for $Base/api/system"
     }

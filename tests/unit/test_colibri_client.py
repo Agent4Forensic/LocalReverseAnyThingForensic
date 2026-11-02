@@ -1,4 +1,6 @@
-"""ColibriClient against a fake `coli serve`, plus the preflight check of the model on its volume (ADR-0012)."""
+"""ColibriClient against a fake `coli serve`, plus the checks of the model on its volume (ADR-0012)."""
+import hashlib
+import importlib.util
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -18,7 +20,7 @@ USER = [ChatMessage(role="user", content="hi")]
 def server():
     state = {"reply": {"model": "m", "choices": [{"message": {"content": "{}", "reasoning_content": "why"}, "finish_reason": "length"}],
                        "usage": {"prompt_tokens": 3, "completion_tokens": 4}},
-             "status": 200, "seen": None, "headers": None, "health": 200}
+             "status": 200, "seen": None, "headers": None, "health": 200, "location": "", "paths": []}
 
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a):
@@ -31,7 +33,10 @@ def server():
         def do_POST(self):
             state["seen"] = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             state["headers"], state["path"] = dict(self.headers), self.path
+            state["paths"].append(self.path)
             self.send_response(state["status"])
+            if state["location"]:
+                self.send_header("Location", state["location"])
             self.end_headers()
             self.wfile.write(json.dumps(state["reply"]).encode())
 
@@ -98,6 +103,14 @@ def test_a_proxy_setting_cannot_take_the_key_off_the_machine(server, monkeypatch
     assert c.chat(USER).text == "{}"
 
 
+def test_a_redirect_is_never_followed(server):
+    state, c = server
+    state["status"], state["location"] = 307, c.base_url + "/elsewhere"
+    with pytest.raises(LLMError):
+        c.chat(USER)
+    assert state["paths"] == ["/v1/chat/completions"]
+
+
 def test_unreachable_raises_llm_error():
     with pytest.raises(LLMError):
         ColibriClient("m", "http://127.0.0.1:9", timeout_s=2).chat(USER)
@@ -124,42 +137,59 @@ def _status(res, name):
     return next(r["status"] for r in res if r["name"] == name)
 
 
-def _model(tmp_path, revision="a" * 40, size=3):
+PINS = [{"file": "f.safetensors", "size": 3, "sha256": hashlib.sha256(b"abc").hexdigest(), "git_blob": ""}]
+
+
+def _model(tmp_path, data=b"abc"):
     d = tmp_path / "d"
-    d.mkdir()
-    (d / "f.safetensors").write_bytes(b"abc")
-    (d / "provenance.json").write_text(json.dumps({"revision": revision, "files": [{"file": "f.safetensors", "size": size}]}))
+    d.mkdir(exist_ok=True)
+    (d / "f.safetensors").write_bytes(data)
+    return d
 
 
 def test_preflight_ok_with_all_files(tmp_path, monkeypatch):
     monkeypatch.setattr(pf, "_volume_root", lambda label: tmp_path)
     _model(tmp_path)
-    res = pf.check_colibri(_manifest(tmp_path))
+    res = pf.check_colibri(_manifest(tmp_path), PINS)
     assert _status(res, "colibri:binary") == pf.OK and _status(res, "colibri:model") == pf.OK
 
 
 def test_preflight_fails_without_the_volume(tmp_path, monkeypatch):
     monkeypatch.setattr(pf, "_volume_root", lambda label: None)
-    assert _status(pf.check_colibri(_manifest(tmp_path)), "colibri:volume") == pf.FEHLER
+    assert _status(pf.check_colibri(_manifest(tmp_path), PINS), "colibri:volume") == pf.FEHLER
 
 
-@pytest.mark.parametrize("kw", [{"size": 4}, {"revision": "b" * 40}])
-def test_preflight_fails_on_truncated_shard_or_wrong_revision(tmp_path, monkeypatch, kw):
+def test_preflight_fails_on_truncated_shard_missing_file_or_no_pins(tmp_path, monkeypatch):
     monkeypatch.setattr(pf, "_volume_root", lambda label: tmp_path)
-    _model(tmp_path, **kw)
-    assert _status(pf.check_colibri(_manifest(tmp_path)), "colibri:model") == pf.FEHLER
+    assert _status(pf.check_colibri(_manifest(tmp_path), PINS), "colibri:model") == pf.FEHLER
+    _model(tmp_path, b"ab")
+    assert _status(pf.check_colibri(_manifest(tmp_path), PINS), "colibri:model") == pf.FEHLER
+    assert _status(pf.check_colibri(_manifest(tmp_path), []), "colibri:model") == pf.FEHLER
 
 
-def test_preflight_fails_while_the_download_runs(tmp_path, monkeypatch):
-    monkeypatch.setattr(pf, "_volume_root", lambda label: tmp_path)
-    assert _status(pf.check_colibri(_manifest(tmp_path)), "colibri:model") == pf.FEHLER
+def _fetch_script():
+    spec = importlib.util.spec_from_file_location("fetch_colibri_model", ROOT / "infra" / "fetch-colibri-model.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
-def test_preflight_fails_when_the_provenance_names_no_files(tmp_path, monkeypatch):
-    monkeypatch.setattr(pf, "_volume_root", lambda label: tmp_path)
-    (tmp_path / "d").mkdir()
-    (tmp_path / "d" / "provenance.json").write_text(json.dumps({"revision": "a" * 40, "files": []}))
-    assert _status(pf.check_colibri(_manifest(tmp_path)), "colibri:model") == pf.FEHLER
+def test_verify_finds_a_changed_file_of_the_right_size(tmp_path):
+    fetch = _fetch_script()
+    d = _model(tmp_path)
+    assert fetch.verify(d, PINS) == []
+    _model(tmp_path, b"abX")
+    assert fetch.verify(d, PINS) == ["f.safetensors"]
+    (d / "f.safetensors").unlink()
+    assert fetch.verify(d, PINS) == ["f.safetensors"]
+
+
+def test_verify_uses_the_git_blob_id_for_small_files(tmp_path):
+    fetch = _fetch_script()
+    (tmp_path / "c.json").write_bytes(b"{}")
+    blob = hashlib.sha1(b"blob 2\0{}").hexdigest()
+    assert fetch.verify(tmp_path, [{"file": "c.json", "size": 2, "sha256": "", "git_blob": blob}]) == []
+    assert fetch.verify(tmp_path, [{"file": "c.json", "size": 2, "sha256": "", "git_blob": "0" * 40}]) == ["c.json"]
 
 
 # ---- manifest and scripts -------------------------------------------------------------------------------
@@ -170,6 +200,10 @@ def test_manifest_pins_engine_and_models():
     assert len(c["sha256"]) == 64 and len(c["sha256_cuda"]) == 64 and len(c["commit"]) == 40
     v = m["models"]["colibri"]
     assert len(v["revision"]) == 40 and v["volume_label"] == "ki_data" and not v["dir"][1:].startswith(":")
+    pins = json.loads((ROOT / "infra" / "colibri-model.files.json").read_text(encoding="utf-8"))
+    assert pins["revision"] == v["revision"] and pins["repo"] == v["repo"]
+    assert len(pins["files"]) > 50 and all(f["sha256"] for f in pins["files"] if f["file"].endswith(".safetensors"))
+    assert all("/" not in f["file"] and "\\" not in f["file"] and ".." not in f["file"] for f in pins["files"])
 
 
 def test_start_runs_colibri_on_loopback_and_only_serve():
@@ -177,3 +211,13 @@ def test_start_runs_colibri_on_loopback_and_only_serve():
     assert "'--host', '127.0.0.1'" in txt and "COLI_API_KEY" in txt
     for forbidden in ("0.0.0.0", "START-HERE", "'setup'", "'web'", "'mcp'"):
         assert forbidden not in txt
+
+
+def test_colibri_process_ownership_is_bound_to_the_tools_folder():
+    for script in ("stop.ps1", "cleanup.ps1"):
+        assert "[regex]::Escape($ToolsRoot)" in (ROOT / "scripts" / script).read_text(encoding="ascii")
+
+
+def test_start_checks_the_model_hashes_and_scopes_the_key():
+    txt = (ROOT / "scripts" / "start.ps1").read_text(encoding="ascii")
+    assert "'--verify'" in txt and "Remove-Item Env:COLI_API_KEY" in txt and "Remove-Item Env:SW_COLIBRI_KEY" in txt
