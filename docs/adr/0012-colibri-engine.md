@@ -1,6 +1,6 @@
 # ADR-0012: Colibri als Inferenz-Engine mit DeepSeek V4 Flash auf der SSD `ki_data`
 
-Status: angenommen am 2026-11-02 (Auftrag von Jan: „Baue das neue Tool und lade auf die SSD ki_data das Model aus der Anmerkung“, „Für Colibri ist nur DeepSeek V4 Flash zu laden“). Ollama bleibt der Standard, bis ein echter Lauf vorliegt; Colibri wird mit `scripts\start.ps1 -Llm colibri` gewählt.
+Status: angenommen am 2026-11-02 (Auftrag von Jan: „Baue das neue Tool und lade auf die SSD ki_data das Model aus der Anmerkung“, „Für Colibri ist nur DeepSeek V4 Flash zu laden“, „Nur wenn die Hardware es hergibt soll der User dies einmalig im Start Script aktivieren können. Sonst verbleiben wir bei Ollama und einem kleineren Model“). Standard bleibt Ollama.
 
 ## Kontext
 Jan will sehr große Modelle auf dem vorhandenen Rechner betreiben (Ryzen 7 7800X3D, 31 GB RAM, RTX 5060 Ti mit 16 GB). Colibri (`JustVugg/colibri`, Apache-2.0) hält nur den dichten Teil eines Mixture-of-Experts-Modells im Speicher und liest die Experten bei Bedarf von der Platte.
@@ -25,6 +25,9 @@ Jan will sehr große Modelle auf dem vorhandenen Rechner betreiben (Ryzen 7 7800
 - **Streaming:** Der Client liest Antworten als Datenstrom. Der Server sendet alle 10 Sekunden ein Lebenszeichen, auch während des Prefills, und schickt beim Trennen der Verbindung `CANCEL` an die Engine (`openai_server.py`). „Abbrechen“ im Dashboard wirkt deshalb innerhalb von Sekunden und gibt die GPU frei. Hat der Datenstrom begonnen, gelten 5 Minuten ohne jedes Lebenszeichen als tote Engine; vorher ist Stille normal, weil eine Anfrage hinter einer langen Antwort warten kann. Solange sie wartet, wirkt „Abbrechen“ erst, wenn der Datenstrom beginnt. Ein Datenstrom ohne Abschluss gilt als verlorene Antwort, nie als kurze Antwort.
 - **Spiegel und Anwärmen:** `start.ps1 -ColibriMirror <Ordner>` nutzt eine zweite, per Hash geprüfte Kopie auf einem anderen Laufwerk. `start.ps1 -ColibriPrepare` führt einmalig `coli doctor`, `plan`, `tune` und das Anwärmen des Experten-Caches mit harmlosen Code-Beispielen aus (`infra/colibri-warmup.py`).
 - **Erster echter Test:** `scripts\start.ps1 -Llm colibri -ColibriGate` startet `tests/bench/colibri_gate.py`. Dieser Lauf prüft Wiederholbarkeit, die Quote gültiger JSON-Antworten mit der Prüfung des Runners, Speicher, ausgehende Verbindungen und einen echten Auftrag, und schreibt die Ergebnisse nach `data\eval\colibri-gate-*`. Colibri wird erst Standard, wenn dieser Test bestanden ist und der Vergleich mit `qwen3:14b` das trägt.
+
+## Aktivierung
+Colibri bleibt im Repository, ist aber kein Standard. `scripts\start.ps1 -EnableColibri` schaltet es einmalig dauerhaft ein (Marker `data\colibri.enabled`), `-DisableColibri` schaltet es wieder aus. Das Einschalten gelingt nur, wenn das Modell vollständig auf dem Datenträger liegt, mindestens 23 GB RAM eingebaut und 20 GB frei sind und der Datenträger rechnerisch mindestens 0,5 Token pro Sekunde trägt (rund 1450 MB/s). Die Prüfung läuft bei jedem Start erneut. Fällt eine Bedingung weg, zum Beispiel weil die SSD fehlt, startet die Plattform mit Ollama und einer Warnung, statt abzubrechen. `-Llm colibri` gilt nur für einen Lauf und überspringt die Prüfung, damit sich die Engine messen lässt.
 
 ## Folgen
 Belegt:

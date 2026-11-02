@@ -2,6 +2,7 @@
 
     python -m sw_analyst.colibri_settings          # readable, needs the volume for the disk measurement
     python -m sw_analyst.colibri_settings --json   # what scripts\\start.ps1 applies
+    python -m sw_analyst.colibri_settings --check  # may this machine use colibri at all? exit 1 with the reasons if not
 
 The rules are the VRAM table in colibri docs/deepseek-v4.md and the limits of this project (CLAUDE.md, HostGuard). `coli tune`
 measures on top of this and saves a profile that `coli serve` reads; this script sets what must be right before the first run.
@@ -18,7 +19,7 @@ import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from sw_analyst.preflight import _ram_gb, _run, _volume_root
+from sw_analyst.preflight import FEHLER, _ram_gb, _run, _volume_root, check_colibri
 
 HARD_LIMIT_GB = 24    # WSL, Docker and models together (decision of Jan, 2026-10-31)
 DOCKER_SHARE_GB = 4   # kept for the tool containers that run during a job
@@ -29,6 +30,7 @@ WANTED_GB = 16        # the setup catalog's minimum for this model
 CTX = 16384           # what the runner's prompts are sized for (CONTEXT_CHAR_BUDGET, REPLY_TOKENS_MAX)
 EXPERT_MB = 12.6      # one routed expert (docs/deepseek-v4.md)
 MISSES_PER_TOKEN = 230  # routed-expert reads per token at 6 % VRAM hit rate (docs/deepseek-v4.md, Performance)
+MIN_TOK_S = 0.5       # below this one reply of 2000 tokens takes more than an hour: not usable for a job
 
 
 @dataclass
@@ -96,6 +98,20 @@ def choose(hw: Hardware, ram_override: int = 0) -> dict:
             "estimate_tok_s": estimate, "hardware": asdict(hw)}
 
 
+def eligible(hw: Hardware, model_problem: str = "") -> list[str]:
+    """Why this machine should stay on Ollama and a smaller model; empty means colibri may be switched on (ADR-0012)."""
+    why = [model_problem] if model_problem else []
+    if hw.ram_total_gb < WANTED_GB + WINDOWS_MIN_GB:
+        why.append(f"{hw.ram_total_gb:.1f} GB RAM in total, {WANTED_GB + WINDOWS_MIN_GB} GB needed ({WANTED_GB} GB for the model, {WINDOWS_MIN_GB} GB for Windows)")
+    if hw.ram_free_gb < WANTED_GB + HEADROOM_GB:
+        why.append(f"{hw.ram_free_gb:.1f} GB RAM free, {WANTED_GB + HEADROOM_GB} GB needed")
+    rate = hw.disk_read_mb_s / (MISSES_PER_TOKEN * EXPERT_MB)
+    if rate < MIN_TOK_S:
+        why.append(f"model disk reads {hw.disk_read_mb_s:.0f} MB/s ({hw.disk_bus or 'unknown bus'}), about {rate:.2f} tok/s; "
+                   f"{MIN_TOK_S} tok/s need {MIN_TOK_S * MISSES_PER_TOKEN * EXPERT_MB:.0f} MB/s")
+    return why
+
+
 def _measure_read(folder: Path, seconds: float = 5.0) -> float:
     """Unbuffered reads of one expert's size at random offsets of the largest shard: what the engine does on a cache miss."""
     shards = sorted(folder.glob("*.safetensors"), key=lambda p: p.stat().st_size)
@@ -160,8 +176,16 @@ def main() -> int:
     ap = argparse.ArgumentParser(prog="colibri_settings")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--ram", type=int, default=0, help="expert cache budget in GB, 0 = from the free RAM")
+    ap.add_argument("--check", action="store_true", help="exit 1 and name the reasons if this machine should stay on Ollama")
     a = ap.parse_args()
     manifest = Path(__file__).resolve().parents[2] / "infra" / "manifest.json"
+    if a.check:
+        m = json.loads(manifest.read_text(encoding="utf-8"))
+        pins = json.loads((manifest.parent / "colibri-model.files.json").read_text(encoding="utf-8"))["files"]
+        bad = [r["detail"] for r in check_colibri(m, pins) if r["status"] == FEHLER]
+        why = eligible(detect(m["models"]["colibri"]), "; ".join(bad))
+        print(json.dumps({"eligible": not why, "reasons": why}))
+        return 1 if why else 0
     try:
         s = choose(detect(json.loads(manifest.read_text(encoding="utf-8"))["models"]["colibri"]), a.ram)
     except ValueError as e:

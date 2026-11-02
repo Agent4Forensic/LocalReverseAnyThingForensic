@@ -14,7 +14,7 @@ from sw_analyst.common.util import sha256_hex
 from sw_analyst.gateway.dev_gateway import DevGateway
 from sw_analyst.llm.base import LLMError
 from sw_analyst.llm.colibri import ColibriClient
-from sw_analyst.colibri_settings import Hardware, choose
+from sw_analyst.colibri_settings import Hardware, choose, eligible
 from sw_analyst.llm.fake import ScriptedLLM
 from sw_analyst.orchestrator.engine import JobEngine
 
@@ -86,6 +86,29 @@ def test_estimate_comes_from_the_measured_disk():
 
 def test_the_settings_are_json_for_start_ps1():
     assert json.loads(json.dumps(choose(_hw())))["ctx"] == 16384
+
+
+# ---- may this machine use colibri at all? --------------------------------------------------------------
+def test_a_machine_that_carries_it_is_eligible():
+    assert eligible(_hw(ram_free_gb=22.0, disk_bus="NVMe", disk_read_mb_s=3000.0)) == []
+
+
+@pytest.mark.parametrize("kw,word", [(dict(ram_total_gb=16.0), "in total"), (dict(ram_free_gb=11.0), "RAM free"),
+                                     (dict(disk_read_mb_s=456.0, disk_bus="USB"), "tok/s"), (dict(disk_read_mb_s=0.0), "tok/s")])
+def test_each_shortfall_names_its_reason(kw, word):
+    why = eligible(_hw(**{"ram_free_gb": 22.0, "disk_bus": "NVMe", "disk_read_mb_s": 3000.0, **kw}))
+    assert why and word in " ".join(why)
+
+
+def test_an_incomplete_model_is_a_reason_too():
+    assert eligible(_hw(ram_free_gb=22.0, disk_read_mb_s=3000.0), "40 of 54 files missing") == ["40 of 54 files missing"]
+
+
+def test_start_stays_on_ollama_by_default_and_checks_the_machine_on_every_start():
+    txt = (ROOT / "scripts" / "start.ps1").read_text(encoding="ascii")
+    assert "[string]$Llm = 'ollama'" in txt and "colibri_settings --check" in txt
+    assert "staying on Ollama" in txt and "colibri.enabled" in txt and "-Llm colibri" not in txt.split("param(")[0]
+    assert txt.index("colibri_settings --check") < txt.index("Resolve-Model }")
 
 
 # ---- gate -----------------------------------------------------------------------------------------------
