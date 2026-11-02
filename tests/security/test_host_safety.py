@@ -10,6 +10,7 @@ import pytest
 import sw_analyst
 from sw_analyst.gateway.dev_gateway import MAX_LAYERS, MAX_OUTPUT_CHARS, MAX_SAMPLE_BYTES, DevGateway, decoders
 from sw_analyst.guard import validate_action
+from sw_analyst.llm.colibri import ColibriClient
 from sw_analyst.llm.ollama import OllamaClient
 
 ROOT = Path(sw_analyst.__file__).parent
@@ -54,7 +55,7 @@ def test_only_the_llm_client_talks_to_a_network_library():
         names = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
         names |= {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
         if {"urllib.request", "urllib.error"} & names:
-            assert path.name == "ollama.py", path
+            assert path.name in {"ollama.py", "colibri.py"}, path   # both refuse non-local URLs, see below
 
 
 def test_tool_allowlist_is_exactly_this(tmp_path):
@@ -69,6 +70,8 @@ def test_tool_allowlist_is_exactly_this(tmp_path):
 def test_llm_client_refuses_anything_but_loopback(url):
     with pytest.raises(ValueError):
         OllamaClient("m", url)
+    with pytest.raises(ValueError):
+        ColibriClient("m", url)
 
 
 def test_model_cannot_name_a_tool_outside_the_allowlist(tmp_path):

@@ -38,6 +38,18 @@ Schalter: `-Model`, `-Port`, `-OllamaPort`, `-NoCleanup`, `-Offline`, `-Update`,
 
 **Modellstufen** (`infra/select-model.ps1`, nach freiem VRAM): Stufe A ab 11.000 MiB `qwen3:14b`, Stufe B ab 7.000 MiB `qwen3:8b`, sonst Stufe C `qwen3:4b` (langsam, auf Blackwell absturzgefährdet bei Teil-Offload). Mit `-Model` lässt sich ein Tag erzwingen. Die Modellwahl ist noch nicht endgültig ([ADR-0001](../adr/0001-modellwahl.md)).
 
+## Colibri mit DeepSeek V4 Flash (ADR-0012)
+
+```powershell
+python infra\fetch-colibri-model.py     # einmalig, 167 GB auf die SSD ki_data; ein zweiter Lauf prüft alle Hashes neu
+scripts\start.ps1 -Llm colibri           # Standard bleibt Ollama
+scripts\start.ps1 -Llm colibri -RamGb 18 # RAM-Budget von Hand
+```
+
+Die SSD muss den Namen `ki_data` tragen, der Laufwerksbuchstabe ist egal. Fehlen Datenträger oder Dateien, startet nichts. Ohne `-RamGb` nimmt `start.ps1` den freien RAM minus 4 GB, höchstens 20 GB; mehr freier RAM bedeutet mehr Tempo, also vorher andere Programme schließen. Das Tempo hängt an der SSD: Colibri ist hier eine Stapelverarbeitung und lädt beim Start bis zu 30 Minuten. Das Log steht unter `data\logs\colibri-*.log`.
+
+Vor dem Abziehen der SSD `scripts\stop.ps1` ausführen.
+
 ## Stoppen
 
 ```powershell
