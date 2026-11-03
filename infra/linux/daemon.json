@@ -1,0 +1,9 @@
+{
+  "data-root": "/srv/sw-analyst/docker",
+  "storage-driver": "overlay2",
+  "no-new-privileges": true,
+  "icc": false,
+  "userland-proxy": false,
+  "log-driver": "local",
+  "log-opts": { "max-size": "10m", "max-file": "3" }
+}

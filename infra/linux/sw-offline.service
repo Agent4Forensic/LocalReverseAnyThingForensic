@@ -1,0 +1,14 @@
+# Boot default of the sw-analyst live host is offline (ADR-0013). Installed by provision.sh.
+[Unit]
+Description=sw-analyst: network offline at boot
+DefaultDependencies=no
+After=nftables.service NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/sw-mode offline
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,7 @@
+# /etc/sw-analyst/share.conf - exchange folder on the internal disk (sw-share, ADR-0013).
+# SHARE_UUID: UUID of the Windows data partition (lsblk -f; for BitLocker the UUID of the encrypted partition).
+# SHARE_DIR:  one folder name directly on that partition, created under Windows (e.g. D:\sw-analyst-share with in\ and out\).
+# SHARE_USER: the platform user that may read and write the share.
+SHARE_UUID=0000000000000000
+SHARE_DIR=sw-analyst-share
+SHARE_USER=analyst

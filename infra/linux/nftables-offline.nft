@@ -1,0 +1,18 @@
+# sw-analyst offline firewall (ADR-0013), loaded by sw-mode offline. Drops everything except loopback in and out,
+# and every forwarded packet (Docker bridges included). Removed again only by sw-mode online.
+# Own table: Docker's and Debian's rules in other tables stay untouched, but a drop here is final for that packet.
+table inet sw_offline
+delete table inet sw_offline
+table inet sw_offline {
+  chain input {
+    type filter hook input priority -300; policy drop;
+    iif "lo" accept
+  }
+  chain output {
+    type filter hook output priority -300; policy drop;
+    oif "lo" accept
+  }
+  chain forward {
+    type filter hook forward priority -300; policy drop;
+  }
+}

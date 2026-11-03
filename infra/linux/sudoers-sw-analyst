@@ -1,0 +1,3 @@
+# /etc/sudoers.d/sw-analyst (ADR-0013), installed by provision.sh with visudo -c.
+# Without a password only what makes the host safer or only reads; going online and mounting the disk ask for it.
+analyst ALL=(root) NOPASSWD: /usr/local/sbin/sw-mode offline, /usr/local/sbin/sw-mode status, /usr/local/sbin/sw-share umount, /usr/local/sbin/sw-share status

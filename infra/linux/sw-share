@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# sw-share - mounts only the exchange folder of the internal (Windows) disk for sw-analyst (ADR-0013).
+#   sudo sw-share mount [--ro]   D: is mounted below /run/sw-analyst (0700 root, invisible to the platform user),
+#                                only <SHARE_DIR> is bound to /mnt/host-share with noexec,nosuid,nodev
+#   sudo sw-share umount         before shutdown and before every run with real samples
+#   sw-share status
+# Configuration: /etc/sw-analyst/share.conf (SHARE_UUID, SHARE_DIR, SHARE_USER). Fixed actions and paths only:
+# no argument of this script reaches a shell or the mount command unchecked (CLAUDE.md, rule 4).
+# Windows must be shut down fully (powercfg /h off): ntfs3 refuses a hibernated or dirty volume for writing.
+set -euo pipefail
+CONF=/etc/sw-analyst/share.conf
+HIDDEN=/run/sw-analyst
+HOSTD="$HIDDEN/hostd"
+SHARE=/mnt/host-share
+MAPPER=sw-hostd
+
+die() { echo "sw-share: $*" >&2; exit 1; }
+need_root() { [ "$(id -u)" -eq 0 ] || die "run as root: sudo sw-share $1"; }
+
+load_conf() {
+  [ -r "$CONF" ] || die "$CONF missing (template: infra/linux/share.conf.example)"
+  SHARE_UUID="$(sed -n 's/^SHARE_UUID=\([0-9A-Fa-f-]\{8,36\}\)$/\1/p' "$CONF")"
+  SHARE_DIR="$(sed -n 's/^SHARE_DIR=\([A-Za-z0-9._-]\{1,64\}\)$/\1/p' "$CONF")"
+  SHARE_USER="$(sed -n 's/^SHARE_USER=\([a-z_][a-z0-9_-]\{0,31\}\)$/\1/p' "$CONF")"
+  [ -n "$SHARE_UUID" ] || die "SHARE_UUID missing or invalid in $CONF (hex and dashes, from: lsblk -f)"
+  [ -n "$SHARE_DIR" ] || die "SHARE_DIR missing or invalid in $CONF (one folder name, e.g. sw-analyst-share)"
+  [ -n "$SHARE_USER" ] || die "SHARE_USER missing or invalid in $CONF"
+  id "$SHARE_USER" >/dev/null 2>&1 || die "user $SHARE_USER does not exist"
+}
+
+status() {
+  if findmnt -n "$SHARE" >/dev/null 2>&1; then findmnt -n -o TARGET,FSTYPE,OPTIONS "$SHARE"; else echo "$SHARE not mounted"; fi
+}
+
+do_mount() {
+  need_root mount
+  load_conf
+  ro=""
+  [ "${1:-}" = "--ro" ] && ro=",ro"
+  [ -z "${1:-}" ] || [ "$1" = "--ro" ] || die "usage: sw-share mount [--ro]"
+  findmnt -n "$SHARE" >/dev/null 2>&1 && die "$SHARE is already mounted (sw-share umount first)"
+  dev="$(blkid -U "$SHARE_UUID" || true)"
+  [ -n "$dev" ] || die "no volume with UUID $SHARE_UUID on this machine"
+  type="$(blkid -o value -s TYPE "$dev" || true)"
+  if [ "$type" = "BitLocker" ]; then
+    command -v cryptsetup >/dev/null 2>&1 || die "BitLocker volume: cryptsetup missing"
+    echo "BitLocker volume: enter the recovery key (it is never stored)"
+    cryptsetup open --type bitlk ${ro:+--readonly} "$dev" "$MAPPER"
+    dev="/dev/mapper/$MAPPER"
+    type="$(blkid -o value -s TYPE "$dev" || true)"
+  fi
+  case "$type" in
+    ntfs) fs=ntfs3; ids="uid=$(id -u "$SHARE_USER"),gid=$(id -g "$SHARE_USER"),umask=077,prealloc" ;;
+    exfat) fs=exfat; ids="uid=$(id -u "$SHARE_USER"),gid=$(id -g "$SHARE_USER"),umask=077" ;;
+    *) die "volume type '$type' is not supported (ntfs, exfat, BitLocker with ntfs inside)" ;;
+  esac
+  install -d -m 0700 -o root -g root "$HIDDEN"
+  install -d -m 0700 -o root -g root "$HOSTD"
+  mount -t "$fs" -o "noexec,nosuid,nodev,$ids$ro" "$dev" "$HOSTD" \
+    || die "mount failed: is Windows hibernated or Fast Startup on? (powercfg /h off, then shut Windows down fully)"
+  if [ ! -d "$HOSTD/$SHARE_DIR" ]; then umount "$HOSTD"; die "folder $SHARE_DIR not found on the volume; create it under Windows"; fi
+  install -d -m 0755 "$SHARE"
+  mount --bind "$HOSTD/$SHARE_DIR" "$SHARE"
+  mount -o "remount,bind,noexec,nosuid,nodev$ro" "$SHARE"
+  logger -t sw-share "mounted $SHARE_UUID/$SHARE_DIR on $SHARE${ro:+ read-only}" || true
+  status
+}
+
+do_umount() {
+  need_root umount
+  findmnt -n "$SHARE" >/dev/null 2>&1 && umount "$SHARE"
+  findmnt -n "$HOSTD" >/dev/null 2>&1 && umount "$HOSTD"
+  [ -e "/dev/mapper/$MAPPER" ] && cryptsetup close "$MAPPER"
+  logger -t sw-share "unmounted" || true
+  status
+}
+
+case "${1:-status}" in
+  mount) do_mount "${2:-}" ;;
+  umount) do_umount ;;
+  status) status ;;
+  *) echo "usage: sw-share mount [--ro] | umount | status" >&2; exit 2 ;;
+esac

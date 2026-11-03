@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# sw-mode - network mode of the sw-analyst live host (ADR-0013). Installed to /usr/local/sbin by provision.sh.
+#   sudo sw-mode offline   every analysis: NetworkManager off, radios blocked, nftables drops all but loopback
+#   sudo sw-mode online    setup and updates only (scripts/start.sh --setup, apt)
+#   sw-mode status
+# The boot default is offline (sw-offline.service). The preflight refuses to start the platform while a default route
+# or a physical link is up (check net:offline), so a forgotten "online" cannot slip into an analysis.
+set -euo pipefail
+NFT_FILE=/etc/sw-analyst/nftables-offline.nft
+TABLE="inet sw_offline"
+
+need_root() { [ "$(id -u)" -eq 0 ] || { echo "run as root: sudo sw-mode $1" >&2; exit 1; }; }
+
+status() {
+  if nft list table "$TABLE" >/dev/null 2>&1; then fw=on; else fw=off; fi
+  routes="$(ip -o route show default 2>/dev/null | awk '{print $5}' | sort -u | tr '\n' ' ')"
+  routes6="$(ip -o -6 route show default 2>/dev/null | awk '{print $5}' | sort -u | tr '\n' ' ')"
+  nm="-"; command -v nmcli >/dev/null 2>&1 && nm="$(nmcli networking 2>/dev/null || echo '?')"
+  echo "firewall drop-all: $fw | NetworkManager networking: $nm | default routes: ${routes:-none} ${routes6}"
+  if [ "$fw" = on ] && [ -z "$routes$routes6" ]; then echo "mode: OFFLINE"; else echo "mode: ONLINE (or mixed)"; fi
+}
+
+offline() {
+  need_root offline
+  nft -f "$NFT_FILE"
+  if command -v nmcli >/dev/null 2>&1; then nmcli networking off || true; fi
+  if command -v rfkill >/dev/null 2>&1; then rfkill block all || true; fi
+  # Interfaces NetworkManager does not manage are taken down too; loopback and container bridges stay.
+  for dev in /sys/class/net/*; do
+    n="$(basename "$dev")"
+    [ "$n" = lo ] && continue
+    [ -e "$dev/device" ] || continue
+    ip link set "$n" down || true
+  done
+  logger -t sw-mode "offline" || true
+  status
+}
+
+online() {
+  need_root online
+  echo "WARNING: the host goes online. Only for setup and updates; no analysis while online." >&2
+  nft delete table "$TABLE" 2>/dev/null || true
+  if command -v rfkill >/dev/null 2>&1; then rfkill unblock wlan || true; fi
+  if command -v nmcli >/dev/null 2>&1; then nmcli networking on || true; fi
+  logger -t sw-mode "online" || true
+  status
+}
+
+case "${1:-status}" in
+  offline) offline ;;
+  online) online ;;
+  status) status ;;
+  *) echo "usage: sw-mode offline|online|status" >&2; exit 2 ;;
+esac
