@@ -154,6 +154,16 @@ flowchart LR
 
 ## Schnellstart
 
+Linux-Live-Host über Ventoy (ADR-0013, Einrichtung in [`docs/runbooks/linux-ventoy.md`](docs/runbooks/linux-ventoy.md)):
+
+```bash
+scripts/start.sh --setup   # einmalig online: venv, Ollama, Modell und Tool-Images aus den Pins
+sudo sw-mode offline
+scripts/start.sh           # startet nur offline; Strg+C oder scripts/stop.sh beendet alles
+```
+
+Windows:
+
 ```powershell
 scripts\start.ps1          # prüft, installiert aus Pins, startet Ollama und App, öffnet das Dashboard
 scripts\stop.ps1           # beendet alles und räumt eigene Reste auf
@@ -174,6 +184,7 @@ Tests: einmalig `uv pip install --python .venv\Scripts\python.exe --require-hash
 
 - [`docs/README.md`](docs/README.md) – Dokumentenkarte: wo steht was
 - [`docs/runbooks/betrieb.md`](docs/runbooks/betrieb.md) – Start, Stopp, Ablage, Fehlerbehebung
+- [`docs/runbooks/linux-ventoy.md`](docs/runbooks/linux-ventoy.md) – Linux-Live-Host über Ventoy: Einrichtung, Freigabe, Offline-Modus
 - [`docs/security/sicherheitsmodell.md`](docs/security/sicherheitsmodell.md) – Schutzschichten, Tests, Restrisiko
 - [`PROJEKTPLAN.md`](PROJEKTPLAN.md) – Quelle der Wahrheit (Ziele, Sicherheit, Phasen)
 - [`docs/STATUS.md`](docs/STATUS.md) – aktueller Stand, offene Aufgaben

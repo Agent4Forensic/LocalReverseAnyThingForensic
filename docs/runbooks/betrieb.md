@@ -1,6 +1,6 @@
 # Runbook: Betrieb
 
-Gilt für den Entwicklungsrechner (Windows 11). Echte Proben gehören nicht hierher, sondern in die geplante Analyse-VM ohne Netzwerkkarte ([ADR-0000](../adr/0000-grundentscheidungen.md)). Auf diesem Rechner werden nur harmlose, selbst erzeugte Proben verwendet.
+Gilt für den Entwicklungsrechner (Windows 11). Den Linux-Live-Host über Ventoy beschreibt [`linux-ventoy.md`](linux-ventoy.md) (ADR-0013). Echte Proben gehören nicht hierher, sondern in die geplante Analyse-VM ohne Netzwerkkarte ([ADR-0000](../adr/0000-grundentscheidungen.md)). Auf diesem Rechner werden nur harmlose, selbst erzeugte Proben verwendet.
 
 ## Voraussetzungen
 

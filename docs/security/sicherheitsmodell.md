@@ -28,10 +28,12 @@ Der Angreifer ist die **Probe selbst**: Ihr Inhalt (Strings, Kommentare, Ressour
 | 9 | Host-Schutz | Vor jeder Aufgabe Prüfung von RAM, Platz und GPU-Temperatur. Pause, nach 15 Minuten `partial`. Das Modell erreicht diese Prüfung nicht. | `common/hostguard.py` | `test_host_safety.py` |
 | 10 | Nur Loopback | Der Modellclient lehnt jeden anderen Host als Loopback ab. | `llm/ollama.py` | `test_chain_of_custody.py` (Plan I4) |
 | 11 | Defanging | IOCs im Bericht entschärft (`hxxp://`, `[.]`), nie Payload-Bytes. | `report/defang.py` | `test_defang.py` (Plan T5) |
-| 12 | Aufräumen | Start und Stopp entfernen nur eigene Prozesse, Dateien und gelabelte Docker-Objekte. | `scripts/*.ps1` | `test_scripts.py` |
+| 12 | Aufräumen | Start und Stopp entfernen nur eigene Prozesse, Dateien und gelabelte Docker-Objekte. | `scripts/*.ps1`, `launcher.py` | `test_scripts.py`, `test_launcher.py` |
 | 13 | Lieferkette | Installation nur aus gepinnten, gehashten Quellen. Fremde Plugins und Repositories werden vor der Nutzung statisch geprüft und mit Commit in `dev-environment.md` festgehalten. | `infra/manifest.json`, `requirements.lock` | `test_preflight.py`, Hash-Prüfung in `start.ps1` |
 
-Die Schichten 1 bis 11 sind umgesetzt und getestet. Die Isolation durch eine Hyper-V-VM ohne Netzwerkkarte mit gehärteten Docker-Containern (`--network none`, read-only, `--cap-drop ALL`) ist **geplant und noch nicht umgesetzt** (Plan I8).
+| 14 | Linux-Host (ADR-0013) | Analyse nur offline (keine Standardroute, keine aktive physische Verbindung, nftables verwirft alles außer Loopback). Windows-Platte nur als ein Ordner mit `noexec,nosuid,nodev`, der Rest der Platte liegt unter einem Ordner nur für root. Speichergrenze der Plattform über `sw-analyst.slice`. | `preflight.py`, `infra/linux/sw-mode`, `sw-share`, `launcher.py` | `test_linuxhost.py`, `test_launcher.py` |
+
+Die Schichten 1 bis 11 sind umgesetzt und getestet. Die Isolation durch eine Hyper-V-VM ohne Netzwerkkarte mit gehärteten Docker-Containern (`--network none`, read-only, `--cap-drop ALL`) ist **geplant und noch nicht umgesetzt** (Plan I8). Auf dem Linux-Live-Host tritt an ihre Stelle eine KVM-VM ohne Netzwerkkarte mit vsock (ADR-0013, ebenfalls offen).
 
 ## Was bewusst nicht gilt
 

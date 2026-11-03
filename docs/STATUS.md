@@ -48,7 +48,18 @@ Stand: 2026-11-01 · Legende: `[x]` erledigt und geprüft · `[~]` begonnen · `
 - [ ] Freigabe von Jan für Phase 0
 
 ## Blocker und offene Fragen an Jan
-- B6 (neu, 2026-11-03): Umstieg auf Linux-Live über Ventoy geplant (`docs/tasks/linux-live-ventoy.md`, ADR-0013 vorgeschlagen). Freigabe und Antworten F1 bis F8 nötig (Isolation KVM statt Hyper-V, Ressourcenregel, Secure Boot, LUKS, Windows-Skripte, Docker rootless, Colibri-Ablage, SSD). Bei Annahme entfallen B1 bis B4.
+- B6 (2026-11-03): Linux-Live über Ventoy von Jan freigegeben („Go“), ADR-0013 angenommen. F1 bis F8 nicht einzeln beantwortet: umgesetzt sind die Standards aus ADR-0013 (Tabelle), bitte bestätigen oder ändern. Offen auf Jans Hardware: Spike S1 (vDisk-Start, NVIDIA-Treiber ab 570 unter Debian 13, freier VRAM, Slice). B1 bis B4 entfallen auf dem Linux-Host.
+
+## Linux-Live-Host (ADR-0013, 2026-11-03)
+- [x] Plan `docs/tasks/linux-live-ventoy.md`, Runbook `docs/runbooks/linux-ventoy.md`
+- [x] Launcher `src/sw_analyst/launcher.py` mit `scripts/start.sh`, `stop.sh`, `cleanup.sh` (Setup-Modus online, Start nur offline, Speicher-Slice, nur eigene Prozesse)
+- [x] Preflight Linux: RAM über `/proc`, cgroup-Grenze, Ports über `/proc/net/tcp`, `net:offline`, `share:mount`, `sw-root`; Manifest-Overrides `linux` mit gemessenen Hashes (Ollama, Colibri)
+- [x] Host-Werkzeuge `infra/linux/`: `provision.sh`, `sw-mode`, `sw-share`, nftables, Offline beim Booten, sudoers, Docker `daemon.json`
+- [x] Tests: `test_linuxhost.py`, `test_launcher.py`, Linux-Regeln in `test_colibri_settings.py`; ganze Suite grün unter Linux, `shellcheck` sauber
+- [ ] S1 Hardware-Spike auf Jans Rechner (Runbook 1 bis 3)
+- [ ] S5 erster echter Lauf unter Linux (CTF-Probe), Messwerte gegen Windows
+- [ ] S7 KVM-VM ohne NIC mit vsock (Ersatz für Hyper-V, I8)
+- [ ] `tests/bench/colibri_gate.py` für Linux (misst noch über PowerShell); Colibri unter Linux nur CPU, bis ein CUDA-Build gepinnt ist
 - B1: `wsl --shutdown` zum Anwenden des 24-GB-Limits erlaubt? (beendet WSL-Instanzen, auch andere Projekte)
 - B2: VRAM-Belegung durch Desktop-Apps: Apps schließen oder kleineres Modell akzeptieren?
 - B4: Freier RAM beim Test nur 3,7 von 31 GB (Docker Desktop frisch gestartet plus Browser/Apps). 24-GB-Limit ist nur realistisch, wenn andere Programme während der Analyse geschlossen sind.
