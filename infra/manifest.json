@@ -39,7 +39,7 @@
         "archive": "tar.gz",
         "target": "${SW_ROOT}/tools/colibri-2.1.0",
         "exe": "coli",
-        "note": "ADR-0013. v2.1.0 publishes no Linux CUDA archive (checked 2026-11-03): on Linux colibri runs on the CPU until a CUDA build is pinned and reviewed."
+        "note": "ADR-0013. v2.1.0 publishes no Linux CUDA archive (checked 2026-11-03); CUDA on Linux needs a source build (make deepseek-v4 CUDA=1). This archive has a Vulkan backend (COLI_VULKAN=1), not used yet: colibri_settings runs it on the CPU."
       }
     },
     "ghidra": {

@@ -46,6 +46,6 @@ Hypothesen (Spike S1 auf Jans Hardware):
 - Freier VRAM nahe 15,5 GB.
 - `systemd-run --user --scope` mit Speicher-Delegation funktioniert in der Xfce-Sitzung.
 
-Belegte Einschränkung: Colibri 2.1.0 veröffentlicht für Linux kein CUDA-Archiv (geprüft 2026-11-03). Unter Linux läuft Colibri deshalb auf der CPU, bis ein CUDA-Build gepinnt und geprüft ist. `tests/bench/colibri_gate.py` misst Speicher und Verbindungen noch über PowerShell und läuft nur unter Windows.
+Belegte Einschränkung (korrigiert am 2026-11-03): Colibri unterstützt CUDA unter Linux, aber nur als eigener Build aus dem Quelltext (`make deepseek-v4 CUDA=1`, linkt `libcudart`); ein fertiges Linux-CUDA-Archiv gibt es für v2.1.0 nicht (404). Das gepinnte Linux-Archiv ist für CUDA ein CPU-Build, enthält aber ein Vulkan-Backend (`COLI_VULKAN=1`, 69 SPIR-V-Shader, lädt `libvulkan.so.1`); belegt durch Inhaltsliste und Zeichenketten der Binärdateien. `colibri_settings` nutzt unter Linux bisher weder Vulkan noch CUDA und setzt die CPU. Welcher GPU-Weg kommt, entscheidet Jan. `tests/bench/colibri_gate.py` misst Speicher und Verbindungen noch über PowerShell und läuft nur unter Windows.
 
 Risiken: Der Analyserechner ist Jans Alltagsrechner mit Windows-Platte; deshalb Freigabe nur auf Anforderung und Aushängen vor Läufen mit echten Proben. Mitglieder der Gruppe `docker` haben faktisch Root-Rechte. Eine VM-Flucht bleibt Restrisiko wie bisher.

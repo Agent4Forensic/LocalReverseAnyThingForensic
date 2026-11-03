@@ -2,7 +2,7 @@
 
 Stand: 2026-11-03 · Status: **freigegeben („Go“ von Jan), S2 bis S4 und S6 umgesetzt**; S1 (Hardware), S5 (erster echter Lauf) und S7 (KVM-VM) offen. ADR-0013 ist angenommen, Standards für F1 bis F8 dort. Schritt-für-Schritt: `docs/runbooks/linux-ventoy.md`.
 
-Abweichungen bei der Umsetzung: Der Launcher ist ein Python-Modul (`src/sw_analyst/launcher.py`) mit dünnen `.sh`-Hüllen statt reiner Shell-Skripte, weil er so testbar ist. Statt `--update`/`--build-tools` gibt es `start.sh --setup` (einmalig online). `nvidia-container-toolkit` entfällt, weil kein Werkzeug-Container die GPU braucht. Colibri läuft unter Linux nur auf der CPU (kein Linux-CUDA-Archiv in v2.1.0).
+Abweichungen bei der Umsetzung: Der Launcher ist ein Python-Modul (`src/sw_analyst/launcher.py`) mit dünnen `.sh`-Hüllen statt reiner Shell-Skripte, weil er so testbar ist. Statt `--update`/`--build-tools` gibt es `start.sh --setup` (einmalig online). `nvidia-container-toolkit` entfällt, weil kein Werkzeug-Container die GPU braucht. Colibri läuft unter Linux vorerst auf der CPU: v2.1.0 hat kein fertiges Linux-CUDA-Archiv; GPU geht über das Vulkan-Backend des gepinnten Archivs oder einen CUDA-Eigenbau (`make deepseek-v4 CUDA=1`).
 
 Ziel: sw-analyst läuft vollständig unter Linux, gestartet von einer externen SSD über Ventoy, ohne Windows darunter. Damit stehen fast der ganze RAM (31 GB) und der ganze VRAM (16 GB) zur Verfügung. Alles, was die Plattform braucht (System, Werkzeuge, Modelle, Docker-Images, Fälle, Audit-Log), liegt auf der SSD. Die interne Festplatte des Rechners wird nur als Austauschordner eingebunden.
 

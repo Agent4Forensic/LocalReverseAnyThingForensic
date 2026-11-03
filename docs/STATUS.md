@@ -59,7 +59,7 @@ Stand: 2026-11-01 · Legende: `[x]` erledigt und geprüft · `[~]` begonnen · `
 - [ ] S1 Hardware-Spike auf Jans Rechner (Runbook 1 bis 3)
 - [ ] S5 erster echter Lauf unter Linux (CTF-Probe), Messwerte gegen Windows
 - [ ] S7 KVM-VM ohne NIC mit vsock (Ersatz für Hyper-V, I8)
-- [ ] `tests/bench/colibri_gate.py` für Linux (misst noch über PowerShell); Colibri unter Linux nur CPU, bis ein CUDA-Build gepinnt ist
+- [ ] `tests/bench/colibri_gate.py` für Linux (misst noch über PowerShell); Colibri unter Linux derzeit CPU; GPU möglich über Vulkan (im gepinnten Archiv) oder CUDA-Eigenbau (`make deepseek-v4 CUDA=1`), Entscheidung Jan
 - B1: `wsl --shutdown` zum Anwenden des 24-GB-Limits erlaubt? (beendet WSL-Instanzen, auch andere Projekte)
 - B2: VRAM-Belegung durch Desktop-Apps: Apps schließen oder kleineres Modell akzeptieren?
 - B4: Freier RAM beim Test nur 3,7 von 31 GB (Docker Desktop frisch gestartet plus Browser/Apps). 24-GB-Limit ist nur realistisch, wenn andere Programme während der Analyse geschlossen sind.
