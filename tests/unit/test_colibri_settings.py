@@ -26,42 +26,70 @@ def _hw(**kw):
     return Hardware(**{**THIS_PC, "ram_free_gb": 20.0, "vram_free_mib": 15000, **kw})
 
 
+# The rules of both hosts are tested on every OS: Windows (24-GB rule) and the Linux live host (ADR-0013).
+def choose_win(hw, ram_override=0):
+    return choose(hw, ram_override, windows=True, cuda_build=True)
+
+
+def eligible_win(hw, problem=""):
+    return eligible(hw, problem, windows=True)
+
+
+# ---- Linux live host (ADR-0013) ---------------------------------------------------------------------------
+def test_linux_host_keeps_its_reserve_and_has_no_24_gb_rule():
+    s = choose(_hw(ram_total_gb=31.1, ram_free_gb=29.0), windows=False, cuda_build=True)
+    assert s["ram_gb"] == 24 and s["backend"] == "cuda"       # 31.1 - 3 host - 4 containers
+    assert choose(_hw(ram_total_gb=128.0, ram_free_gb=120.0), windows=False, cuda_build=True)["ram_gb"] == 116 - 0  # free - headroom
+    s = choose(_hw(), ram_override=100, windows=False, cuda_build=True)
+    assert s["ram_gb"] == 24 and any("Linux host keeps 3 GB" in w for w in s["warnings"]) and not any("24 GB rule" in w for w in s["warnings"])
+
+
+def test_linux_without_a_pinned_cuda_build_runs_on_the_cpu():
+    s = choose(_hw(), windows=False, cuda_build=False)
+    assert s["backend"] == "cpu" and s["env"]["DSV4_CUDA"] == "0" and any("no pinned CUDA build" in n for n in s["notes"])
+
+
+def test_linux_eligibility_counts_the_smaller_host_reserve():
+    assert eligible(_hw(ram_total_gb=20.0, ram_free_gb=20.0, disk_bus="NVMe", disk_read_mb_s=3000.0), windows=False) == []
+    assert eligible_win(_hw(ram_total_gb=20.0, ram_free_gb=20.0, disk_bus="NVMe", disk_read_mb_s=3000.0))
+
+
 # ---- RAM ------------------------------------------------------------------------------------------------
 @pytest.mark.parametrize("free,want", [(30.0, 20), (24.0, 20), (20.0, 16), (17.0, 13), (14.7, 12), (8.0, 12)])
 def test_ram_budget_follows_what_is_free_and_stays_inside_the_limits(free, want):
-    assert choose(_hw(ram_free_gb=free))["ram_gb"] == want
+    assert choose_win(_hw(ram_free_gb=free))["ram_gb"] == want
 
 
 def test_a_big_machine_still_keeps_the_hard_limit_and_a_small_one_keeps_windows_alive():
-    assert choose(_hw(ram_total_gb=128.0, ram_free_gb=120.0))["ram_gb"] == 20
-    assert choose(_hw(ram_total_gb=24.0, ram_free_gb=23.0))["ram_gb"] == 17
+    assert choose_win(_hw(ram_total_gb=128.0, ram_free_gb=120.0))["ram_gb"] == 20
+    assert choose_win(_hw(ram_total_gb=24.0, ram_free_gb=23.0))["ram_gb"] == 17
 
 
 def test_the_limits_beat_the_floor_and_a_manual_budget():
-    s = choose(_hw(ram_total_gb=16.0, ram_free_gb=15.0))
+    s = choose_win(_hw(ram_total_gb=16.0, ram_free_gb=15.0))
     assert s["ram_gb"] == 9 and any("may refuse to start" in w for w in s["warnings"])
-    s = choose(_hw(), ram_override=100)
+    s = choose_win(_hw(), ram_override=100)
     assert s["ram_gb"] == 20 and any("100 asked for" in w for w in s["warnings"])
-    assert choose(_hw(), ram_override=-5)["ram_gb"] == 16   # not a budget: treated as unset
+    assert choose_win(_hw(), ram_override=-5)["ram_gb"] == 16   # not a budget: treated as unset
 
 
 @pytest.mark.parametrize("total", [0.0, 7.0, 5.0])
 def test_no_budget_is_guessed_without_a_ram_reading_or_with_no_room(total):
     with pytest.raises(ValueError):
-        choose(_hw(ram_total_gb=total))
+        choose_win(_hw(ram_total_gb=total))
 
 
 def test_low_ram_warns_and_a_manual_budget_wins():
-    s = choose(_hw(ram_free_gb=14.0))
+    s = choose_win(_hw(ram_free_gb=14.0))
     assert any("below the 16 GB" in w for w in s["warnings"]) and any("HostGuard" in w for w in s["warnings"])
-    assert choose(_hw(ram_free_gb=14.0), ram_override=18)["ram_gb"] == 18
+    assert choose_win(_hw(ram_free_gb=14.0), ram_override=18)["ram_gb"] == 18
 
 
 # ---- GPU: the table in colibri docs/deepseek-v4.md -------------------------------------------------------
 @pytest.mark.parametrize("free,dense,attn,moe", [(15000, "1", "1", "1"), (11000, "1", "1", "1"), (10999, "1", "1", "0"),
                                                  (7000, "1", "1", "0"), (6999, "0", "0", "1"), (4500, "0", "0", "1")])
 def test_vram_table(free, dense, attn, moe):
-    s = choose(_hw(vram_free_mib=free))
+    s = choose_win(_hw(vram_free_mib=free))
     assert s["backend"] == "cuda"
     assert (s["env"]["CUDA_DENSE"], s["env"]["COLI_CUDA_ATTN_BATCH"], s["env"]["COLI_CUDA_MOE_BATCH"]) == (dense, attn, moe)
     assert s["env"]["V4_LOADER_LANES"] == "3"
@@ -69,39 +97,45 @@ def test_vram_table(free, dense, attn, moe):
 
 @pytest.mark.parametrize("hw", [dict(vram_free_mib=4499), dict(compute_cap=7.5), dict(gpu_name="", compute_cap=0.0, vram_total_mib=0, vram_free_mib=0)])
 def test_without_a_usable_gpu_the_cpu_path_is_taken(hw):
-    s = choose(_hw(**hw))
+    s = choose_win(_hw(**hw))
     assert s["backend"] == "cpu" and s["env"]["DSV4_CUDA"] == "0" and "COLI_CUDA" not in s["env"]
 
 
 def test_vram_used_by_others_and_usb_are_named():
-    s = choose(_hw(vram_free_mib=9000))
+    s = choose_win(_hw(vram_free_mib=9000))
     assert any("in use by other programs" in w for w in s["warnings"]) and any("USB" in w for w in s["warnings"])
-    assert not any("USB" in w for w in choose(_hw(disk_bus="NVMe"))["warnings"])
+    assert not any("USB" in w for w in choose_win(_hw(disk_bus="NVMe"))["warnings"])
 
 
 def test_estimate_comes_from_the_measured_disk():
-    assert choose(_hw())["estimate_tok_s"] == 0.16
-    assert choose(_hw(disk_read_mb_s=0.0))["estimate_tok_s"] == 0.0
+    assert choose_win(_hw())["estimate_tok_s"] == 0.16
+    assert choose_win(_hw(disk_read_mb_s=0.0))["estimate_tok_s"] == 0.0
 
 
 def test_the_settings_are_json_for_start_ps1():
-    assert json.loads(json.dumps(choose(_hw())))["ctx"] == 16384
+    assert json.loads(json.dumps(choose_win(_hw())))["ctx"] == 16384
 
 
 # ---- may this machine use colibri at all? --------------------------------------------------------------
 def test_a_machine_that_carries_it_is_eligible():
-    assert eligible(_hw(ram_free_gb=22.0, disk_bus="NVMe", disk_read_mb_s=3000.0)) == []
+    assert eligible_win(_hw(ram_free_gb=22.0, disk_bus="NVMe", disk_read_mb_s=3000.0)) == []
 
 
 @pytest.mark.parametrize("kw,word", [(dict(ram_total_gb=16.0), "in total"), (dict(ram_free_gb=11.0), "RAM free"),
                                      (dict(disk_read_mb_s=456.0, disk_bus="USB"), "tok/s"), (dict(disk_read_mb_s=0.0), "tok/s")])
 def test_each_shortfall_names_its_reason(kw, word):
-    why = eligible(_hw(**{"ram_free_gb": 22.0, "disk_bus": "NVMe", "disk_read_mb_s": 3000.0, **kw}))
+    why = eligible_win(_hw(**{"ram_free_gb": 22.0, "disk_bus": "NVMe", "disk_read_mb_s": 3000.0, **kw}))
     assert why and word in " ".join(why)
 
 
 def test_an_incomplete_model_is_a_reason_too():
-    assert eligible(_hw(ram_free_gb=22.0, disk_read_mb_s=3000.0), "40 of 54 files missing") == ["40 of 54 files missing"]
+    assert eligible_win(_hw(ram_free_gb=22.0, disk_read_mb_s=3000.0), "40 of 54 files missing") == ["40 of 54 files missing"]
+
+
+def test_linux_launcher_stays_on_ollama_by_default_and_checks_the_machine_on_every_start():
+    txt = (ROOT / "src" / "sw_analyst" / "launcher.py").read_text(encoding="utf-8")
+    assert 'default="ollama"' in txt and "colibri_settings\", \"--check" in txt and "colibri.enabled" in txt
+    assert "staying on Ollama" in txt
 
 
 def test_start_stays_on_ollama_by_default_and_checks_the_machine_on_every_start():

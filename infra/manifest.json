@@ -8,7 +8,15 @@
       "sha256": "7afa38624fa62ee5d8293422d0ab084c1bb4603134c7f4dafce11a033b57cc19",
       "archive": "zip",
       "target": "D:\\Tools\\sw-analyst\\ollama-0.40.13",
-      "exe": "ollama.exe"
+      "exe": "ollama.exe",
+      "linux": {
+        "url": "https://github.com/ollama/ollama/releases/download/v0.40.13/ollama-linux-amd64.tar.zst",
+        "sha256": "c9490e0f520be21271d969e6703f012268b1d39f8b70dd58854e5bfef7a75bb6",
+        "archive": "tar.zst",
+        "target": "${SW_ROOT}/tools/ollama-0.40.13",
+        "exe": "bin/ollama",
+        "note": "ADR-0013. Hash measured on 2026-11-03 over the full download and equal to the upstream sha256sum.txt of v0.40.13."
+      }
     },
     "colibri": {
       "version": "2.1.0",
@@ -22,7 +30,17 @@
       "archive": "zip",
       "target": "D:\\Tools\\sw-analyst\\colibri-2.1.0",
       "exe": "coli",
-      "status": "optional engine, start.ps1 -Llm colibri (ADR-0012); only `coli serve` is used, never setup, web or mcp"
+      "status": "optional engine, start.ps1 -Llm colibri (ADR-0012); only `coli serve` is used, never setup, web or mcp",
+      "linux": {
+        "url": "https://github.com/JustVugg/colibri/releases/download/v2.1.0/colibri-v2.1.0-linux-x86_64.tar.gz",
+        "sha256": "d54b4c57c12417fc9e784b649249ac1aa3480eec44ece2777d4cbc639a25e66a",
+        "url_cuda": null,
+        "sha256_cuda": null,
+        "archive": "tar.gz",
+        "target": "${SW_ROOT}/tools/colibri-2.1.0",
+        "exe": "coli",
+        "note": "ADR-0013. v2.1.0 publishes no Linux CUDA archive (checked 2026-11-03): on Linux colibri runs on the CPU until a CUDA build is pinned and reviewed."
+      }
     },
     "ghidra": {
       "version": "12.1.4",
@@ -89,7 +107,10 @@
       "license": "MIT",
       "volume_label": "ki_data",
       "dir": "sw-analyst\\colibri\\deepseek-v4-flash-0731",
-      "note": "ADR-0012. The volume is found by its label, never by its drive letter. Settings come from src/sw_analyst/llm/colibri_settings.py."
+      "note": "ADR-0012. The volume is found by its label, never by its drive letter. Settings come from src/sw_analyst/llm/colibri_settings.py.",
+      "linux": {
+        "dir": "sw-analyst/colibri/deepseek-v4-flash-0731"
+      }
     }
   }
 }

@@ -1,10 +1,10 @@
 """Start the platform: python -m sw_analyst --model <ollama tag> [--data-dir data] [--port 8765]
 A relative --data-dir counts from the project root, not from the working directory (common/paths.py).
 Preflight only:       python -m sw_analyst --check [--json]   (exit code 1 on FEHLER)
-Colibri engine:       --llm colibri (ADR-0012), started by scripts\\start.ps1 -Llm colibri; the key comes from SW_COLIBRI_KEY
+Colibri engine:       --llm colibri (ADR-0012), started by scripts/start.sh --llm colibri (Linux) or scripts\\start.ps1 -Llm colibri; the key comes from SW_COLIBRI_KEY
 
 Binds to 127.0.0.1 only. The LLM endpoint must also be loopback (OllamaClient refuses anything else).
-Normally started through scripts\\start.ps1, which sets SW_LOG_FILE so stage lines land in data/logs/start-<date>.log.
+Normally started through scripts/start.sh (Linux, ADR-0013) or scripts\\start.ps1, which set SW_LOG_FILE so stage lines land in data/logs/start-<date>.log.
 """
 from __future__ import annotations
 

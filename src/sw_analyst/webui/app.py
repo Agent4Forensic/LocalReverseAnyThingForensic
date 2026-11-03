@@ -501,8 +501,9 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
             reason = ("Kein Maschinencode: Assembler und Pseudocode gibt es nur für PE, ELF und Mach-O. "
                       "Text und Skripte zeigt der Tab Code, dekodierte Schichten stehen unter derived/.")
         elif "list_functions" not in names:
-            reason = ("Ghidra-Werkzeuge sind nicht geladen: Docker Desktop läuft nicht oder das Image fehlt. "
-                      "Einmalig bauen mit scripts\\start.ps1 -BuildTools, danach den Server neu starten.")
+            reason = ("Ghidra-Werkzeuge sind nicht geladen: Docker läuft nicht oder das Image fehlt. "
+                      "Einmalig bauen mit scripts/start.sh --setup (Linux) oder scripts\\start.ps1 -BuildTools (Windows), "
+                      "danach den Server neu starten.")
         location = (f"data/imports/…/jobs/{ref.rid}/{path}" if ref.imported
                     else f"{_rel(data_dir)}/jobs/{ref.rid}/{path}")
         tool = ("Ghidra (Container, offline); bei importierten Analysen kann das Ergebnis aus dem Cache des Pakets "
@@ -780,7 +781,7 @@ def create_app(store: Store, worker, gateway, llm, translator=None, report_model
         names = {t.name for t in gateway.list_tools()}
         missing = []
         if not getattr(llm, "reachable", lambda: True)():
-            missing.append({"key": "llm", "text": "Sprachmodell nicht erreichbar (scripts\\start.ps1 starten)"})
+            missing.append({"key": "llm", "text": "Sprachmodell nicht erreichbar (scripts/start.sh bzw. scripts\\start.ps1 starten)"})
         if "ghidra" in e.get("requires", []) and "list_functions" not in names:
             missing.append({"key": "ghidra", "text": KNOWN_REQUIREMENTS["ghidra"]})
         active = [r for r in e.get("runs", []) if r["status"] in ("uploading", "queued", "running")]

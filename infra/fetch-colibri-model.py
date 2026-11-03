@@ -28,6 +28,18 @@ def volume_by_label(label: str) -> str:
     return out[0]
 
 
+def model_dir(m: dict) -> Path:
+    """Folder of the model on its volume, found by the label on both hosts (Linux: ADR-0013, /dev/disk/by-label)."""
+    if os.name == "nt":
+        return Path(f"{volume_by_label(m['volume_label'])}:/") / m["dir"]
+    sys.path.insert(0, str(HERE.parent / "src"))
+    from sw_analyst.common import linuxhost
+    root = linuxhost.volume_root(m["volume_label"])
+    if root is None:
+        sys.exit(f"FAIL: expected exactly one mounted volume {m['volume_label']} (/dev/disk/by-label)")
+    return root / (m.get("linux") or {}).get("dir", m["dir"].replace("\\", "/"))
+
+
 def digest(p: Path, h) -> str:
     with p.open("rb") as f:
         for chunk in iter(lambda: f.read(1 << 22), b""):
@@ -57,7 +69,7 @@ def fetch(target: Path, repo: str, rev: str, pins: list[dict]) -> int:
         if not passes(final, e):
             url = f"https://huggingface.co/{repo}/resolve/{rev}/{e['file']}"
             for attempt in range(1, 6):
-                rc = subprocess.run(["curl.exe", "-sS", "-L", "--fail", "-C", "-", "--retry", "20", "--retry-delay", "15",
+                rc = subprocess.run(["curl.exe" if os.name == "nt" else "curl", "-sS", "-L", "--fail", "-C", "-", "--retry", "20", "--retry-delay", "15",
                                      "--retry-all-errors", "--speed-limit", "1024", "--speed-time", "180", "-o", str(part), url]).returncode
                 if rc == 0 and passes(part, e):
                     os.replace(part, final)
@@ -81,7 +93,7 @@ def main() -> int:
     ap.add_argument("--verify", action="store_true")
     ap.add_argument("--dir", default="", help="another copy of the model instead of the one on the volume")
     args = ap.parse_args()
-    target = Path(args.dir) if args.dir else Path(f"{volume_by_label(m['volume_label'])}:/") / m["dir"]
+    target = Path(args.dir) if args.dir else model_dir(m)
     if not args.verify:
         return fetch(target, m["repo"], m["revision"], pins)
     t0 = time.monotonic()

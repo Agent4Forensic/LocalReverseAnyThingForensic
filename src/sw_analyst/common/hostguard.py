@@ -2,7 +2,7 @@
 
 The model cannot reach this module and cannot change the limits. It only reads fixed system values, so a sample
 or a prompt injection cannot use it. Thresholds protect the running system; they do not replace the hard
-memory limits of WSL and Docker (docs/adr/0000-grundentscheidungen.md).
+memory limits (Windows: WSL and Docker, ADR-0000; Linux: the systemd slice sw-analyst.slice and the container limits, ADR-0013).
 """
 from __future__ import annotations
 

@@ -1,8 +1,11 @@
-"""Preflight checks, stage logging, manifest hash check and PID files for scripts\\start.ps1 / stop.ps1.
+"""Preflight checks, stage logging, manifest hash check and PID files for the launchers.
+
+Launchers: scripts/start.sh and stop.sh on Linux (ADR-0013, sw_analyst.launcher), scripts\\start.ps1 and stop.ps1 on Windows.
 
 Stdlib only on purpose: the check must run before anything else is installed.
 Every check returns {"name", "status", "detail", "fix"} with status OK | WARN | FEHLER.
 Messages are ASCII (German without umlauts) so the PowerShell console never garbles them.
+Platform facts on Linux come from common/linuxhost.py (read-only /proc and /sys).
 No network access except loopback to the own Ollama (port from the caller).
 """
 from __future__ import annotations
@@ -22,9 +25,14 @@ from datetime import datetime
 from importlib import metadata
 from pathlib import Path
 
+from sw_analyst.common import linuxhost
+
 OK, WARN, FEHLER = "OK", "WARN", "FEHLER"
-STAGES = ("CHECK", "INSTALL", "UPDATE", "OLLAMA", "MODEL", "APP", "WORKER", "JOB", "GUARD", "DATA", "STOP")
-RAM_LIMIT_GB = 24
+STAGES = ("CHECK", "INSTALL", "UPDATE", "OLLAMA", "MODEL", "APP", "WORKER", "JOB", "GUARD", "DATA", "STOP",
+          "SETUP", "DOCKER", "COLIBRI", "GATE", "CLEAN")
+RAM_LIMIT_GB = 24          # Windows: WSL, Docker and models together (decision of Jan, 2026-10-31)
+IS_WIN = os.name == "nt"
+DEFAULT_SW_ROOT = "/srv/sw-analyst"   # Linux: the SWDATA volume on the Ventoy SSD (ADR-0013)
 MIN_FREE_VRAM_MIB = 7000
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
@@ -78,6 +86,34 @@ def verify_hash(path: str | Path, expected: str) -> str:
 
 def load_manifest(path: str | Path) -> dict:
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def platform_key() -> str:
+    return "windows" if IS_WIN else "linux"
+
+
+def sw_root() -> Path:
+    """Linux: root of tools, models and Docker data (env SW_ROOT, default /srv/sw-analyst). Windows keeps D:\\Tools."""
+    return Path(os.environ.get("SW_ROOT") or DEFAULT_SW_ROOT)
+
+
+def _expand(v):
+    return v.replace("${SW_ROOT}", str(sw_root())) if isinstance(v, str) else v
+
+
+def component(manifest: dict, name: str, section: str = "components") -> dict:
+    """Manifest entry with the overrides of this platform (key "linux") merged in and ${SW_ROOT} expanded.
+    The Windows values are the top level, so the PowerShell scripts read the same file unchanged."""
+    c = dict(manifest.get(section, {}).get(name) or {})
+    over = c.pop("linux", None)
+    if not IS_WIN and isinstance(over, dict):
+        c.update(over)
+    return {k: _expand(v) for k, v in c.items()}
+
+
+def tools_root(manifest: dict) -> Path:
+    t = component(manifest, "ollama").get("target", "")
+    return Path(t).parent if t else (Path("D:/Tools/sw-analyst") if IS_WIN else sw_root() / "tools")
 
 
 # ---- PID files ------------------------------------------------------------------------------------------
@@ -153,10 +189,11 @@ def _run(cmd: list[str], timeout: int = 10) -> subprocess.CompletedProcess | Non
 
 
 def check_platform() -> list[dict]:
-    out = [result("os", OK if sys.platform == "win32" else WARN, sys.platform, "Zielsystem ist Windows 11")]
+    ok = sys.platform == "win32" or linuxhost.is_linux()
+    out = [result("os", OK if ok else WARN, sys.platform, "Zielsysteme: Linux (ADR-0013) oder Windows 11")]
     v = sys.version_info
     out.append(result("python", OK if v >= (3, 11) else FEHLER, f"{v.major}.{v.minor}.{v.micro}", "Python >= 3.11 noetig"))
-    out.append(result("venv", OK if sys.prefix != sys.base_prefix else WARN, sys.prefix, "start.ps1 legt .venv an"))
+    out.append(result("venv", OK if sys.prefix != sys.base_prefix else WARN, sys.prefix, "start.sh / start.ps1 legt .venv an"))
     return out
 
 
@@ -183,9 +220,9 @@ def check_lock(lock_path: str | Path) -> list[dict]:
             drift.append(f"{name} {have}->{ver}")
     return [
         result("lock:missing", FEHLER if missing else OK, ", ".join(missing[:8]) or "alle Pakete installiert",
-               "start.ps1 installiert mit --require-hashes"),
+               "start installiert mit --require-hashes"),
         result("lock:drift", WARN if drift else OK, ", ".join(drift[:8]) or "Versionen entsprechen dem Lockfile",
-               "start.ps1 -Update gleicht mit dem Lockfile ab"),
+               "start --update (Linux) / start.ps1 -Update gleicht mit dem Lockfile ab"),
     ]
 
 
@@ -195,7 +232,8 @@ def check_docker() -> dict:
     r = _run(["docker", "info", "--format", "{{.ServerVersion}}"], 15)
     if r and r.returncode == 0:
         return result("docker", OK, f"Daemon {r.stdout.strip()}")
-    return result("docker", WARN, "Daemon nicht erreichbar (optional)", "Docker Desktop starten, falls Container gebraucht werden")
+    fix = "Docker Desktop starten" if IS_WIN else "sudo systemctl start docker (Benutzer in Gruppe docker, ADR-0013)"
+    return result("docker", WARN, "Daemon nicht erreichbar (optional)", fix + ", falls Container gebraucht werden")
 
 
 def check_tool_images(manifest: dict) -> list[dict]:
@@ -208,7 +246,8 @@ def check_tool_images(manifest: dict) -> list[dict]:
         r = _run(["docker", "image", "inspect", "--format", "{{.Id}}", tag], 15)
         ok = bool(r and r.returncode == 0)
         out.append(result(f"image:{key}", OK if ok else WARN, f"{tag} {'vorhanden' if ok else 'fehlt (Werkzeuge bleiben aus)'}",
-                          "powershell -File infra\\tools\\build-images.ps1 (einmalig online)"))
+                          "powershell -File infra\\tools\\build-images.ps1 (einmalig online)" if IS_WIN
+                          else "scripts/start.sh --setup baut fehlende Images (einmalig online)"))
     return out
 
 
@@ -231,8 +270,8 @@ def check_gpu() -> dict:
 
 
 def _ram_gb() -> tuple[float, float] | None:
-    if os.name != "nt":
-        return None
+    if not IS_WIN:
+        return linuxhost.ram_gb()
     import ctypes
 
     class MS(ctypes.Structure):
@@ -246,6 +285,8 @@ def _ram_gb() -> tuple[float, float] | None:
 
 
 def check_ram(wslconfig: str | Path | None = None) -> list[dict]:
+    if not IS_WIN:
+        return check_ram_linux()
     out = []
     ram = _ram_gb()
     if ram:
@@ -263,6 +304,26 @@ def check_ram(wslconfig: str | Path | None = None) -> list[dict]:
     return out
 
 
+def check_ram_linux(ram: tuple[float, float] | None = None, cg_limit: float | None = None) -> list[dict]:
+    """ADR-0013: the host keeps HOST_RESERVE_GB; platform, containers and models together at most the rest, enforced by
+    the systemd user slice sw-analyst.slice (MemoryMax) that the launcher starts the app and the engine in."""
+    ram = ram if ram is not None else _ram_gb()
+    if not ram:
+        return [result("ram:free", WARN, "nicht ermittelbar")]
+    total, free = ram
+    reserve = linuxhost.HOST_RESERVE_GB
+    out = [result("ram:free", OK if free >= 10 else WARN, f"{free:.1f} GB frei von {total:.1f} GB",
+                  f"andere Programme schliessen; der Host behaelt {reserve} GB")]
+    cap = total - reserve
+    lim = cg_limit if cg_limit is not None else linuxhost.cgroup_memory_limit_gb()
+    if lim is not None and lim <= cap + 0.01:
+        out.append(result("ram:limit", OK, f"cgroup-Grenze {lim:.1f} GB (hoechstens {cap:.1f} GB, Host behaelt {reserve} GB)"))
+    else:
+        out.append(result("ram:limit", WARN, "keine cgroup-Grenze fuer diesen Prozess" if lim is None else f"cgroup-Grenze {lim:.1f} GB > {cap:.1f} GB",
+                          "ueber scripts/start.sh starten (systemd-run --user --slice=sw-analyst.slice, MemoryMax)"))
+    return out
+
+
 def port_free(port: int) -> bool:
     with socket.socket() as s:
         try:
@@ -273,7 +334,9 @@ def port_free(port: int) -> bool:
 
 
 def port_owner_pid(port: int) -> int | None:
-    """PID that listens on 127.0.0.1:<port> (parsed from netstat; no admin rights needed)."""
+    """PID that listens on 127.0.0.1:<port> (Windows: parsed from netstat; Linux: /proc; no admin rights needed)."""
+    if not IS_WIN:
+        return linuxhost.listen_pid(port)
     try:
         txt = subprocess.run(["netstat", "-ano", "-p", "TCP"], capture_output=True, text=True, errors="replace", timeout=10).stdout
     except (OSError, subprocess.SubprocessError):
@@ -292,7 +355,9 @@ def port_owner_pid(port: int) -> int | None:
 
 
 def process_path(pid: int) -> str | None:
-    """Executable path of a process (Windows, via QueryFullProcessImageNameW)."""
+    """Executable path of a process (Windows via QueryFullProcessImageNameW, Linux via /proc/<pid>/exe)."""
+    if not IS_WIN:
+        return linuxhost.exe_path(pid)
     try:
         import ctypes
         k32 = ctypes.windll.kernel32
@@ -337,16 +402,16 @@ def check_ports(ports: dict[str, int], run_dir: str | Path, own_roots: list[str]
         else:
             who = f" ({os.path.basename(exe)}, pid {owner})" if exe else ""
             out.append(result(f"port:{port}", FEHLER, f"belegt durch fremden Prozess{who} ({key})",
-                              "Fremde Prozesse werden nie beendet; -Port / -OllamaPort aendern"))
+                              "Fremde Prozesse werden nie beendet; Port aendern (--port / --ollama-port)"))
     return out
 
 
 def check_ollama_binary(manifest: dict) -> dict:
-    c = manifest.get("components", {}).get("ollama", {})
+    c = component(manifest, "ollama")
     exe = Path(c.get("target", "")) / c.get("exe", "ollama.exe")
     if exe.exists():
-        return result("ollama:binary", OK, f"{c.get('version')} in {exe.parent}")
-    return result("ollama:binary", FEHLER, f"{exe} fehlt", "start.ps1 installiert aus dem gepinnten Manifest (Hash-Pruefung)")
+        return result("ollama:binary", OK, f"{c.get('version')} in {c.get('target')}")
+    return result("ollama:binary", FEHLER, f"{exe} fehlt", "start installiert aus dem gepinnten Manifest (Hash-Pruefung)")
 
 
 def _loopback_get(url: str, timeout: float = 3.0) -> dict:
@@ -368,12 +433,14 @@ def check_models(ollama_port: int, model: str | None, embedding: str | None) -> 
             continue
         ok = tag in have or f"{tag}:latest" in have
         out.append(result(f"model:{key}", OK if ok else WARN, f"{tag} {'vorhanden' if ok else 'fehlt'}",
-                          f"ollama pull {tag} (nur online, durch start.ps1 mit Hinweis)"))
+                          f"ollama pull {tag} (nur online: start.sh --setup / start.ps1)"))
     return out
 
 
 def _volume_root(label: str) -> Path | None:
     """Root of the one mounted volume with this label. A USB drive letter can change, the label does not."""
+    if not IS_WIN:
+        return linuxhost.volume_root(label)
     r = _run(["powershell", "-NoProfile", "-Command", f"@(Get-Volume | Where-Object FileSystemLabel -ceq '{label}').DriveLetter"], 30)
     letters = r.stdout.split() if r and r.returncode == 0 else []
     return Path(f"{letters[0]}:/") if len(letters) == 1 else None
@@ -382,17 +449,17 @@ def _volume_root(label: str) -> Path | None:
 def check_colibri(manifest: dict, pins: list[dict]) -> list[dict]:
     """Engine present, model volume mounted, every model file has its pinned size (ADR-0012). The list comes from the repository,
     never from the removable drive. This catches a truncated shard; start.ps1 checks the hashes, which takes minutes."""
-    c = manifest.get("components", {}).get("colibri", {})
-    m = manifest.get("models", {}).get("colibri")
+    c = component(manifest, "colibri")
+    m = component(manifest, "colibri", "models")
     if not m:
         return [result("colibri:model", FEHLER, "kein Eintrag models.colibri im Manifest")]
     exe = Path(c.get("target", "")) / c.get("exe", "coli")
     out = [result("colibri:binary", OK if exe.exists() else FEHLER, f"{c.get('version')} in {exe.parent}",
-                  "scripts\\start.ps1 -Llm colibri installiert die gepinnte Version")]
+                  "start mit --llm colibri (Linux) / -Llm colibri (Windows) installiert die gepinnte Version")]
     root = _volume_root(m["volume_label"])
     if root is None:
         return out + [result("colibri:volume", FEHLER, f"Datenträger {m['volume_label']} nicht eindeutig gefunden", "SSD anschließen")]
-    folder = root / m["dir"]
+    folder = root / Path(*re.split(r"[\\/]", m["dir"]))
     if not pins:
         return out + [result("colibri:model", FEHLER, "keine gepinnten Dateien (infra/colibri-model.files.json)")]
     bad = [f["file"] for f in pins if not (folder / f["file"]).is_file() or (folder / f["file"]).stat().st_size != f["size"]]
@@ -400,6 +467,42 @@ def check_colibri(manifest: dict, pins: list[dict]) -> list[dict]:
         return out + [result("colibri:model", FEHLER, f"{len(bad)} von {len(pins)} Dateien fehlen oder haben die falsche Größe, z. B. {bad[0]}",
                              "python infra/fetch-colibri-model.py, siehe docs/runbooks/betrieb.md")]
     return out + [result("colibri:model", OK, f"{m['id']}: {len(pins)} Dateien auf {root} (Revision {m['revision'][:7]}, Größen geprüft)")]
+
+
+def check_network(allow_online: bool = False, routes: list[str] | None = None, links: list[str] | None = None) -> dict:
+    """ADR-0013: analysis only in offline mode (infra/linux/sw-mode offline): no default route, no physical link up."""
+    routes = linuxhost.default_routes() if routes is None else routes
+    links = linuxhost.active_interfaces() if links is None else links
+    if not routes and not links:
+        return result("net:offline", OK, "keine Standardroute, keine aktive Netzwerkverbindung")
+    detail = f"online: Standardroute {', '.join(routes) or '-'}, aktiv {', '.join(links) or '-'}"
+    if allow_online:
+        return result("net:offline", WARN, detail + " (--allow-online gesetzt)", "nur harmlose Proben; vor echten Proben sudo sw-mode offline")
+    return result("net:offline", FEHLER, detail, "sudo sw-mode offline (Einrichtung und Updates nur mit start.sh --setup)")
+
+
+def check_share(table: list[dict] | None = None, share: str = linuxhost.SHARE_MOUNT) -> dict:
+    """The exchange folder of the internal disk: never mounted with exec, setuid or device files (infra/linux/sw-share)."""
+    table = linuxhost.mounts() if table is None else table
+    m = next((x for x in table if x["target"] == share), None)
+    if m is None:
+        return result("share:mount", OK, f"{share} nicht eingehaengt")
+    missing = [o for o in linuxhost.SHARE_REQUIRED_OPTS if o not in m["options"]]
+    if missing:
+        return result("share:mount", FEHLER, f"{share} ohne {','.join(missing)} eingehaengt ({m['fstype']})", "sudo sw-share umount; sudo sw-share mount")
+    return result("share:mount", WARN, f"{share} eingehaengt ({m['fstype']}, {'ro' if 'ro' in m['options'] else 'rw'}, noexec)",
+                  "vor Laeufen mit echten Proben: sudo sw-share umount")
+
+
+def check_sw_root(table: list[dict] | None = None, root: Path | None = None) -> dict:
+    root = root or sw_root()
+    if not root.is_dir():
+        return result("sw-root", FEHLER, f"{root} fehlt", "SWDATA einhaengen (docs/runbooks/linux-ventoy.md) oder SW_ROOT setzen")
+    m = linuxhost.mount_of(root, linuxhost.mounts() if table is None else table)
+    fs = m["fstype"] if m else "?"
+    if fs not in ("ext4", "xfs", "btrfs"):
+        return result("sw-root", WARN, f"{root} auf {fs}", "SWDATA als ext4 einrichten (Rechte, Docker overlay2)")
+    return result("sw-root", OK, f"{root} auf {fs} ({m['source']})")
 
 
 def check_gateway(scratch_parent: str | Path | None = None) -> dict:
@@ -427,10 +530,15 @@ def check_audit_chain(data_dir: str | Path) -> dict:
 
 
 def run_checks(root: str | Path, data_dir: str | Path, app_port: int = 8765, ollama_port: int = 11435,
-               model: str | None = None, llm: str = "ollama", colibri_port: int = 11436) -> list[dict]:
+               model: str | None = None, llm: str = "ollama", colibri_port: int = 11436,
+               allow_online: bool | None = None) -> list[dict]:
     root, data_dir = Path(root), Path(data_dir)
     manifest = load_manifest(root / "infra" / "manifest.json")
     res = check_platform()
+    if not IS_WIN:
+        if allow_online is None:
+            allow_online = os.environ.get("SW_ALLOW_ONLINE") == "1"
+        res += [check_network(allow_online), check_share(), check_sw_root()]
     res += check_lock(root / "requirements.lock")
     res.append(check_docker())
     res += check_tool_images(manifest)
@@ -438,7 +546,7 @@ def run_checks(root: str | Path, data_dir: str | Path, app_port: int = 8765, oll
     res += check_ram()
     res += check_ports({"app": app_port, "colibri": colibri_port} if llm == "colibri" else {"app": app_port, "ollama": ollama_port},
                        data_dir / "run",
-                       [str(Path(manifest.get("components", {}).get("ollama", {}).get("target", "D:/Tools/sw-analyst/ollama")).parent)])
+                       [str(tools_root(manifest))])
     if llm == "colibri":
         res += check_colibri(manifest, load_manifest(root / "infra" / "colibri-model.files.json")["files"])
     else:

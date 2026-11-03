@@ -17,7 +17,7 @@ from typing import Any, Optional
 from sw_analyst.common.paths import PROJECT_ROOT
 
 LEVELS = {"leicht": 1, "mittel": 2, "schwer": 3, "sehr schwer": 4}
-KNOWN_REQUIREMENTS = {"ghidra": "Ghidra-Werkzeuge (Docker Desktop und Image, scripts\\start.ps1 -BuildTools)"}
+KNOWN_REQUIREMENTS = {"ghidra": "Ghidra-Werkzeuge (Docker und Image: scripts/start.sh --setup bzw. scripts\\start.ps1 -BuildTools)"}
 DEFAULT_MINUTES = 10
 
 
